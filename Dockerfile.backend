@@ -1,0 +1,18 @@
+FROM rust:1.84-alpine AS builder
+RUN apk add --no-cache musl-dev pkgconfig openssl-dev openssl-libs-static
+WORKDIR /app
+COPY Cargo.toml Cargo.lock* ./
+RUN mkdir src && echo "fn main() {}" > src/main.rs && cargo build --release 2>/dev/null; rm -rf src
+COPY src ./src
+COPY migrations ./migrations
+ENV SQLX_OFFLINE=true
+RUN cargo build --release
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /app/target/release/cool_api /usr/local/bin/cool_api
+COPY --from=builder /app/migrations /app/migrations
+EXPOSE 3000
+ENV SERVER_HOST=0.0.0.0
+ENV SERVER_PORT=3000
+CMD ["cool_api"]
