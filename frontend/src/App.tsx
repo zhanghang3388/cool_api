@@ -7,7 +7,6 @@ import AdminLayout from '@/components/layout/AdminLayout';
 import ClientLayout from '@/components/layout/ClientLayout';
 import AdminDashboard from '@/pages/admin/Dashboard';
 import UsersPage from '@/pages/admin/Users';
-import ProviderKeysPage from '@/pages/admin/ProviderKeys';
 import ChannelsPage from '@/pages/admin/Channels';
 import AdminBillingPage from '@/pages/admin/Billing';
 import SettingsPage from '@/pages/admin/Settings';
