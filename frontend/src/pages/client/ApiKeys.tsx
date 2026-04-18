@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { Plus, Trash2, Power, Copy, Check, X } from 'lucide-react';
+import axios from 'axios';
 import api from '@/api/client';
 
 interface RelayKey {
@@ -47,7 +48,7 @@ export default function ApiKeysPage() {
 
   const loadGroups = async () => {
     try {
-      const { data } = await api.get<PublicGroup[]>('/v1/groups');
+      const { data } = await axios.get<PublicGroup[]>('/v1/groups');
       setGroups(data);
     } catch { /* ignore */ }
   };

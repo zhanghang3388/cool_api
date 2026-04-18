@@ -48,8 +48,8 @@ export default function AdminTokensPage() {
 
   const loadGroups = async () => {
     try {
-      const { data } = await api.get<PublicGroup[]>('/v1/groups');
-      setGroups(data);
+      const { data } = await api.get<PublicGroup[]>('/admin/groups');
+      setGroups(data.map((g: any) => ({ id: g.id, name: g.name, multiplier: g.multiplier, models: [] })));
     } catch { /* ignore */ }
   };
 
