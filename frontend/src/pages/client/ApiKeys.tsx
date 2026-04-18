@@ -9,6 +9,7 @@ interface RelayKey {
   name: string;
   key_prefix: string;
   is_active: boolean;
+  group_id: string | null;
   created_at: string;
 }
 
@@ -17,11 +18,20 @@ interface CreateKeyResponse {
   full_key: string;
 }
 
+interface PublicGroup {
+  id: string;
+  name: string;
+  multiplier: number;
+  models: string[];
+}
+
 export default function ApiKeysPage() {
   const { t } = useTranslation();
   const [keys, setKeys] = useState<RelayKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [newKeyName, setNewKeyName] = useState('');
+  const [selectedGroup, setSelectedGroup] = useState('');
+  const [groups, setGroups] = useState<PublicGroup[]>([]);
   const [creating, setCreating] = useState(false);
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -36,13 +46,23 @@ export default function ApiKeysPage() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  const loadGroups = async () => {
+    try {
+      const { data } = await api.get<PublicGroup[]>('/v1/groups');
+      setGroups(data);
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => { load(); loadGroups(); }, []);
 
   const createKey = async () => {
     if (!newKeyName.trim()) return;
     setCreating(true);
     try {
-      const { data } = await api.post<CreateKeyResponse>('/client/keys', { name: newKeyName });
+      const { data } = await api.post<CreateKeyResponse>('/client/keys', {
+        name: newKeyName,
+        group_id: selectedGroup || null,
+      });
       setRevealedKey(data.full_key);
       setNewKeyName('');
       load();
@@ -85,6 +105,14 @@ export default function ApiKeysPage() {
             placeholder={t('client.keys.keyNamePlaceholder')}
             onKeyDown={e => e.key === 'Enter' && createKey()}
           />
+          {groups.length > 0 && (
+            <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)} className="input-field w-40">
+              <option value="">{t('client.keys.noGroup')}</option>
+              {groups.map(g => (
+                <option key={g.id} value={g.id}>{g.name} ({g.multiplier}x)</option>
+              ))}
+            </select>
+          )}
           <button onClick={createKey} disabled={creating || !newKeyName.trim()} className="btn-primary flex items-center gap-2">
             <Plus className="w-4 h-4" /> {creating ? t('client.keys.creating') : t('common.create')}
           </button>
@@ -138,6 +166,11 @@ export default function ApiKeysPage() {
                 </div>
                 <div className="flex items-center gap-3 text-xs text-text-secondary">
                   <span className="font-code">{key.key_prefix}</span>
+                  {key.group_id && groups.find(g => g.id === key.group_id) && (
+                    <span className="px-2 py-0.5 rounded-full bg-accent/10 text-accent text-[10px]">
+                      {groups.find(g => g.id === key.group_id)!.name}
+                    </span>
+                  )}
                   <span>{t('client.keys.created')} {new Date(key.created_at).toLocaleDateString()}</span>
                 </div>
               </div>

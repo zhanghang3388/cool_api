@@ -16,6 +16,7 @@ use crate::models::relay_key::RelayKey;
 use crate::models::request_log::CreateRequestLog;
 use crate::models::request_log::RequestLog;
 use crate::models::user::User;
+use crate::models::pricing_group::PricingGroup;
 use crate::relay::dispatcher::Dispatcher;
 use crate::relay::providers::{ChatRequest, ProviderError};
 use crate::relay::streaming::SseCollector;
@@ -74,6 +75,40 @@ async fn chat_completions(
         return Err(AppError::BadRequest(format!("Rate limited. Retry after {retry_after}s")));
     }
 
+    // Group permission check: if key has a group, verify the model's channel is allowed
+    let group_multiplier = if let Some(gid) = relay_key.group_id {
+        let group = PricingGroup::find_by_id(&pool, gid).await?
+            .ok_or_else(|| AppError::Forbidden("Pricing group not found".into()))?;
+        if !group.is_active {
+            return Err(AppError::Forbidden("Pricing group is disabled".into()));
+        }
+        let allowed_channels = PricingGroup::get_channel_ids(&pool, gid).await?;
+        if !allowed_channels.is_empty() {
+            // Check if the model matches any allowed channel
+            let channels = crate::models::channel::Channel::list(&pool).await?;
+            let model_allowed = channels.iter().any(|ch| {
+                if !ch.is_active || !allowed_channels.contains(&ch.id) {
+                    return false;
+                }
+                // Check model against channel's model_pattern (comma-separated or wildcard)
+                ch.model_pattern.split(',').any(|pat| {
+                    let pat = pat.trim();
+                    if pat.ends_with('*') {
+                        request.model.starts_with(&pat[..pat.len()-1])
+                    } else {
+                        pat == request.model
+                    }
+                })
+            });
+            if !model_allowed {
+                return Err(AppError::Forbidden("Model not available in your pricing group".into()));
+            }
+        }
+        Some(group.multiplier)
+    } else {
+        None
+    };
+
     // Balance pre-check: estimate minimum cost and reject if insufficient
     let prompt_tokens_est = token_counter::count_message_tokens(&request.messages, &request.model);
     let est_cost = token_counter::estimate_cost_from_db(&pool, &request.model, prompt_tokens_est, 100).await;
@@ -85,9 +120,9 @@ async fn chat_completions(
     let model = request.model.clone();
 
     if is_stream {
-        handle_stream(pool, dispatcher, relay_key, user, request, model, start).await
+        handle_stream(pool, dispatcher, relay_key, user, request, model, start, group_multiplier).await
     } else {
-        handle_non_stream(pool, dispatcher, relay_key, user, request, model, start).await
+        handle_non_stream(pool, dispatcher, relay_key, user, request, model, start, group_multiplier).await
     }
 }
 
@@ -99,6 +134,7 @@ async fn handle_non_stream(
     request: ChatRequest,
     model: String,
     start: Instant,
+    group_multiplier: Option<f64>,
 ) -> Result<Response, AppError> {
     let prompt_tokens_est = token_counter::count_message_tokens(&request.messages, &model);
 
@@ -109,7 +145,10 @@ async fn handle_non_stream(
             let prompt_tokens = usage.map(|u| u.prompt_tokens).unwrap_or(prompt_tokens_est);
             let completion_tokens = usage.map(|u| u.completion_tokens).unwrap_or(0);
             let total_tokens = prompt_tokens + completion_tokens;
-            let cost = token_counter::estimate_cost_from_db(&pool, &model, prompt_tokens, completion_tokens).await;
+            let mut cost = token_counter::estimate_cost_from_db(&pool, &model, prompt_tokens, completion_tokens).await;
+            if let Some(gm) = group_multiplier {
+                cost = (cost as f64 * gm).ceil() as i64;
+            }
 
             // Async log + billing
             let pool2 = pool.clone();
@@ -161,6 +200,7 @@ async fn handle_stream(
     request: ChatRequest,
     model: String,
     start: Instant,
+    group_multiplier: Option<f64>,
 ) -> Result<Response, AppError> {
     let prompt_tokens_est = token_counter::count_message_tokens(&request.messages, &model);
 
@@ -200,7 +240,10 @@ async fn handle_stream(
                                     .unwrap_or_else(|| token_counter::count_tokens(&content.text, &model3));
                                 let prompt_tokens = content.prompt_tokens.unwrap_or(prompt_tokens_est);
                                 let total_tokens = prompt_tokens + completion_tokens;
-                                let cost = token_counter::estimate_cost_from_db(&pool3, &model3, prompt_tokens, completion_tokens).await;
+                                let mut cost = token_counter::estimate_cost_from_db(&pool3, &model3, prompt_tokens, completion_tokens).await;
+                                if let Some(gm) = group_multiplier {
+                                    cost = (cost as f64 * gm).ceil() as i64;
+                                }
                                 let latency = start.elapsed().as_millis() as i32;
 
                                 tokio::spawn(async move {

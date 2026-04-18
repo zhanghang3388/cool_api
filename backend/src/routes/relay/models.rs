@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use crate::models::channel::Channel;
 use crate::models::pricing::ModelPricing;
+use crate::models::pricing_group::PricingGroup;
 use crate::relay::dispatcher::Dispatcher;
 
 #[derive(Serialize)]
@@ -33,6 +34,7 @@ pub fn router(dispatcher: Arc<Dispatcher>, pool: PgPool) -> Router {
         .route("/models", get(list_models))
         .route("/channels/public", get(list_public_channels))
         .route("/pricing", get(list_public_pricing))
+        .route("/groups", get(list_public_groups))
         .with_state((dispatcher, pool))
 }
 
@@ -115,5 +117,44 @@ async fn list_public_pricing(
             }
         })
         .collect();
+    Json(result)
+}
+
+#[derive(Serialize)]
+struct PublicGroup {
+    id: String,
+    name: String,
+    multiplier: f64,
+    models: Vec<String>,
+}
+
+async fn list_public_groups(
+    State((_, pool)): State<(Arc<Dispatcher>, PgPool)>,
+) -> Json<Vec<PublicGroup>> {
+    let groups = PricingGroup::list_active(&pool).await.unwrap_or_default();
+    let channels = Channel::list(&pool).await.unwrap_or_default();
+    let mut result = Vec::new();
+
+    for g in groups {
+        let channel_ids = PricingGroup::get_channel_ids(&pool, g.id).await.unwrap_or_default();
+        let mut models = Vec::new();
+        for ch in &channels {
+            if ch.is_active && channel_ids.contains(&ch.id) {
+                for m in ch.model_pattern.split(',') {
+                    let m = m.trim();
+                    if !m.is_empty() && !models.contains(&m.to_string()) {
+                        models.push(m.to_string());
+                    }
+                }
+            }
+        }
+        result.push(PublicGroup {
+            id: g.id.to_string(),
+            name: g.name,
+            multiplier: g.multiplier,
+            models,
+        });
+    }
+
     Json(result)
 }

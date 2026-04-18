@@ -17,6 +17,7 @@ pub struct RelayKey {
     pub allowed_models: Option<serde_json::Value>,
     pub expires_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+    pub group_id: Option<Uuid>,
 }
 
 impl RelayKey {
@@ -34,15 +35,16 @@ impl RelayKey {
         (full_key, prefix, hash)
     }
 
-    pub async fn create(pool: &PgPool, user_id: Uuid, name: &str) -> Result<(Self, String), sqlx::Error> {
+    pub async fn create(pool: &PgPool, user_id: Uuid, name: &str, group_id: Option<Uuid>) -> Result<(Self, String), sqlx::Error> {
         let (full_key, prefix, hash) = Self::generate_key();
         let key: Self = sqlx::query_as(
-            "INSERT INTO relay_keys (user_id, name, key_hash, key_prefix) VALUES ($1, $2, $3, $4) RETURNING *"
+            "INSERT INTO relay_keys (user_id, name, key_hash, key_prefix, group_id) VALUES ($1, $2, $3, $4, $5) RETURNING *"
         )
         .bind(user_id)
         .bind(name)
         .bind(&hash)
         .bind(&prefix)
+        .bind(group_id)
         .fetch_one(pool)
         .await?;
         Ok((key, full_key))

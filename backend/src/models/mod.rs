@@ -5,3 +5,4 @@ pub mod channel;
 pub mod request_log;
 pub mod billing;
 pub mod pricing;
+pub mod pricing_group;

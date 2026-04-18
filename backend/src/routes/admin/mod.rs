@@ -5,6 +5,7 @@ pub mod stats;
 pub mod billing;
 pub mod settings;
 pub mod pricing;
+pub mod groups;
 
 use axum::Router;
 use sqlx::PgPool;
@@ -18,4 +19,5 @@ pub fn router(pool: PgPool) -> Router {
         .nest("/settings", settings::router(pool.clone()))
         .nest("/stats", stats::router(pool.clone()))
         .nest("/pricing", pricing::router(pool.clone()))
+        .nest("/groups", groups::router(pool.clone()))
 }

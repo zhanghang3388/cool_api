@@ -33,6 +33,13 @@ interface PricingItem {
   output_price: number;
 }
 
+interface PublicGroup {
+  id: string;
+  name: string;
+  multiplier: number;
+  models: string[];
+}
+
 export default function Home() {
   const { t } = useTranslation();
   const { isAuthenticated, isAdmin } = useAuthStore();
@@ -41,6 +48,8 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [pricingData, setPricingData] = useState<PricingItem[]>([]);
   const [pricingLoading, setPricingLoading] = useState(true);
+  const [groups, setGroups] = useState<PublicGroup[]>([]);
+  const [pricingFilter, setPricingFilter] = useState('all');
 
   useEffect(() => {
     fetch('/v1/channels/public')
@@ -58,6 +67,11 @@ export default function Home() {
         setPricingLoading(false);
       })
       .catch(() => setPricingLoading(false));
+
+    fetch('/v1/groups')
+      .then(r => r.json())
+      .then(data => setGroups(Array.isArray(data) ? data : []))
+      .catch(() => {});
   }, []);
 
   const providers = ['all', ...new Set(channels.map(c => c.provider))];
@@ -254,6 +268,42 @@ export default function Home() {
             <p className="text-text-secondary text-sm">{t('home.pricing.subtitle')}</p>
           </motion.div>
 
+          {/* Group + Provider filter tabs */}
+          {(groups.length > 0 || pricingData.length > 0) && (
+            <div className="flex justify-center gap-2 mb-6 flex-wrap">
+              <button
+                onClick={() => setPricingFilter('all')}
+                className={`px-4 py-2 rounded-lg text-xs font-display transition-colors ${
+                  pricingFilter === 'all' ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary'
+                }`}
+              >
+                {t('home.models.all')}
+              </button>
+              {groups.map(g => (
+                <button
+                  key={`group-${g.id}`}
+                  onClick={() => setPricingFilter(`group:${g.id}`)}
+                  className={`px-4 py-2 rounded-lg text-xs font-display transition-colors ${
+                    pricingFilter === `group:${g.id}` ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary'
+                  }`}
+                >
+                  {g.name} <span className="text-[10px] opacity-60">{g.multiplier}x</span>
+                </button>
+              ))}
+              {['openai', 'claude', 'gemini'].filter(p => pricingData.some(d => d.provider === p)).map(p => (
+                <button
+                  key={`prov-${p}`}
+                  onClick={() => setPricingFilter(`provider:${p}`)}
+                  className={`px-4 py-2 rounded-lg text-xs font-display transition-colors ${
+                    pricingFilter === `provider:${p}` ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary'
+                  }`}
+                >
+                  {providerLabels[p] || p}
+                </button>
+              ))}
+            </div>
+          )}
+
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -264,7 +314,22 @@ export default function Home() {
               <div className="animate-pulse h-40" />
             ) : pricingData.length === 0 ? (
               <div className="text-center text-text-secondary text-sm py-12">{t('common.noData')}</div>
-            ) : (
+            ) : (() => {
+              const selectedGroup = pricingFilter.startsWith('group:') ? groups.find(g => g.id === pricingFilter.slice(6)) : null;
+              const filteredPricing = pricingData.filter(row => {
+                if (pricingFilter === 'all') return true;
+                if (pricingFilter.startsWith('provider:')) return row.provider === pricingFilter.slice(9);
+                if (selectedGroup) return selectedGroup.models.includes(row.model);
+                return true;
+              });
+              const displayPricing = filteredPricing.map(row => ({
+                ...row,
+                input_price: selectedGroup ? row.input_price * selectedGroup.multiplier : row.input_price,
+                output_price: selectedGroup ? row.output_price * selectedGroup.multiplier : row.output_price,
+              }));
+              return displayPricing.length === 0 ? (
+                <div className="text-center text-text-secondary text-sm py-12">{t('common.noData')}</div>
+              ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-text-secondary font-display">
@@ -275,7 +340,7 @@ export default function Home() {
                 </tr>
               </thead>
               <tbody>
-                {pricingData.map((row, i) => (
+                {displayPricing.map((row, i) => (
                   <motion.tr
                     key={row.model}
                     initial={{ opacity: 0 }}
@@ -300,7 +365,8 @@ export default function Home() {
                 ))}
               </tbody>
             </table>
-            )}
+            );
+            })()}
           </motion.div>
         </div>
       </section>

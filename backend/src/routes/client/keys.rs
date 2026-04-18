@@ -35,6 +35,7 @@ async fn list_keys(
 #[derive(serde::Deserialize)]
 pub struct CreateKeyRequest {
     pub name: String,
+    pub group_id: Option<Uuid>,
 }
 
 async fn create_key(
@@ -42,7 +43,7 @@ async fn create_key(
     State(pool): State<PgPool>,
     Json(req): Json<CreateKeyRequest>,
 ) -> Result<Json<CreateKeyResponse>, AppError> {
-    let (key, full_key) = RelayKey::create(&pool, user.id, &req.name).await?;
+    let (key, full_key) = RelayKey::create(&pool, user.id, &req.name, req.group_id).await?;
     Ok(Json(CreateKeyResponse { key, full_key }))
 }
 

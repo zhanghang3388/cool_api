@@ -55,6 +55,16 @@ export interface BillingTransaction {
   created_at: string;
 }
 
+export interface PricingGroupWithChannels {
+  id: string;
+  name: string;
+  multiplier: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  channel_ids: string[];
+}
+
 export const adminApi = {
   // Users
   listUsers: (page = 1, per_page = 20) =>
@@ -91,4 +101,12 @@ export const adminApi = {
   getSettings: () => api.get<[string, unknown][]>('/admin/settings'),
   updateSettings: (data: Record<string, unknown>) => api.patch('/admin/settings', data),
   getModels: () => api.get('/admin/settings/models'),
+
+  // Groups
+  listGroups: () => api.get<PricingGroupWithChannels[]>('/admin/groups'),
+  createGroup: (data: { name: string; multiplier?: number; channel_ids: string[] }) =>
+    api.post<PricingGroupWithChannels>('/admin/groups', data),
+  updateGroup: (id: string, data: { name?: string; multiplier?: number; is_active?: boolean; channel_ids?: string[] }) =>
+    api.patch<PricingGroupWithChannels>(`/admin/groups/${id}`, data),
+  deleteGroup: (id: string) => api.delete(`/admin/groups/${id}`),
 };
