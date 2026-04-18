@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Zap, Eye, EyeOff } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { authApi } from '@/api/auth';
 import { useAuthStore } from '@/stores/auth';
+import LangSwitch from '@/components/ui/LangSwitch';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -13,6 +15,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
+  const { t } = useTranslation();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,7 +34,7 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg-primary relative overflow-hidden">
-      {/* Background glow */}
+      <div className="absolute top-4 right-4 z-20"><LangSwitch /></div>
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-accent/5 rounded-full blur-[120px] pointer-events-none" />
 
       <motion.div
@@ -45,33 +48,33 @@ export default function Login() {
             <Zap className="w-5 h-5 text-accent" />
           </div>
           <div>
-            <h1 className="text-xl font-display font-bold">COOL API</h1>
-            <p className="text-xs text-text-secondary">AI API Relay Station</p>
+            <h1 className="text-xl font-display font-bold">{t('auth.brandName')}</h1>
+            <p className="text-xs text-text-secondary">{t('auth.brandDesc')}</p>
           </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs text-text-secondary mb-1.5 font-display">Username</label>
+            <label className="block text-xs text-text-secondary mb-1.5 font-display">{t('auth.username')}</label>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="input-field"
-              placeholder="Enter username"
+              placeholder={t('auth.usernamePlaceholder')}
               required
             />
           </div>
 
           <div>
-            <label className="block text-xs text-text-secondary mb-1.5 font-display">Password</label>
+            <label className="block text-xs text-text-secondary mb-1.5 font-display">{t('auth.password')}</label>
             <div className="relative">
               <input
                 type={showPw ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="input-field pr-10"
-                placeholder="Enter password"
+                placeholder={t('auth.passwordPlaceholder')}
                 required
               />
               <button
@@ -85,23 +88,19 @@ export default function Login() {
           </div>
 
           {error && (
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-danger text-xs"
-            >
+            <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-danger text-xs">
               {error}
             </motion.p>
           )}
 
           <button type="submit" disabled={loading} className="btn-primary w-full">
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? t('auth.signingIn') : t('auth.signIn')}
           </button>
         </form>
 
         <p className="text-center text-xs text-text-secondary mt-6">
-          Don't have an account?{' '}
-          <Link to="/register" className="text-accent hover:underline">Register</Link>
+          {t('auth.noAccount')}{' '}
+          <Link to="/register" className="text-accent hover:underline">{t('auth.register')}</Link>
         </p>
       </motion.div>
     </div>

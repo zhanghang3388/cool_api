@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Trash2, Power, X } from 'lucide-react';
 import { adminApi, type ProviderKey } from '@/api/admin';
@@ -6,6 +7,7 @@ import { adminApi, type ProviderKey } from '@/api/admin';
 const PROVIDERS = ['openai', 'claude', 'gemini'] as const;
 
 export default function ProviderKeysPage() {
+  const { t } = useTranslation();
   const [keys, setKeys] = useState<ProviderKey[]>([]);
   const [tab, setTab] = useState<string>('openai');
   const [showAdd, setShowAdd] = useState(false);
@@ -31,7 +33,7 @@ export default function ProviderKeysPage() {
   };
 
   const deleteKey = async (id: string) => {
-    if (!confirm('Delete this key?')) return;
+    if (!confirm(t('admin.keys.deleteConfirm'))) return;
     await adminApi.deleteProviderKey(id);
     load();
   };
@@ -39,9 +41,9 @@ export default function ProviderKeysPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-display font-bold">Provider Keys</h1>
+        <h1 className="text-2xl font-display font-bold">{t('admin.keys.title')}</h1>
         <button onClick={() => setShowAdd(true)} className="btn-primary flex items-center gap-2">
-          <Plus className="w-4 h-4" /> Add Key
+          <Plus className="w-4 h-4" /> {t('admin.keys.addKey')}
         </button>
       </div>
 
@@ -65,7 +67,7 @@ export default function ProviderKeysPage() {
           <div className="card animate-pulse h-20" />
         ) : filtered.length === 0 ? (
           <div className="card text-center text-text-secondary text-sm py-8">
-            No {tab} keys configured
+            {t('admin.keys.noKeys', { provider: tab })}
           </div>
         ) : (
           filtered.map((key, i) => (
@@ -80,7 +82,7 @@ export default function ProviderKeysPage() {
                 <div className="flex items-center gap-3 mb-1">
                   <span className="font-display text-sm font-semibold">{key.name}</span>
                   <span className={`text-xs ${key.is_active ? 'text-success' : 'text-danger'}`}>
-                    {key.is_active ? 'Active' : 'Disabled'}
+                    {key.is_active ? t('common.active') : t('common.disabled')}
                   </span>
                 </div>
                 <div className="flex items-center gap-4 text-xs text-text-secondary">
@@ -120,6 +122,7 @@ export default function ProviderKeysPage() {
 }
 
 function AddKeyModal({ provider, onClose, onSaved }: { provider: string; onClose: () => void; onSaved: () => void }) {
+  const { t } = useTranslation();
   const [name, setName] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
@@ -169,7 +172,7 @@ function AddKeyModal({ provider, onClose, onSaved }: { provider: string; onClose
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-display font-bold">Add {provider} Key</h2>
+          <h2 className="font-display font-bold">{t('admin.keys.addKey')}</h2>
           <button onClick={onClose} className="text-text-secondary hover:text-text-primary">
             <X className="w-4 h-4" />
           </button>
@@ -177,30 +180,30 @@ function AddKeyModal({ provider, onClose, onSaved }: { provider: string; onClose
 
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="block text-xs text-text-secondary mb-1 font-display">Name</label>
+            <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.keys.name')}</label>
             <input value={name} onChange={e => setName(e.target.value)} className="input-field" placeholder="My API Key" required />
           </div>
           <div>
-            <label className="block text-xs text-text-secondary mb-1 font-display">API Key</label>
+            <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.keys.apiKey')}</label>
             <input value={apiKey} onChange={e => setApiKey(e.target.value)} className="input-field font-code text-xs" placeholder="sk-..." required />
           </div>
           <div>
-            <label className="block text-xs text-text-secondary mb-1 font-display">Base URL (optional)</label>
+            <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.keys.baseUrl')}</label>
             <input value={baseUrl} onChange={e => setBaseUrl(e.target.value)} className="input-field text-xs" placeholder="https://api.openai.com/v1" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-text-secondary mb-1 font-display">Weight</label>
+              <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.keys.weight')}</label>
               <input type="number" value={weight} onChange={e => setWeight(e.target.value)} className="input-field" min="1" />
             </div>
             <div>
-              <label className="block text-xs text-text-secondary mb-1 font-display">Priority</label>
+              <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.keys.priority')}</label>
               <input type="number" value={priority} onChange={e => setPriority(e.target.value)} className="input-field" min="0" />
             </div>
           </div>
           {error && <p className="text-danger text-xs">{error}</p>}
           <button type="submit" disabled={loading} className="btn-primary w-full">
-            {loading ? 'Creating...' : 'Create Key'}
+            {loading ? t('admin.keys.creating') : t('admin.keys.createKey')}
           </button>
         </form>
       </motion.div>

@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { Shield, ShieldOff, Search } from 'lucide-react';
 import { adminApi, type User } from '@/api/admin';
 
 export default function UsersPage() {
+  const { t } = useTranslation();
   const [users, setUsers] = useState<User[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -39,14 +41,14 @@ export default function UsersPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-display font-bold">Users</h1>
+        <h1 className="text-2xl font-display font-bold">{t('admin.users.title')}</h1>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary" />
           <input
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search users..."
+            placeholder={t('admin.users.searchPlaceholder')}
             className="input-field pl-9 w-64"
           />
         </div>
@@ -56,19 +58,19 @@ export default function UsersPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-text-secondary font-display">
-              <th className="px-4 py-3">Username</th>
-              <th className="px-4 py-3">Email</th>
-              <th className="px-4 py-3">Role</th>
-              <th className="px-4 py-3">Balance</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">Actions</th>
+              <th className="px-4 py-3">{t('admin.users.username')}</th>
+              <th className="px-4 py-3">{t('admin.users.email')}</th>
+              <th className="px-4 py-3">{t('admin.users.role')}</th>
+              <th className="px-4 py-3">{t('admin.users.balance')}</th>
+              <th className="px-4 py-3">{t('admin.users.status')}</th>
+              <th className="px-4 py-3">{t('common.actions')}</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-text-secondary">Loading...</td></tr>
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-text-secondary">{t('common.loading')}</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-text-secondary">No users found</td></tr>
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-text-secondary">{t('common.noData')}</td></tr>
             ) : (
               filtered.map((user, i) => (
                 <motion.tr
@@ -92,14 +94,14 @@ export default function UsersPage() {
                   </td>
                   <td className="px-4 py-3">
                     <span className={`text-xs ${user.is_active ? 'text-success' : 'text-danger'}`}>
-                      {user.is_active ? 'Active' : 'Disabled'}
+                      {user.is_active ? t('common.active') : t('common.disabled')}
                     </span>
                   </td>
                   <td className="px-4 py-3">
                     <button
                       onClick={() => toggleActive(user)}
                       className="text-xs text-text-secondary hover:text-text-primary transition-colors"
-                      title={user.is_active ? 'Disable' : 'Enable'}
+                      title={user.is_active ? t('common.disabled') : t('common.active')}
                     >
                       {user.is_active ? <ShieldOff className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
                     </button>
@@ -118,7 +120,7 @@ export default function UsersPage() {
             disabled={page === 1}
             className="btn-secondary text-xs disabled:opacity-30"
           >
-            Prev
+            {t('common.prev')}
           </button>
           <span className="text-xs text-text-secondary font-code">{page} / {totalPages}</span>
           <button
@@ -126,7 +128,7 @@ export default function UsersPage() {
             disabled={page === totalPages}
             className="btn-secondary text-xs disabled:opacity-30"
           >
-            Next
+            {t('common.next')}
           </button>
         </div>
       )}

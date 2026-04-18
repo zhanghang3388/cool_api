@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { Send, Loader2 } from 'lucide-react';
 import api from '@/api/client';
@@ -9,6 +10,7 @@ interface Message {
 }
 
 export default function PlaygroundPage() {
+  const { t } = useTranslation();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [model, setModel] = useState('gpt-4o');
@@ -114,7 +116,7 @@ export default function PlaygroundPage() {
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)]">
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-display font-bold">Playground</h1>
+        <h1 className="text-2xl font-display font-bold">{t('client.playground.title')}</h1>
         <div className="flex items-center gap-3">
           <select
             value={model}
@@ -131,7 +133,7 @@ export default function PlaygroundPage() {
             value={apiKey}
             onChange={e => setApiKey(e.target.value)}
             className="input-field w-64 font-code text-xs"
-            placeholder="sk-cool-your-key"
+            placeholder={t('client.playground.apiKeyPlaceholder')}
           />
         </div>
       </div>
@@ -140,7 +142,7 @@ export default function PlaygroundPage() {
       <div className="flex-1 overflow-y-auto rounded-xl border border-border bg-bg-secondary p-4 space-y-4 mb-4">
         {messages.length === 0 && !streamText && (
           <div className="flex items-center justify-center h-full text-text-secondary text-sm">
-            Send a message to start chatting
+            {t('client.playground.startChat')}
           </div>
         )}
 
@@ -184,7 +186,7 @@ export default function PlaygroundPage() {
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
           className="input-field flex-1"
-          placeholder="Type a message..."
+          placeholder={t('client.playground.messagePlaceholder')}
           disabled={loading}
         />
         <button onClick={send} disabled={loading || !input.trim()} className="btn-primary flex items-center gap-2">

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import api from '@/api/client';
 
@@ -16,6 +17,7 @@ interface RequestLog {
 }
 
 export default function UsagePage() {
+  const { t } = useTranslation();
   const [logs, setLogs] = useState<RequestLog[]>([]);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -37,15 +39,15 @@ export default function UsagePage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-display font-bold mb-6">Usage Statistics</h1>
+      <h1 className="text-2xl font-display font-bold mb-6">{t('client.usage.title')}</h1>
 
       <div className="grid grid-cols-2 gap-4 mb-6">
         <div className="card card-glow">
-          <p className="text-xs text-text-secondary font-display mb-1">Page Total Cost</p>
+          <p className="text-xs text-text-secondary font-display mb-1">{t('client.usage.pageTotalCost')}</p>
           <p className="text-2xl font-display font-bold text-accent-amber">${(totalCost / 1_000_000).toFixed(6)}</p>
         </div>
         <div className="card card-glow">
-          <p className="text-xs text-text-secondary font-display mb-1">Page Total Tokens</p>
+          <p className="text-xs text-text-secondary font-display mb-1">{t('client.usage.pageTotalTokens')}</p>
           <p className="text-2xl font-display font-bold text-accent">{totalTokens.toLocaleString()}</p>
         </div>
       </div>
@@ -54,19 +56,19 @@ export default function UsagePage() {
         <table className="w-full text-sm min-w-[700px]">
           <thead>
             <tr className="border-b border-border text-left text-text-secondary font-display">
-              <th className="px-3 py-3">Time</th>
-              <th className="px-3 py-3">Model</th>
-              <th className="px-3 py-3">Status</th>
-              <th className="px-3 py-3">Tokens</th>
-              <th className="px-3 py-3">Cost</th>
-              <th className="px-3 py-3">Latency</th>
+              <th className="px-3 py-3">{t('client.usage.time')}</th>
+              <th className="px-3 py-3">{t('client.usage.model')}</th>
+              <th className="px-3 py-3">{t('client.usage.status')}</th>
+              <th className="px-3 py-3">{t('client.usage.tokens')}</th>
+              <th className="px-3 py-3">{t('client.usage.cost')}</th>
+              <th className="px-3 py-3">{t('client.usage.latency')}</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="px-3 py-8 text-center text-text-secondary">Loading...</td></tr>
+              <tr><td colSpan={6} className="px-3 py-8 text-center text-text-secondary">{t('common.loading')}</td></tr>
             ) : logs.length === 0 ? (
-              <tr><td colSpan={6} className="px-3 py-8 text-center text-text-secondary">No usage yet</td></tr>
+              <tr><td colSpan={6} className="px-3 py-8 text-center text-text-secondary">{t('client.usage.noUsage')}</td></tr>
             ) : (
               logs.map((log, i) => (
                 <motion.tr

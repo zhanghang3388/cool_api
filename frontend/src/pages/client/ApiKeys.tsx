@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { Plus, Trash2, Power, Copy, Check } from 'lucide-react';
 import api from '@/api/client';
@@ -17,6 +18,7 @@ interface CreateKeyResponse {
 }
 
 export default function ApiKeysPage() {
+  const { t } = useTranslation();
   const [keys, setKeys] = useState<RelayKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [newKeyName, setNewKeyName] = useState('');
@@ -50,7 +52,7 @@ export default function ApiKeysPage() {
   };
 
   const deleteKey = async (id: string) => {
-    if (!confirm('Revoke this key? This cannot be undone.')) return;
+    if (!confirm(t('client.keys.revokeConfirm'))) return;
     await api.delete(`/client/keys/${id}`);
     load();
   };
@@ -70,21 +72,21 @@ export default function ApiKeysPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-display font-bold mb-6">API Keys</h1>
+      <h1 className="text-2xl font-display font-bold mb-6">{t('client.keys.title')}</h1>
 
       {/* Create key */}
       <div className="card mb-6">
-        <h2 className="font-display text-sm font-semibold mb-3">Generate New Key</h2>
+        <h2 className="font-display text-sm font-semibold mb-3">{t('client.keys.generateNew')}</h2>
         <div className="flex gap-3">
           <input
             value={newKeyName}
             onChange={e => setNewKeyName(e.target.value)}
             className="input-field flex-1"
-            placeholder="Key name (e.g. My App)"
+            placeholder={t('client.keys.keyNamePlaceholder')}
             onKeyDown={e => e.key === 'Enter' && createKey()}
           />
           <button onClick={createKey} disabled={creating || !newKeyName.trim()} className="btn-primary flex items-center gap-2">
-            <Plus className="w-4 h-4" /> {creating ? 'Creating...' : 'Create'}
+            <Plus className="w-4 h-4" /> {creating ? t('client.keys.creating') : t('common.create')}
           </button>
         </div>
 
@@ -96,7 +98,7 @@ export default function ApiKeysPage() {
             className="mt-4 p-3 rounded-lg bg-accent/5 border border-accent/20"
           >
             <p className="text-xs text-accent-amber mb-2 font-display">
-              Copy this key now. It won't be shown again.
+              {t('client.keys.copyWarning')}
             </p>
             <div className="flex items-center gap-2">
               <code className="flex-1 text-xs font-code bg-bg-primary px-3 py-2 rounded break-all">
@@ -116,7 +118,7 @@ export default function ApiKeysPage() {
           <div className="card animate-pulse h-16" />
         ) : keys.length === 0 ? (
           <div className="card text-center text-text-secondary text-sm py-8">
-            No API keys yet. Create one above to get started.
+            {t('client.keys.noKeys')}
           </div>
         ) : (
           keys.map((key, i) => (
@@ -136,7 +138,7 @@ export default function ApiKeysPage() {
                 </div>
                 <div className="flex items-center gap-3 text-xs text-text-secondary">
                   <span className="font-code">{key.key_prefix}</span>
-                  <span>Created {new Date(key.created_at).toLocaleDateString()}</span>
+                  <span>{t('client.keys.created')} {new Date(key.created_at).toLocaleDateString()}</span>
                 </div>
               </div>
               <div className="flex items-center gap-2">

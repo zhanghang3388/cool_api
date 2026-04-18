@@ -1,20 +1,24 @@
+import { useTranslation } from 'react-i18next';
+
 export default function DocsPage() {
+  const { t } = useTranslation();
+
   return (
     <div className="max-w-3xl">
-      <h1 className="text-2xl font-display font-bold mb-6">API Documentation</h1>
+      <h1 className="text-2xl font-display font-bold mb-6">{t('client.docs.title')}</h1>
 
       <div className="space-y-6">
         <section className="card">
-          <h2 className="font-display text-lg font-semibold mb-3">Base URL</h2>
+          <h2 className="font-display text-lg font-semibold mb-3">{t('client.docs.baseUrl')}</h2>
           <code className="block bg-bg-primary px-4 py-2 rounded font-code text-sm text-accent">
             {window.location.origin}/v1
           </code>
         </section>
 
         <section className="card">
-          <h2 className="font-display text-lg font-semibold mb-3">Authentication</h2>
+          <h2 className="font-display text-lg font-semibold mb-3">{t('client.docs.authentication')}</h2>
           <p className="text-sm text-text-secondary mb-3">
-            All API requests require a relay key in the Authorization header.
+            {t('client.docs.authenticationDesc')}
           </p>
           <pre className="bg-bg-primary px-4 py-3 rounded font-code text-xs overflow-x-auto">
 {`Authorization: Bearer sk-cool-your-key-here`}
@@ -22,9 +26,9 @@ export default function DocsPage() {
         </section>
 
         <section className="card">
-          <h2 className="font-display text-lg font-semibold mb-3">Chat Completions</h2>
+          <h2 className="font-display text-lg font-semibold mb-3">{t('client.docs.chatCompletions')}</h2>
           <p className="text-sm text-text-secondary mb-3">
-            Compatible with the OpenAI Chat Completions API format.
+            {t('client.docs.chatCompletionsDesc')}
           </p>
           <pre className="bg-bg-primary px-4 py-3 rounded font-code text-xs overflow-x-auto">
 {`POST /v1/chat/completions
@@ -43,9 +47,9 @@ export default function DocsPage() {
         </section>
 
         <section className="card">
-          <h2 className="font-display text-lg font-semibold mb-3">Streaming</h2>
+          <h2 className="font-display text-lg font-semibold mb-3">{t('client.docs.streaming')}</h2>
           <p className="text-sm text-text-secondary mb-3">
-            Set <code className="text-accent font-code">"stream": true</code> to receive Server-Sent Events.
+            {t('client.docs.streamingDesc')}
           </p>
           <pre className="bg-bg-primary px-4 py-3 rounded font-code text-xs overflow-x-auto">
 {`curl ${window.location.origin}/v1/chat/completions \\
@@ -60,7 +64,7 @@ export default function DocsPage() {
         </section>
 
         <section className="card">
-          <h2 className="font-display text-lg font-semibold mb-3">List Models</h2>
+          <h2 className="font-display text-lg font-semibold mb-3">{t('client.docs.listModels')}</h2>
           <pre className="bg-bg-primary px-4 py-3 rounded font-code text-xs overflow-x-auto">
 {`GET /v1/models
 
@@ -76,9 +80,9 @@ Response:
         </section>
 
         <section className="card">
-          <h2 className="font-display text-lg font-semibold mb-3">SDK Compatibility</h2>
+          <h2 className="font-display text-lg font-semibold mb-3">{t('client.docs.sdkCompatibility')}</h2>
           <p className="text-sm text-text-secondary mb-3">
-            Use any OpenAI-compatible SDK by changing the base URL.
+            {t('client.docs.sdkCompatibilityDesc')}
           </p>
           <pre className="bg-bg-primary px-4 py-3 rounded font-code text-xs overflow-x-auto">
 {`# Python (openai SDK)

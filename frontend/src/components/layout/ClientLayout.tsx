@@ -2,24 +2,27 @@ import { Navigate, Outlet } from 'react-router-dom';
 import { useAuthStore } from '@/stores/auth';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   LayoutDashboard, Key, BarChart3, CreditCard, BookOpen,
   Terminal, ChevronLeft, ChevronRight, LogOut, Zap, ShieldCheck
 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
+import LangSwitch from '@/components/ui/LangSwitch';
 
 const navItems = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/keys', icon: Key, label: 'API Keys' },
-  { to: '/usage', icon: BarChart3, label: 'Usage' },
-  { to: '/billing', icon: CreditCard, label: 'Billing' },
-  { to: '/docs', icon: BookOpen, label: 'Docs' },
-  { to: '/playground', icon: Terminal, label: 'Playground' },
+  { to: '/dashboard', icon: LayoutDashboard, key: 'nav.dashboard' },
+  { to: '/keys', icon: Key, key: 'nav.apiKeys' },
+  { to: '/usage', icon: BarChart3, key: 'nav.usage' },
+  { to: '/billing', icon: CreditCard, key: 'nav.billing' },
+  { to: '/docs', icon: BookOpen, key: 'nav.docs' },
+  { to: '/playground', icon: Terminal, key: 'nav.playground' },
 ];
 
 export default function ClientLayout() {
   const { user, isAuthenticated, isAdmin, logout } = useAuthStore();
   const [collapsed, setCollapsed] = useState(false);
+  const { t } = useTranslation();
 
   if (!isAuthenticated()) return <Navigate to="/login" replace />;
 
@@ -47,7 +50,7 @@ export default function ClientLayout() {
         </div>
 
         <nav className="flex-1 py-3 space-y-1 px-2 overflow-y-auto">
-          {navItems.map(({ to, icon: Icon, label }) => (
+          {navItems.map(({ to, icon: Icon, key }) => (
             <NavLink
               key={to}
               to={to}
@@ -68,7 +71,7 @@ export default function ClientLayout() {
                     exit={{ opacity: 0 }}
                     className="whitespace-nowrap overflow-hidden"
                   >
-                    {label}
+                    {t(key)}
                   </motion.span>
                 )}
               </AnimatePresence>
@@ -81,35 +84,36 @@ export default function ClientLayout() {
               className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-accent-amber hover:bg-accent-amber/10 transition-colors"
             >
               <ShieldCheck className="w-4 h-4 shrink-0" />
-              {!collapsed && <span>Admin Panel</span>}
+              {!collapsed && <span>{t('nav.adminPanel')}</span>}
             </NavLink>
           )}
         </nav>
 
         <div className="border-t border-border p-2 space-y-1">
+          {!collapsed && <div className="px-3 py-1"><LangSwitch /></div>}
           <button
             onClick={() => setCollapsed(!collapsed)}
             className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-text-secondary hover:text-text-primary hover:bg-bg-tertiary w-full transition-colors"
           >
             {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-            {!collapsed && <span>Collapse</span>}
+            {!collapsed && <span>{t('nav.collapse')}</span>}
           </button>
           <button
             onClick={logout}
             className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-danger hover:bg-danger/10 w-full transition-colors"
           >
             <LogOut className="w-4 h-4 shrink-0" />
-            {!collapsed && <span>Logout</span>}
+            {!collapsed && <span>{t('nav.logout')}</span>}
           </button>
         </div>
       </motion.aside>
 
       <main className="flex-1 overflow-y-auto bg-bg-primary">
         <header className="sticky top-0 z-10 flex items-center justify-between h-14 px-6 border-b border-border bg-bg-primary/80 backdrop-blur-md">
-          <h2 className="font-display text-sm text-text-secondary">Client Portal</h2>
+          <h2 className="font-display text-sm text-text-secondary">{t('nav.clientPortal')}</h2>
           <div className="flex items-center gap-4">
             <span className="text-xs font-code text-accent-amber">
-              Balance: ${((user?.balance ?? 0) / 1_000_000).toFixed(4)}
+              {t('client.dashboard.balance')}: ${((user?.balance ?? 0) / 1_000_000).toFixed(4)}
             </span>
             <span className="text-xs text-text-secondary font-code">{user?.username}</span>
           </div>

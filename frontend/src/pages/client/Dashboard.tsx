@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { Key, BarChart3, CreditCard, Zap } from 'lucide-react';
 import api from '@/api/client';
 import { useAuthStore } from '@/stores/auth';
 
 export default function ClientDashboard() {
+  const { t } = useTranslation();
   const user = useAuthStore((s) => s.user);
   const [keyCount, setKeyCount] = useState(0);
   const [recentLogs, setRecentLogs] = useState<any[]>([]);
@@ -25,16 +27,16 @@ export default function ClientDashboard() {
   const totalCost = recentLogs.reduce((s, l) => s + l.cost, 0);
 
   const cards = [
-    { label: 'Balance', value: `$${((user?.balance ?? 0) / 1_000_000).toFixed(4)}`, icon: CreditCard, color: 'text-accent-amber' },
-    { label: 'API Keys', value: keyCount, icon: Key, color: 'text-accent' },
-    { label: 'Recent Tokens', value: totalTokens.toLocaleString(), icon: Zap, color: 'text-success' },
-    { label: 'Recent Cost', value: `$${(totalCost / 1_000_000).toFixed(6)}`, icon: BarChart3, color: 'text-accent' },
+    { label: t('client.dashboard.balance'), value: `$${((user?.balance ?? 0) / 1_000_000).toFixed(4)}`, icon: CreditCard, color: 'text-accent-amber' },
+    { label: t('client.dashboard.apiKeys'), value: keyCount, icon: Key, color: 'text-accent' },
+    { label: t('client.dashboard.recentTokens'), value: totalTokens.toLocaleString(), icon: Zap, color: 'text-success' },
+    { label: t('client.dashboard.recentCost'), value: `$${(totalCost / 1_000_000).toFixed(6)}`, icon: BarChart3, color: 'text-accent' },
   ];
 
   return (
     <div>
       <h1 className="text-2xl font-display font-bold mb-6">
-        Welcome back, <span className="text-accent">{user?.username}</span>
+        {t('client.dashboard.welcome')} <span className="text-accent">{user?.username}</span>
       </h1>
 
       {/* Bento Grid */}
@@ -59,20 +61,20 @@ export default function ClientDashboard() {
       </div>
 
       {/* Recent activity */}
-      <h2 className="font-display text-sm font-semibold mb-3 text-text-secondary">Recent Requests</h2>
+      <h2 className="font-display text-sm font-semibold mb-3 text-text-secondary">{t('client.dashboard.recentRequests')}</h2>
       <div className="card overflow-hidden p-0">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-text-secondary font-display">
-              <th className="px-4 py-3">Model</th>
-              <th className="px-4 py-3">Tokens</th>
-              <th className="px-4 py-3">Cost</th>
-              <th className="px-4 py-3">Time</th>
+              <th className="px-4 py-3">{t('client.dashboard.model')}</th>
+              <th className="px-4 py-3">{t('client.dashboard.tokens')}</th>
+              <th className="px-4 py-3">{t('client.dashboard.cost')}</th>
+              <th className="px-4 py-3">{t('client.dashboard.time')}</th>
             </tr>
           </thead>
           <tbody>
             {recentLogs.length === 0 ? (
-              <tr><td colSpan={4} className="px-4 py-6 text-center text-text-secondary">No requests yet. Generate an API key and start making requests.</td></tr>
+              <tr><td colSpan={4} className="px-4 py-6 text-center text-text-secondary">{t('client.dashboard.noRequests')}</td></tr>
             ) : (
               recentLogs.map((log: any, i: number) => (
                 <motion.tr

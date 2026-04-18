@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { DollarSign } from 'lucide-react';
 import { adminApi, type BillingTransaction } from '@/api/admin';
 
 export default function BillingPage() {
+  const { t } = useTranslation();
   const [transactions, setTransactions] = useState<BillingTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [topupUserId, setTopupUserId] = useState('');
@@ -11,6 +13,7 @@ export default function BillingPage() {
   const [topupDesc, setTopupDesc] = useState('');
   const [topupLoading, setTopupLoading] = useState(false);
   const [topupMsg, setTopupMsg] = useState('');
+  const [topupSuccess, setTopupSuccess] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -28,6 +31,7 @@ export default function BillingPage() {
     e.preventDefault();
     setTopupLoading(true);
     setTopupMsg('');
+    setTopupSuccess(false);
     try {
       const amountDollars = parseFloat(topupAmount);
       if (isNaN(amountDollars) || amountDollars <= 0) {
@@ -40,13 +44,15 @@ export default function BillingPage() {
         amount: microCents,
         description: topupDesc || undefined,
       });
-      setTopupMsg('Topup successful');
+      setTopupMsg(t('admin.billing.topupSuccess'));
+      setTopupSuccess(true);
       setTopupUserId('');
       setTopupAmount('');
       setTopupDesc('');
       load();
     } catch (err: any) {
       setTopupMsg(err.response?.data?.error?.message || 'Topup failed');
+      setTopupSuccess(false);
     } finally {
       setTopupLoading(false);
     }
@@ -54,31 +60,31 @@ export default function BillingPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-display font-bold mb-6">Billing Management</h1>
+      <h1 className="text-2xl font-display font-bold mb-6">{t('admin.billing.title')}</h1>
 
       {/* Topup form */}
       <div className="card mb-6">
         <h2 className="font-display text-sm font-semibold mb-3 flex items-center gap-2">
-          <DollarSign className="w-4 h-4 text-accent-amber" /> Topup User Balance
+          <DollarSign className="w-4 h-4 text-accent-amber" /> {t('admin.billing.topupTitle')}
         </h2>
         <form onSubmit={handleTopup} className="flex flex-wrap items-end gap-3">
           <div className="flex-1 min-w-[200px]">
-            <label className="block text-xs text-text-secondary mb-1 font-display">User ID</label>
+            <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.billing.userId')}</label>
             <input value={topupUserId} onChange={e => setTopupUserId(e.target.value)} className="input-field font-code text-xs" placeholder="UUID" required />
           </div>
           <div className="w-32">
-            <label className="block text-xs text-text-secondary mb-1 font-display">Amount ($)</label>
+            <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.billing.amount')}</label>
             <input type="number" step="0.01" value={topupAmount} onChange={e => setTopupAmount(e.target.value)} className="input-field" placeholder="10.00" required />
           </div>
           <div className="flex-1 min-w-[150px]">
-            <label className="block text-xs text-text-secondary mb-1 font-display">Description</label>
+            <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.billing.description')}</label>
             <input value={topupDesc} onChange={e => setTopupDesc(e.target.value)} className="input-field" placeholder="Optional" />
           </div>
           <button type="submit" disabled={topupLoading} className="btn-primary">
-            {topupLoading ? 'Processing...' : 'Topup'}
+            {topupLoading ? t('admin.billing.processing') : t('admin.billing.topup')}
           </button>
         </form>
-        {topupMsg && <p className={`text-xs mt-2 ${topupMsg.includes('success') ? 'text-success' : 'text-danger'}`}>{topupMsg}</p>}
+        {topupMsg && <p className={`text-xs mt-2 ${topupSuccess ? 'text-success' : 'text-danger'}`}>{topupMsg}</p>}
       </div>
 
       {/* Transaction history */}
@@ -86,18 +92,18 @@ export default function BillingPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-text-secondary font-display">
-              <th className="px-4 py-3">Type</th>
-              <th className="px-4 py-3">Amount</th>
-              <th className="px-4 py-3">Balance After</th>
-              <th className="px-4 py-3">Description</th>
-              <th className="px-4 py-3">Time</th>
+              <th className="px-4 py-3">{t('admin.billing.type')}</th>
+              <th className="px-4 py-3">{t('admin.billing.amountCol')}</th>
+              <th className="px-4 py-3">{t('admin.billing.balanceAfter')}</th>
+              <th className="px-4 py-3">{t('admin.billing.description')}</th>
+              <th className="px-4 py-3">{t('admin.billing.time')}</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-text-secondary">Loading...</td></tr>
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-text-secondary">{t('common.loading')}</td></tr>
             ) : transactions.length === 0 ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-text-secondary">No transactions</td></tr>
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-text-secondary">{t('admin.billing.noTransactions')}</td></tr>
             ) : (
               transactions.map((tx, i) => (
                 <motion.tr

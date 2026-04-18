@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Zap, Eye, EyeOff } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { authApi } from '@/api/auth';
 import { useAuthStore } from '@/stores/auth';
+import LangSwitch from '@/components/ui/LangSwitch';
 
 export default function Register() {
   const [username, setUsername] = useState('');
@@ -14,6 +16,7 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
+  const { t } = useTranslation();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,6 +35,7 @@ export default function Register() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg-primary relative overflow-hidden">
+      <div className="absolute top-4 right-4 z-20"><LangSwitch /></div>
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-accent/5 rounded-full blur-[120px] pointer-events-none" />
 
       <motion.div
@@ -45,20 +49,20 @@ export default function Register() {
             <Zap className="w-5 h-5 text-accent" />
           </div>
           <div>
-            <h1 className="text-xl font-display font-bold">Create Account</h1>
-            <p className="text-xs text-text-secondary">Join COOL API Relay</p>
+            <h1 className="text-xl font-display font-bold">{t('auth.createAccount')}</h1>
+            <p className="text-xs text-text-secondary">{t('auth.brandDesc')}</p>
           </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs text-text-secondary mb-1.5 font-display">Username</label>
+            <label className="block text-xs text-text-secondary mb-1.5 font-display">{t('auth.username')}</label>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="input-field"
-              placeholder="3-64 characters"
+              placeholder={t('auth.usernameHint')}
               required
               minLength={3}
               maxLength={64}
@@ -66,26 +70,26 @@ export default function Register() {
           </div>
 
           <div>
-            <label className="block text-xs text-text-secondary mb-1.5 font-display">Email</label>
+            <label className="block text-xs text-text-secondary mb-1.5 font-display">{t('auth.email')}</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="input-field"
-              placeholder="you@example.com"
+              placeholder={t('auth.emailPlaceholder')}
               required
             />
           </div>
 
           <div>
-            <label className="block text-xs text-text-secondary mb-1.5 font-display">Password</label>
+            <label className="block text-xs text-text-secondary mb-1.5 font-display">{t('auth.password')}</label>
             <div className="relative">
               <input
                 type={showPw ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="input-field pr-10"
-                placeholder="At least 6 characters"
+                placeholder={t('auth.passwordHint')}
                 required
                 minLength={6}
               />
@@ -100,23 +104,19 @@ export default function Register() {
           </div>
 
           {error && (
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-danger text-xs"
-            >
+            <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-danger text-xs">
               {error}
             </motion.p>
           )}
 
           <button type="submit" disabled={loading} className="btn-primary w-full">
-            {loading ? 'Creating account...' : 'Create Account'}
+            {loading ? t('auth.creatingAccount') : t('auth.createAccount')}
           </button>
         </form>
 
         <p className="text-center text-xs text-text-secondary mt-6">
-          Already have an account?{' '}
-          <Link to="/login" className="text-accent hover:underline">Sign in</Link>
+          {t('auth.hasAccount')}{' '}
+          <Link to="/login" className="text-accent hover:underline">{t('auth.login')}</Link>
         </p>
       </motion.div>
     </div>

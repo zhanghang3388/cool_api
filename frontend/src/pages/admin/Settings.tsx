@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { Save } from 'lucide-react';
 import { adminApi } from '@/api/admin';
 
 export default function SettingsPage() {
+  const { t } = useTranslation();
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -38,7 +40,7 @@ export default function SettingsPage() {
         }
       }
       await adminApi.updateSettings(parsed);
-      setMsg('Settings saved');
+      setMsg(t('admin.settings.saved'));
     } catch {
       setMsg('Failed to save');
     } finally {
@@ -51,7 +53,7 @@ export default function SettingsPage() {
   };
 
   const addKey = () => {
-    const key = prompt('Setting key:');
+    const key = prompt(t('admin.settings.keyPrompt'));
     if (key && !settings[key]) {
       setSettings(prev => ({ ...prev, [key]: '' }));
     }
@@ -62,12 +64,12 @@ export default function SettingsPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-display font-bold">System Settings</h1>
+        <h1 className="text-2xl font-display font-bold">{t('admin.settings.title')}</h1>
         <div className="flex items-center gap-3">
           {msg && <span className="text-xs text-success">{msg}</span>}
-          <button onClick={addKey} className="btn-secondary text-xs">Add Key</button>
+          <button onClick={addKey} className="btn-secondary text-xs">{t('admin.settings.addKey')}</button>
           <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center gap-2">
-            <Save className="w-4 h-4" /> {saving ? 'Saving...' : 'Save'}
+            <Save className="w-4 h-4" /> {saving ? t('admin.settings.saving') : t('common.save')}
           </button>
         </div>
       </div>
@@ -92,7 +94,7 @@ export default function SettingsPage() {
         ))}
         {Object.keys(settings).length === 0 && (
           <div className="card text-center text-text-secondary text-sm py-8">
-            No settings configured. Click "Add Key" to create one.
+            {t('admin.settings.noSettings')}
           </div>
         )}
       </div>

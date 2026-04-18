@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Trash2, Power, X } from 'lucide-react';
 import { adminApi, type Channel, type ProviderKey } from '@/api/admin';
@@ -6,6 +7,7 @@ import { adminApi, type Channel, type ProviderKey } from '@/api/admin';
 const STRATEGIES = ['round_robin', 'weighted', 'priority'] as const;
 
 export default function ChannelsPage() {
+  const { t } = useTranslation();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [keys, setKeys] = useState<ProviderKey[]>([]);
   const [showAdd, setShowAdd] = useState(false);
@@ -33,7 +35,7 @@ export default function ChannelsPage() {
   };
 
   const deleteChannel = async (id: string) => {
-    if (!confirm('Delete this channel?')) return;
+    if (!confirm(t('admin.channels.deleteConfirm'))) return;
     await adminApi.deleteChannel(id);
     load();
   };
@@ -43,9 +45,9 @@ export default function ChannelsPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-display font-bold">Channels</h1>
+        <h1 className="text-2xl font-display font-bold">{t('admin.channels.title')}</h1>
         <button onClick={() => setShowAdd(true)} className="btn-primary flex items-center gap-2">
-          <Plus className="w-4 h-4" /> Add Channel
+          <Plus className="w-4 h-4" /> {t('admin.channels.addChannel')}
         </button>
       </div>
 
@@ -53,7 +55,7 @@ export default function ChannelsPage() {
         {loading ? (
           <div className="card animate-pulse h-20" />
         ) : channels.length === 0 ? (
-          <div className="card text-center text-text-secondary text-sm py-8">No channels configured</div>
+          <div className="card text-center text-text-secondary text-sm py-8">{t('admin.channels.noChannels')}</div>
         ) : (
           channels.map((ch, i) => (
             <motion.div
@@ -68,7 +70,7 @@ export default function ChannelsPage() {
                   <div className="flex items-center gap-3 mb-1">
                     <span className="font-display text-sm font-semibold">{ch.name}</span>
                     <span className={`text-xs ${ch.is_active ? 'text-success' : 'text-danger'}`}>
-                      {ch.is_active ? 'Active' : 'Disabled'}
+                      {ch.is_active ? t('common.active') : t('common.disabled')}
                     </span>
                   </div>
                   <div className="flex items-center gap-4 text-xs text-text-secondary">
@@ -107,6 +109,7 @@ export default function ChannelsPage() {
 }
 
 function AddChannelModal({ keys, onClose, onSaved }: { keys: ProviderKey[]; onClose: () => void; onSaved: () => void }) {
+  const { t } = useTranslation();
   const [name, setName] = useState('');
   const [modelPattern, setModelPattern] = useState('');
   const [strategy, setStrategy] = useState<string>('round_robin');
@@ -149,27 +152,27 @@ function AddChannelModal({ keys, onClose, onSaved }: { keys: ProviderKey[]; onCl
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-display font-bold">Add Channel</h2>
+          <h2 className="font-display font-bold">{t('admin.channels.addChannel')}</h2>
           <button onClick={onClose} className="text-text-secondary hover:text-text-primary"><X className="w-4 h-4" /></button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="block text-xs text-text-secondary mb-1 font-display">Name</label>
+            <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.channels.name')}</label>
             <input value={name} onChange={e => setName(e.target.value)} className="input-field" placeholder="GPT-4o Channel" required />
           </div>
           <div>
-            <label className="block text-xs text-text-secondary mb-1 font-display">Model Pattern</label>
+            <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.channels.modelPattern')}</label>
             <input value={modelPattern} onChange={e => setModelPattern(e.target.value)} className="input-field font-code text-xs" placeholder="gpt-4o*" required />
           </div>
           <div>
-            <label className="block text-xs text-text-secondary mb-1 font-display">Strategy</label>
+            <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.channels.strategy')}</label>
             <select value={strategy} onChange={e => setStrategy(e.target.value)} className="input-field">
               {STRATEGIES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-xs text-text-secondary mb-1 font-display">Provider Keys</label>
+            <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.channels.providerKeys')}</label>
             <div className="space-y-1 max-h-40 overflow-y-auto">
               {keys.filter(k => k.is_active).map(k => (
                 <label key={k.id} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-bg-tertiary cursor-pointer text-sm">
@@ -187,7 +190,7 @@ function AddChannelModal({ keys, onClose, onSaved }: { keys: ProviderKey[]; onCl
           </div>
           {error && <p className="text-danger text-xs">{error}</p>}
           <button type="submit" disabled={loading} className="btn-primary w-full">
-            {loading ? 'Creating...' : 'Create Channel'}
+            {loading ? t('admin.channels.creating') : t('admin.channels.createChannel')}
           </button>
         </form>
       </motion.div>

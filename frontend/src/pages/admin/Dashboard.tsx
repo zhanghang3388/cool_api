@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Users, Key, GitBranch, Activity, BarChart3, Coins } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { useTranslation } from 'react-i18next';
 import { adminApi } from '@/api/admin';
 import api from '@/api/client';
 
@@ -30,6 +31,7 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState<StatCard[]>([]);
   const [daily, setDaily] = useState<DailyData[]>([]);
   const [loading, setLoading] = useState(true);
+  const { t } = useTranslation();
 
   useEffect(() => {
     async function load() {
@@ -44,12 +46,12 @@ export default function AdminDashboard() {
 
         const ov = overviewRes.data;
         setStats([
-          { label: 'Total Requests', value: ov.total_requests.toLocaleString(), icon: BarChart3, color: 'text-accent' },
-          { label: 'Total Tokens', value: ov.total_tokens.toLocaleString(), icon: Activity, color: 'text-success' },
-          { label: 'Total Revenue', value: `$${(ov.total_cost / 1_000_000).toFixed(2)}`, icon: Coins, color: 'text-accent-amber' },
-          { label: 'Active Users', value: ov.active_users, icon: Users, color: 'text-accent' },
-          { label: 'Provider Keys', value: keysRes.data.length, icon: Key, color: 'text-accent-amber' },
-          { label: 'Channels', value: channelsRes.data.length, icon: GitBranch, color: 'text-success' },
+          { label: t('admin.dashboard.totalRequests'), value: ov.total_requests.toLocaleString(), icon: BarChart3, color: 'text-accent' },
+          { label: t('admin.dashboard.totalTokens'), value: ov.total_tokens.toLocaleString(), icon: Activity, color: 'text-success' },
+          { label: t('admin.dashboard.totalRevenue'), value: `$${(ov.total_cost / 1_000_000).toFixed(2)}`, icon: Coins, color: 'text-accent-amber' },
+          { label: t('admin.dashboard.activeUsers'), value: ov.active_users, icon: Users, color: 'text-accent' },
+          { label: t('admin.dashboard.providerKeys'), value: keysRes.data.length, icon: Key, color: 'text-accent-amber' },
+          { label: t('admin.dashboard.channels'), value: channelsRes.data.length, icon: GitBranch, color: 'text-success' },
         ]);
 
         setDaily(dailyRes.data.map(d => ({
@@ -78,7 +80,7 @@ export default function AdminDashboard() {
 
   return (
     <div>
-      <h1 className="text-2xl font-display font-bold mb-6">Dashboard</h1>
+      <h1 className="text-2xl font-display font-bold mb-6">{t('admin.dashboard.title')}</h1>
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-8">
@@ -110,7 +112,7 @@ export default function AdminDashboard() {
             transition={{ delay: 0.3 }}
             className="card"
           >
-            <h3 className="font-display text-sm font-semibold mb-4">Requests (30 days)</h3>
+            <h3 className="font-display text-sm font-semibold mb-4">{t('admin.dashboard.requests30d')}</h3>
             <ResponsiveContainer width="100%" height={220}>
               <AreaChart data={daily}>
                 <defs>
@@ -134,7 +136,7 @@ export default function AdminDashboard() {
             transition={{ delay: 0.4 }}
             className="card"
           >
-            <h3 className="font-display text-sm font-semibold mb-4">Revenue (30 days)</h3>
+            <h3 className="font-display text-sm font-semibold mb-4">{t('admin.dashboard.revenue30d')}</h3>
             <ResponsiveContainer width="100%" height={220}>
               <AreaChart data={daily}>
                 <defs>
