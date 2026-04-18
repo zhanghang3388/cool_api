@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import {
-  LayoutDashboard, Users, Key, GitBranch, Shield, FileText,
-  CreditCard, Settings, ChevronLeft, ChevronRight, LogOut, Zap, DollarSign
+  LayoutDashboard, Users, GitBranch, Shield, FileText,
+  CreditCard, Settings, ChevronLeft, ChevronRight, LogOut, Zap, DollarSign, KeyRound
 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import LangSwitch from '@/components/ui/LangSwitch';
@@ -13,7 +13,7 @@ import LangSwitch from '@/components/ui/LangSwitch';
 const navItems = [
   { to: '/admin', icon: LayoutDashboard, key: 'nav.dashboard' },
   { to: '/admin/users', icon: Users, key: 'nav.users' },
-  { to: '/admin/provider-keys', icon: Key, key: 'nav.providerKeys' },
+  { to: '/admin/tokens', icon: KeyRound, key: 'nav.tokens' },
   { to: '/admin/channels', icon: GitBranch, key: 'nav.channels' },
   { to: '/admin/rate-limits', icon: Shield, key: 'nav.rateLimits' },
   { to: '/admin/logs', icon: FileText, key: 'nav.logs' },

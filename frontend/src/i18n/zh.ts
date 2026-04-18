@@ -42,6 +42,7 @@ const zh = {
   nav: {
     dashboard: '仪表盘',
     users: '用户管理',
+    tokens: '令牌管理',
     providerKeys: 'Provider Keys',
     channels: '渠道配置',
     rateLimits: '限流策略',
@@ -170,6 +171,12 @@ const zh = {
       groupNamePlaceholder: '如：基础版、专业版',
       selectChannels: '选择渠道',
       channelsCount: '个渠道',
+    },
+    tokens: {
+      title: '令牌管理',
+      total: '共 {{count}} 个令牌',
+      noTokens: '暂无令牌',
+      deleteConfirm: '确定删除此令牌？',
     },
     logs: {
       title: '请求日志',

@@ -65,6 +65,12 @@ impl RelayKey {
             .await
     }
 
+    pub async fn list_all(pool: &PgPool) -> Result<Vec<Self>, sqlx::Error> {
+        sqlx::query_as("SELECT * FROM relay_keys ORDER BY created_at DESC")
+            .fetch_all(pool)
+            .await
+    }
+
     pub async fn delete(pool: &PgPool, id: Uuid, user_id: Uuid) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM relay_keys WHERE id = $1 AND user_id = $2")
             .bind(id)
@@ -72,6 +78,21 @@ impl RelayKey {
             .execute(pool)
             .await?;
         Ok(())
+    }
+
+    pub async fn admin_delete(pool: &PgPool, id: Uuid) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM relay_keys WHERE id = $1")
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn admin_toggle_active(pool: &PgPool, id: Uuid) -> Result<Self, sqlx::Error> {
+        sqlx::query_as("UPDATE relay_keys SET is_active = NOT is_active WHERE id = $1 RETURNING *")
+            .bind(id)
+            .fetch_one(pool)
+            .await
     }
 
     pub async fn toggle_active(pool: &PgPool, id: Uuid, user_id: Uuid) -> Result<Self, sqlx::Error> {

@@ -42,6 +42,7 @@ const en = {
   nav: {
     dashboard: 'Dashboard',
     users: 'Users',
+    tokens: 'Tokens',
     providerKeys: 'Provider Keys',
     channels: 'Channels',
     rateLimits: 'Rate Limits',
@@ -170,6 +171,12 @@ const en = {
       groupNamePlaceholder: 'e.g. Basic, Pro',
       selectChannels: 'Select Channels',
       channelsCount: 'channels',
+    },
+    tokens: {
+      title: 'Token Management',
+      total: '{{count}} tokens',
+      noTokens: 'No tokens',
+      deleteConfirm: 'Delete this token?',
     },
     logs: {
       title: 'Request Logs',

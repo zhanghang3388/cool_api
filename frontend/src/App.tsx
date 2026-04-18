@@ -13,6 +13,7 @@ import AdminBillingPage from '@/pages/admin/Billing';
 import SettingsPage from '@/pages/admin/Settings';
 import LogsPage from '@/pages/admin/Logs';
 import PricingPage from '@/pages/admin/Pricing';
+import AdminTokensPage from '@/pages/admin/Tokens';
 import ClientDashboard from '@/pages/client/Dashboard';
 import ApiKeysPage from '@/pages/client/ApiKeys';
 import UsagePage from '@/pages/client/Usage';
@@ -42,8 +43,8 @@ export default function App() {
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<AdminDashboard />} />
           <Route path="users" element={<UsersPage />} />
-          <Route path="provider-keys" element={<ProviderKeysPage />} />
           <Route path="channels" element={<ChannelsPage />} />
+          <Route path="tokens" element={<AdminTokensPage />} />
           <Route path="rate-limits" element={<Placeholder title="Rate Limits" />} />
           <Route path="logs" element={<LogsPage />} />
           <Route path="billing" element={<AdminBillingPage />} />
