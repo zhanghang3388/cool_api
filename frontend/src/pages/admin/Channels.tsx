@@ -110,33 +110,42 @@ export default function ChannelsPage() {
 
 function AddChannelModal({ keys, onClose, onSaved }: { keys: ProviderKey[]; onClose: () => void; onSaved: () => void }) {
   const { t } = useTranslation();
+  const PROVIDERS = ['openai', 'claude', 'gemini'] as const;
+  const DEFAULT_URLS: Record<string, string> = {
+    openai: 'https://api.openai.com/v1',
+    claude: 'https://api.anthropic.com',
+    gemini: 'https://generativelanguage.googleapis.com/v1beta',
+  };
+
   const [name, setName] = useState('');
-  const [modelPattern, setModelPattern] = useState('');
+  const [provider, setProvider] = useState<string>('openai');
+  const [apiKey, setApiKey] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
   const [strategy, setStrategy] = useState<string>('round_robin');
-  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Fetch models state
   const [fetchedModels, setFetchedModels] = useState<string[]>([]);
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState('');
-  const [fetchKeyId, setFetchKeyId] = useState<string | null>(null);
 
-  const toggleKey = (id: string) => {
-    setSelectedKeys(prev => prev.includes(id) ? prev.filter(k => k !== id) : [...prev, id]);
-  };
+  // Also allow selecting existing keys
+  const [useExistingKey, setUseExistingKey] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
 
-  const handleFetchModels = async (key: ProviderKey) => {
+  const handleFetchModels = async () => {
+    if (!apiKey) return;
     setFetching(true);
     setFetchError('');
     setFetchedModels([]);
     setSelectedModels([]);
-    setFetchKeyId(key.id);
     try {
       const { data } = await adminApi.fetchModels({
-        provider: key.provider,
-        api_key: key.api_key,
-        base_url: key.base_url || undefined,
+        provider,
+        api_key: apiKey,
+        base_url: baseUrl || undefined,
       });
       const ids = data.models.map(m => m.id);
       setFetchedModels(ids);
@@ -148,29 +157,53 @@ function AddChannelModal({ keys, onClose, onSaved }: { keys: ProviderKey[]; onCl
   };
 
   const toggleModel = (id: string) => {
-    const next = selectedModels.includes(id) ? selectedModels.filter(m => m !== id) : [...selectedModels, id];
-    setSelectedModels(next);
-    if (next.length > 0) {
-      setModelPattern(next.join(','));
-    }
+    setSelectedModels(prev => prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]);
   };
 
   const toggleAllModels = () => {
     if (selectedModels.length === fetchedModels.length) {
       setSelectedModels([]);
-      setModelPattern('');
     } else {
       setSelectedModels([...fetchedModels]);
-      setModelPattern(fetchedModels.join(','));
     }
+  };
+
+  const toggleKey = (id: string) => {
+    setSelectedKeys(prev => prev.includes(id) ? prev.filter(k => k !== id) : [...prev, id]);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!useExistingKey && selectedModels.length === 0) {
+      setError(t('admin.channels.noModelsSelected'));
+      return;
+    }
     setLoading(true);
     setError('');
     try {
-      await adminApi.createChannel({ name, model_pattern: modelPattern, strategy, key_ids: selectedKeys });
+      let keyIds = selectedKeys;
+
+      // If using new credentials, create provider key first
+      if (!useExistingKey) {
+        const keyRes = await adminApi.createProviderKey({
+          provider,
+          name: `${name}-key`,
+          api_key: apiKey,
+          base_url: baseUrl || null,
+          weight: 1,
+          priority: 0,
+          rpm_limit: null,
+          tpm_limit: null,
+          models: selectedModels,
+        });
+        keyIds = [keyRes.data.id];
+      }
+
+      const modelPattern = useExistingKey
+        ? (document.getElementById('manual-pattern') as HTMLInputElement)?.value || ''
+        : selectedModels.join(',');
+
+      await adminApi.createChannel({ name, model_pattern: modelPattern, strategy, key_ids: keyIds });
       onSaved();
       onClose();
     } catch (err: any) {
@@ -211,65 +244,103 @@ function AddChannelModal({ keys, onClose, onSaved }: { keys: ProviderKey[]; onCl
               {STRATEGIES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
             </select>
           </div>
-          <div>
-            <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.channels.providerKeys')}</label>
-            <div className="space-y-1 max-h-40 overflow-y-auto">
-              {keys.filter(k => k.is_active).map(k => (
-                <div key={k.id} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-bg-tertiary">
-                  <label className="flex items-center gap-2 cursor-pointer text-sm flex-1">
-                    <input
-                      type="checkbox"
-                      checked={selectedKeys.includes(k.id)}
-                      onChange={() => toggleKey(k.id)}
-                      className="accent-accent"
-                    />
-                    <span>{k.name}</span>
-                    <span className="text-xs text-text-secondary ml-auto">{k.provider}</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => handleFetchModels(k)}
-                    disabled={fetching}
-                    className="p-1 rounded hover:bg-accent/10 text-text-secondary hover:text-accent transition-colors"
-                    title={t('admin.channels.fetchModels')}
-                  >
-                    <Download className={`w-3.5 h-3.5 ${fetching && fetchKeyId === k.id ? 'animate-spin' : ''}`} />
-                  </button>
+
+          {/* Mode toggle */}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setUseExistingKey(false)}
+              className={`flex-1 py-2 rounded-lg text-xs font-display transition-colors ${!useExistingKey ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:bg-bg-tertiary'}`}
+            >
+              {t('admin.channels.newCredentials')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setUseExistingKey(true)}
+              className={`flex-1 py-2 rounded-lg text-xs font-display transition-colors ${useExistingKey ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:bg-bg-tertiary'}`}
+            >
+              {t('admin.channels.existingKeys')}
+            </button>
+          </div>
+
+          {!useExistingKey ? (
+            <>
+              {/* Provider + credentials */}
+              <div>
+                <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.channels.provider')}</label>
+                <select value={provider} onChange={e => { setProvider(e.target.value); setFetchedModels([]); setSelectedModels([]); }} className="input-field">
+                  {PROVIDERS.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-text-secondary mb-1 font-display">Base URL</label>
+                <input value={baseUrl} onChange={e => setBaseUrl(e.target.value)} className="input-field text-xs font-code" placeholder={DEFAULT_URLS[provider]} />
+              </div>
+              <div>
+                <label className="block text-xs text-text-secondary mb-1 font-display">API Key</label>
+                <input value={apiKey} onChange={e => setApiKey(e.target.value)} className="input-field text-xs font-code" placeholder="sk-..." required={!useExistingKey} />
+              </div>
+
+              {/* Fetch models button */}
+              <button
+                type="button"
+                onClick={handleFetchModels}
+                disabled={!apiKey || fetching}
+                className="btn-secondary text-xs flex items-center gap-2 w-full justify-center"
+              >
+                <Download className={`w-3.5 h-3.5 ${fetching ? 'animate-spin' : ''}`} />
+                {fetching ? t('admin.channels.fetching') : t('admin.channels.fetchModels')}
+              </button>
+              {fetchError && <p className="text-danger text-xs">{fetchError}</p>}
+
+              {/* Model selection */}
+              {fetchedModels.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs text-text-secondary font-display">
+                      {t('admin.channels.selectModels')} ({selectedModels.length}/{fetchedModels.length})
+                    </label>
+                    <button type="button" onClick={toggleAllModels} className="text-xs text-accent hover:underline">
+                      {selectedModels.length === fetchedModels.length ? t('admin.keys.deselectAll') : t('admin.keys.selectAll')}
+                    </button>
+                  </div>
+                  <div className="max-h-52 overflow-y-auto space-y-0.5 rounded-lg border border-border p-2 bg-bg-tertiary">
+                    {fetchedModels.map(id => (
+                      <label key={id} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-bg-secondary cursor-pointer text-xs">
+                        <input
+                          type="checkbox"
+                          checked={selectedModels.includes(id)}
+                          onChange={() => toggleModel(id)}
+                          className="accent-accent"
+                        />
+                        <span className="font-code">{id}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Fetched models */}
-          {fetchError && <p className="text-danger text-xs">{fetchError}</p>}
-          {fetchedModels.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs text-text-secondary font-display">{t('admin.channels.selectModels')} ({fetchedModels.length})</label>
-                <button type="button" onClick={toggleAllModels} className="text-xs text-accent hover:underline">
-                  {selectedModels.length === fetchedModels.length ? t('admin.keys.deselectAll') : t('admin.keys.selectAll')}
-                </button>
+              )}
+            </>
+          ) : (
+            <>
+              {/* Existing keys mode */}
+              <div>
+                <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.channels.providerKeys')}</label>
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {keys.filter(k => k.is_active).map(k => (
+                    <label key={k.id} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-bg-tertiary cursor-pointer text-sm">
+                      <input type="checkbox" checked={selectedKeys.includes(k.id)} onChange={() => toggleKey(k.id)} className="accent-accent" />
+                      <span>{k.name}</span>
+                      <span className="text-xs text-text-secondary ml-auto">{k.provider}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
-              <div className="max-h-48 overflow-y-auto space-y-0.5 rounded-lg border border-border p-2 bg-bg-tertiary">
-                {fetchedModels.map(id => (
-                  <label key={id} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-bg-secondary cursor-pointer text-xs">
-                    <input
-                      type="checkbox"
-                      checked={selectedModels.includes(id)}
-                      onChange={() => toggleModel(id)}
-                      className="accent-accent"
-                    />
-                    <span className="font-code">{id}</span>
-                  </label>
-                ))}
+              <div>
+                <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.channels.modelPattern')}</label>
+                <input id="manual-pattern" className="input-field font-code text-xs" placeholder="gpt-4o*" required={useExistingKey} />
               </div>
-            </div>
+            </>
           )}
-
-          <div>
-            <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.channels.modelPattern')}</label>
-            <input value={modelPattern} onChange={e => setModelPattern(e.target.value)} className="input-field font-code text-xs" placeholder="gpt-4o*" required />
-          </div>
 
           {error && <p className="text-danger text-xs">{error}</p>}
           <button type="submit" disabled={loading} className="btn-primary w-full">

@@ -112,6 +112,10 @@ const en = {
       fetching: 'Fetching...',
       fetchError: 'Failed to fetch',
       selectModels: 'Select Models',
+      provider: 'Provider',
+      newCredentials: 'New Credentials',
+      existingKeys: 'Existing Keys',
+      noModelsSelected: 'Please fetch and select models first',
     },
     billing: {
       title: 'Billing Management',
