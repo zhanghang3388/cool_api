@@ -222,44 +222,54 @@ export default function Home() {
             ))}
           </div>
 
-          {/* Channel cards */}
+          {/* Model cards */}
           {loading ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {[1, 2, 3].map(i => <div key={i} className="card animate-pulse h-24" />)}
             </div>
-          ) : filtered.length === 0 ? (
-            <div className="text-center text-text-secondary text-sm py-12">
-              {t('home.models.noModels')}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filtered.map((ch, i) => (
-                <motion.div
-                  key={`${ch.name}-${ch.model_pattern}`}
-                  initial={{ opacity: 0, y: 12 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: i * 0.05 }}
-                  className="card card-glow"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <span className="font-code text-sm font-semibold text-text-primary">
-                      {ch.model_pattern}
-                    </span>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${providerColors[ch.provider] || providerColors.unknown}`}>
-                      {providerLabels[ch.provider] || ch.provider}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 text-xs text-text-secondary">
-                    <span>{t('home.models.channel')}: {ch.name}</span>
-                    <span className="px-1.5 py-0.5 rounded bg-bg-tertiary text-[10px]">
-                      {ch.strategy.replace('_', ' ')}
-                    </span>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          )}
+          ) : (() => {
+            const allModels = filtered.flatMap(ch =>
+              ch.model_pattern.split(',').map(m => m.trim()).filter(Boolean).map(model => ({
+                model,
+                channel: ch.name,
+                provider: ch.provider,
+                strategy: ch.strategy,
+              }))
+            );
+            return allModels.length === 0 ? (
+              <div className="text-center text-text-secondary text-sm py-12">
+                {t('home.models.noModels')}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {allModels.map((item, i) => (
+                  <motion.div
+                    key={`${item.channel}-${item.model}`}
+                    initial={{ opacity: 0, y: 12 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ delay: i * 0.03 }}
+                    className="card card-glow"
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <span className="font-code text-sm font-semibold text-text-primary">
+                        {item.model}
+                      </span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${providerColors[item.provider] || providerColors.unknown}`}>
+                        {providerLabels[item.provider] || item.provider}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-text-secondary">
+                      <span>{t('home.models.channel')}: {item.channel}</span>
+                      <span className="px-1.5 py-0.5 rounded bg-bg-tertiary text-[10px]">
+                        {item.strategy.replace('_', ' ')}
+                      </span>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       </section>
 
