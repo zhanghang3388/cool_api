@@ -1,0 +1,1 @@
+ALTER TABLE relay_keys ADD COLUMN remark TEXT DEFAULT '';

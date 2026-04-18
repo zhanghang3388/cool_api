@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
-import { Plus, Trash2, Power, Copy, Check } from 'lucide-react';
+import { Plus, Trash2, Power, Copy, Check, X } from 'lucide-react';
 import api from '@/api/client';
 
 interface RelayKey {
@@ -10,12 +10,8 @@ interface RelayKey {
   key_prefix: string;
   is_active: boolean;
   group_id: string | null;
+  remark: string;
   created_at: string;
-}
-
-interface CreateKeyResponse {
-  key: RelayKey;
-  full_key: string;
 }
 
 interface PublicGroup {
@@ -29,9 +25,12 @@ export default function ApiKeysPage() {
   const { t } = useTranslation();
   const [keys, setKeys] = useState<RelayKey[]>([]);
   const [loading, setLoading] = useState(true);
-  const [newKeyName, setNewKeyName] = useState('');
-  const [selectedGroup, setSelectedGroup] = useState('');
   const [groups, setGroups] = useState<PublicGroup[]>([]);
+
+  const [showModal, setShowModal] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [selectedGroup, setSelectedGroup] = useState('');
+  const [remark, setRemark] = useState('');
   const [creating, setCreating] = useState(false);
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -56,15 +55,19 @@ export default function ApiKeysPage() {
   useEffect(() => { load(); loadGroups(); }, []);
 
   const createKey = async () => {
-    if (!newKeyName.trim()) return;
+    if (!newName.trim()) return;
     setCreating(true);
     try {
-      const { data } = await api.post<CreateKeyResponse>('/client/keys', {
-        name: newKeyName,
+      const { data } = await api.post<{ key: RelayKey; full_key: string }>('/client/keys', {
+        name: newName.trim(),
         group_id: selectedGroup || null,
+        remark: remark.trim() || null,
       });
       setRevealedKey(data.full_key);
-      setNewKeyName('');
+      setNewName('');
+      setSelectedGroup('');
+      setRemark('');
+      setShowModal(false);
       load();
     } finally {
       setCreating(false);
@@ -92,53 +95,34 @@ export default function ApiKeysPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-display font-bold mb-6">{t('client.keys.title')}</h1>
-
-      {/* Create key */}
-      <div className="card mb-6">
-        <h2 className="font-display text-sm font-semibold mb-3">{t('client.keys.generateNew')}</h2>
-        <div className="flex gap-3">
-          <input
-            value={newKeyName}
-            onChange={e => setNewKeyName(e.target.value)}
-            className="input-field flex-1"
-            placeholder={t('client.keys.keyNamePlaceholder')}
-            onKeyDown={e => e.key === 'Enter' && createKey()}
-          />
-          {groups.length > 0 && (
-            <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)} className="input-field w-40">
-              <option value="">{t('client.keys.noGroup')}</option>
-              {groups.map(g => (
-                <option key={g.id} value={g.id}>{g.name} ({g.multiplier}x)</option>
-              ))}
-            </select>
-          )}
-          <button onClick={createKey} disabled={creating || !newKeyName.trim()} className="btn-primary flex items-center gap-2">
-            <Plus className="w-4 h-4" /> {creating ? t('client.keys.creating') : t('common.create')}
-          </button>
-        </div>
-
-        {/* Revealed key */}
-        {revealedKey && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            className="mt-4 p-3 rounded-lg bg-accent/5 border border-accent/20"
-          >
-            <p className="text-xs text-accent-amber mb-2 font-display">
-              {t('client.keys.copyWarning')}
-            </p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 text-xs font-code bg-bg-primary px-3 py-2 rounded break-all">
-                {revealedKey}
-              </code>
-              <button onClick={copyKey} className="btn-secondary p-2">
-                {copied ? <Check className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4" />}
-              </button>
-            </div>
-          </motion.div>
-        )}
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-display font-bold">{t('client.keys.title')}</h1>
+        <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
+          <Plus className="w-4 h-4" /> {t('client.keys.generateNew')}
+        </button>
       </div>
+
+      {/* Revealed key banner */}
+      {revealedKey && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="card mb-6 p-4 border border-accent/20 bg-accent/5"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs text-accent-amber font-display">{t('client.keys.copyWarning')}</p>
+            <button onClick={() => setRevealedKey(null)} className="text-text-secondary hover:text-text-primary">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 text-xs font-code bg-bg-primary px-3 py-2 rounded break-all">{revealedKey}</code>
+            <button onClick={copyKey} className="btn-secondary p-2">
+              {copied ? <Check className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4" />}
+            </button>
+          </div>
+        </motion.div>
+      )}
 
       {/* Key list */}
       <div className="space-y-3">
@@ -155,22 +139,23 @@ export default function ApiKeysPage() {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.05 }}
-              className="card card-glow flex items-center justify-between"
+              className={`card card-glow flex items-center justify-between ${!key.is_active ? 'opacity-50' : ''}`}
             >
               <div>
                 <div className="flex items-center gap-3 mb-1">
                   <span className="font-display text-sm font-semibold">{key.name}</span>
                   <span className={`text-xs ${key.is_active ? 'text-success' : 'text-danger'}`}>
-                    {key.is_active ? 'Active' : 'Disabled'}
+                    {key.is_active ? t('common.active') : t('common.disabled')}
                   </span>
-                </div>
-                <div className="flex items-center gap-3 text-xs text-text-secondary">
-                  <span className="font-code">{key.key_prefix}</span>
                   {key.group_id && groups.find(g => g.id === key.group_id) && (
                     <span className="px-2 py-0.5 rounded-full bg-accent/10 text-accent text-[10px]">
                       {groups.find(g => g.id === key.group_id)!.name}
                     </span>
                   )}
+                </div>
+                <div className="flex items-center gap-3 text-xs text-text-secondary">
+                  <span className="font-code">{key.key_prefix}</span>
+                  {key.remark && <span>{key.remark}</span>}
                   <span>{t('client.keys.created')} {new Date(key.created_at).toLocaleDateString()}</span>
                 </div>
               </div>
@@ -178,14 +163,12 @@ export default function ApiKeysPage() {
                 <button
                   onClick={() => toggleKey(key.id)}
                   className="p-2 rounded-lg hover:bg-bg-tertiary text-text-secondary transition-colors"
-                  title={key.is_active ? 'Disable' : 'Enable'}
                 >
                   <Power className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => deleteKey(key.id)}
                   className="p-2 rounded-lg hover:bg-danger/10 text-text-secondary hover:text-danger transition-colors"
-                  title="Revoke"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -194,6 +177,64 @@ export default function ApiKeysPage() {
           ))
         )}
       </div>
+
+      {/* Create modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowModal(false)}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="card w-full max-w-md mx-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-display font-semibold">{t('client.keys.generateNew')}</h2>
+              <button onClick={() => setShowModal(false)} className="text-text-secondary hover:text-text-primary">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs text-text-secondary mb-1">{t('client.keys.keyName')}</label>
+                <input
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  className="input-field w-full"
+                  placeholder={t('client.keys.keyNamePlaceholder')}
+                  autoFocus
+                />
+              </div>
+              {groups.length > 0 && (
+                <div>
+                  <label className="block text-xs text-text-secondary mb-1">{t('client.keys.group')}</label>
+                  <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)} className="input-field w-full">
+                    <option value="">{t('client.keys.noGroup')}</option>
+                    {groups.map(g => (
+                      <option key={g.id} value={g.id}>{g.name} ({g.multiplier}x)</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="block text-xs text-text-secondary mb-1">{t('client.keys.remark')}</label>
+                <input
+                  value={remark}
+                  onChange={e => setRemark(e.target.value)}
+                  className="input-field w-full"
+                  placeholder={t('client.keys.remarkPlaceholder')}
+                />
+              </div>
+              <button
+                onClick={createKey}
+                disabled={creating || !newName.trim()}
+                className="btn-primary w-full"
+              >
+                {creating ? t('client.keys.creating') : t('common.create')}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

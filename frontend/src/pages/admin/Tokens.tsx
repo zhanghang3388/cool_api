@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
-import { Plus, Trash2, Power, Copy, Check } from 'lucide-react';
+import { Plus, Trash2, Power, Copy, Check, X } from 'lucide-react';
 import api from '@/api/client';
 
 interface RelayToken {
@@ -11,6 +11,7 @@ interface RelayToken {
   key_prefix: string;
   is_active: boolean;
   group_id: string | null;
+  remark: string;
   created_at: string;
 }
 
@@ -27,10 +28,10 @@ export default function AdminTokensPage() {
   const [loading, setLoading] = useState(true);
   const [groups, setGroups] = useState<PublicGroup[]>([]);
 
-  // create form
-  const [userId, setUserId] = useState('');
+  const [showModal, setShowModal] = useState(false);
   const [newName, setNewName] = useState('');
   const [selectedGroup, setSelectedGroup] = useState('');
+  const [remark, setRemark] = useState('');
   const [creating, setCreating] = useState(false);
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -55,17 +56,19 @@ export default function AdminTokensPage() {
   useEffect(() => { load(); loadGroups(); }, []);
 
   const createToken = async () => {
-    if (!userId.trim() || !newName.trim()) return;
+    if (!newName.trim()) return;
     setCreating(true);
     try {
       const { data } = await api.post<{ key: RelayToken; full_key: string }>('/admin/tokens', {
-        user_id: userId.trim(),
         name: newName.trim(),
         group_id: selectedGroup || null,
+        remark: remark.trim() || null,
       });
       setRevealedKey(data.full_key);
       setNewName('');
-      setUserId('');
+      setSelectedGroup('');
+      setRemark('');
+      setShowModal(false);
       load();
     } finally {
       setCreating(false);
@@ -95,59 +98,35 @@ export default function AdminTokensPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-display font-bold">{t('admin.tokens.title')}</h1>
-        <span className="text-xs text-text-secondary">{t('admin.tokens.total', { count: tokens.length })}</span>
-      </div>
-
-      {/* Create token */}
-      <div className="card mb-6">
-        <h2 className="font-display text-sm font-semibold mb-3">{t('admin.tokens.createToken')}</h2>
-        <div className="flex gap-3 flex-wrap">
-          <input
-            value={userId}
-            onChange={e => setUserId(e.target.value)}
-            className="input-field flex-1 min-w-[200px]"
-            placeholder={t('admin.tokens.userIdPlaceholder')}
-          />
-          <input
-            value={newName}
-            onChange={e => setNewName(e.target.value)}
-            className="input-field flex-1 min-w-[160px]"
-            placeholder={t('admin.tokens.namePlaceholder')}
-            onKeyDown={e => e.key === 'Enter' && createToken()}
-          />
-          {groups.length > 0 && (
-            <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)} className="input-field w-40">
-              <option value="">{t('admin.tokens.noGroup')}</option>
-              {groups.map(g => (
-                <option key={g.id} value={g.id}>{g.name} ({g.multiplier}x)</option>
-              ))}
-            </select>
-          )}
-          <button onClick={createToken} disabled={creating || !userId.trim() || !newName.trim()} className="btn-primary flex items-center gap-2">
-            <Plus className="w-4 h-4" /> {creating ? t('admin.tokens.creating') : t('common.create')}
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-text-secondary">{t('admin.tokens.total', { count: tokens.length })}</span>
+          <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
+            <Plus className="w-4 h-4" /> {t('admin.tokens.createToken')}
           </button>
         </div>
-
-        {revealedKey && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            className="mt-4 p-3 rounded-lg bg-accent/5 border border-accent/20"
-          >
-            <p className="text-xs text-accent-amber mb-2 font-display">
-              {t('admin.tokens.copyWarning')}
-            </p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 text-xs font-code bg-bg-primary px-3 py-2 rounded break-all">
-                {revealedKey}
-              </code>
-              <button onClick={copyKey} className="btn-secondary p-2">
-                {copied ? <Check className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4" />}
-              </button>
-            </div>
-          </motion.div>
-        )}
       </div>
+
+      {/* Revealed key banner */}
+      {revealedKey && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="card mb-6 p-4 border border-accent/20 bg-accent/5"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs text-accent-amber font-display">{t('admin.tokens.copyWarning')}</p>
+            <button onClick={() => setRevealedKey(null)} className="text-text-secondary hover:text-text-primary">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 text-xs font-code bg-bg-primary px-3 py-2 rounded break-all">{revealedKey}</code>
+            <button onClick={copyKey} className="btn-secondary p-2">
+              {copied ? <Check className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4" />}
+            </button>
+          </div>
+        </motion.div>
+      )}
 
       {/* Token list */}
       <div className="space-y-3">
@@ -179,6 +158,7 @@ export default function AdminTokensPage() {
                 <div className="flex items-center gap-4 text-xs text-text-secondary">
                   <span className="font-code">{token.key_prefix}</span>
                   <span>User: {token.user_id.slice(0, 8)}...</span>
+                  {token.remark && <span>{token.remark}</span>}
                   <span>{new Date(token.created_at).toLocaleDateString()}</span>
                 </div>
               </div>
@@ -200,6 +180,62 @@ export default function AdminTokensPage() {
           ))
         )}
       </div>
+
+      {/* Create modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowModal(false)}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="card w-full max-w-md mx-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-display font-semibold">{t('admin.tokens.createToken')}</h2>
+              <button onClick={() => setShowModal(false)} className="text-text-secondary hover:text-text-primary">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs text-text-secondary mb-1">{t('admin.tokens.name')}</label>
+                <input
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  className="input-field w-full"
+                  placeholder={t('admin.tokens.namePlaceholder')}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-text-secondary mb-1">{t('admin.tokens.group')}</label>
+                <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)} className="input-field w-full">
+                  <option value="">{t('admin.tokens.noGroup')}</option>
+                  {groups.map(g => (
+                    <option key={g.id} value={g.id}>{g.name} ({g.multiplier}x)</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-text-secondary mb-1">{t('admin.tokens.remark')}</label>
+                <input
+                  value={remark}
+                  onChange={e => setRemark(e.target.value)}
+                  className="input-field w-full"
+                  placeholder={t('admin.tokens.remarkPlaceholder')}
+                />
+              </div>
+              <button
+                onClick={createToken}
+                disabled={creating || !newName.trim()}
+                className="btn-primary w-full"
+              >
+                {creating ? t('admin.tokens.creating') : t('common.create')}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

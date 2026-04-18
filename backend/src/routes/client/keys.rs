@@ -36,6 +36,7 @@ async fn list_keys(
 pub struct CreateKeyRequest {
     pub name: String,
     pub group_id: Option<Uuid>,
+    pub remark: Option<String>,
 }
 
 async fn create_key(
@@ -43,7 +44,7 @@ async fn create_key(
     State(pool): State<PgPool>,
     Json(req): Json<CreateKeyRequest>,
 ) -> Result<Json<CreateKeyResponse>, AppError> {
-    let (key, full_key) = RelayKey::create(&pool, user.id, &req.name, req.group_id).await?;
+    let (key, full_key) = RelayKey::create(&pool, user.id, &req.name, req.group_id, req.remark.as_deref()).await?;
     Ok(Json(CreateKeyResponse { key, full_key }))
 }
 

@@ -13,9 +13,9 @@ use crate::models::relay_key::RelayKey;
 
 #[derive(Debug, Deserialize)]
 pub struct AdminCreateTokenRequest {
-    pub user_id: Uuid,
     pub name: String,
     pub group_id: Option<Uuid>,
+    pub remark: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -40,11 +40,11 @@ async fn list_tokens(
 }
 
 async fn create_token(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(pool): State<PgPool>,
     Json(req): Json<AdminCreateTokenRequest>,
 ) -> Result<Json<AdminCreateTokenResponse>, AppError> {
-    let (key, full_key) = RelayKey::create(&pool, req.user_id, &req.name, req.group_id).await?;
+    let (key, full_key) = RelayKey::create(&pool, admin.0.id, &req.name, req.group_id, req.remark.as_deref()).await?;
     Ok(Json(AdminCreateTokenResponse { key, full_key }))
 }
 
