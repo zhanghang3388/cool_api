@@ -284,6 +284,7 @@ const en = {
     pricing: {
       title: 'Model Pricing',
       subtitle: 'Per-token billing, transparent and open',
+      backHome: 'Back to Home',
       model: 'Model',
       provider: 'Provider',
       inputPrice: 'Input Price',

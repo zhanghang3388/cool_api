@@ -34,30 +34,12 @@ const providerLabels: Record<string, string> = {
   mistral: 'Mistral',
 };
 
-interface PricingItem {
-  model: string;
-  provider: string;
-  input_price: number;
-  output_price: number;
-}
-
-interface PublicGroup {
-  id: string;
-  name: string;
-  multiplier: number;
-  models: string[];
-}
-
 export default function Home() {
   const { t } = useTranslation();
   const { isAuthenticated, isAdmin } = useAuthStore();
   const [channels, setChannels] = useState<PublicChannel[]>([]);
   const [tab, setTab] = useState('all');
   const [loading, setLoading] = useState(true);
-  const [pricingData, setPricingData] = useState<PricingItem[]>([]);
-  const [pricingLoading, setPricingLoading] = useState(true);
-  const [groups, setGroups] = useState<PublicGroup[]>([]);
-  const [pricingFilter, setPricingFilter] = useState('all');
 
   useEffect(() => {
     fetch('/v1/channels/public')
@@ -67,19 +49,6 @@ export default function Home() {
         setLoading(false);
       })
       .catch(() => setLoading(false));
-
-    fetch('/v1/pricing')
-      .then(r => r.json())
-      .then(data => {
-        setPricingData(Array.isArray(data) ? data : []);
-        setPricingLoading(false);
-      })
-      .catch(() => setPricingLoading(false));
-
-    fetch('/v1/groups')
-      .then(r => r.json())
-      .then(data => setGroups(Array.isArray(data) ? data : []))
-      .catch(() => {});
   }, []);
 
   const providers = ['all', ...new Set(channels.map(c => c.provider))];
@@ -156,7 +125,7 @@ export default function Home() {
                 <Link to="/login" className="btn-secondary px-8 py-3">{t('home.hero.login')}</Link>
               </>
             )}
-            <a href="#pricing" className="btn-secondary px-8 py-3">{t('home.hero.pricing')}</a>
+            <Link to="/pricing" className="btn-secondary px-8 py-3">{t('home.hero.pricing')}</Link>
           </div>
         </motion.div>
       </section>
@@ -273,138 +242,20 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Pricing */}
+      {/* Pricing CTA */}
       <section id="pricing" className="py-20 px-6">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-3xl mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            className="text-center mb-10"
+            className="text-center"
           >
             <h2 className="text-3xl font-display font-bold mb-3">{t('home.pricing.title')}</h2>
-            <p className="text-text-secondary text-sm">{t('home.pricing.subtitle')}</p>
-          </motion.div>
-
-          {/* Group + Provider filter tabs */}
-          {(groups.length > 0 || pricingData.length > 0) && (
-            <div className="flex justify-center gap-2 mb-6 flex-wrap">
-              <button
-                onClick={() => setPricingFilter('all')}
-                className={`px-4 py-2 rounded-lg text-xs font-display transition-colors ${
-                  pricingFilter === 'all' ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary'
-                }`}
-              >
-                {t('home.models.all')}
-              </button>
-              {groups.map(g => (
-                <button
-                  key={`group-${g.id}`}
-                  onClick={() => setPricingFilter(`group:${g.id}`)}
-                  className={`px-4 py-2 rounded-lg text-xs font-display transition-colors ${
-                    pricingFilter === `group:${g.id}` ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary'
-                  }`}
-                >
-                  {g.name} <span className="text-[10px] opacity-60">{g.multiplier}x</span>
-                </button>
-              ))}
-              {[...new Set(pricingData.map(d => d.provider))].map(p => (
-                <button
-                  key={`prov-${p}`}
-                  onClick={() => setPricingFilter(`provider:${p}`)}
-                  className={`px-4 py-2 rounded-lg text-xs font-display transition-colors ${
-                    pricingFilter === `provider:${p}` ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary'
-                  }`}
-                >
-                  {providerLabels[p] || p}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="card overflow-hidden p-0"
-          >
-            {pricingLoading ? (
-              <div className="animate-pulse h-40" />
-            ) : pricingData.length === 0 ? (
-              <div className="text-center text-text-secondary text-sm py-12">{t('common.noData')}</div>
-            ) : (() => {
-              const selectedGroup = pricingFilter.startsWith('group:') ? groups.find(g => g.id === pricingFilter.slice(6)) : null;
-              const filteredPricing = pricingData.filter(row => {
-                if (pricingFilter === 'all') return true;
-                if (pricingFilter.startsWith('provider:')) return row.provider === pricingFilter.slice(9);
-                if (selectedGroup) return selectedGroup.models.includes(row.model);
-                return true;
-              });
-              const displayPricing = filteredPricing.map(row => ({
-                ...row,
-                original_input: row.input_price,
-                original_output: row.output_price,
-                input_price: selectedGroup ? row.input_price * selectedGroup.multiplier : row.input_price,
-                output_price: selectedGroup ? row.output_price * selectedGroup.multiplier : row.output_price,
-              }));
-              return displayPricing.length === 0 ? (
-                <div className="text-center text-text-secondary text-sm py-12">{t('common.noData')}</div>
-              ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-text-secondary font-display">
-                  <th className="px-5 py-4">{t('home.pricing.model')}</th>
-                  <th className="px-5 py-4">{t('home.pricing.provider')}</th>
-                  <th className="px-5 py-4 text-right">{t('home.pricing.inputPrice')}</th>
-                  <th className="px-5 py-4 text-right">{t('home.pricing.outputPrice')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayPricing.map((row, i) => (
-                  <motion.tr
-                    key={row.model}
-                    initial={{ opacity: 0 }}
-                    whileInView={{ opacity: 1 }}
-                    viewport={{ once: true }}
-                    transition={{ delay: i * 0.03 }}
-                    className="glass-row border-b border-border/50"
-                  >
-                    <td className="px-5 py-3 font-code text-xs">{row.model}</td>
-                    <td className="px-5 py-3">
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${providerColors[row.provider] || providerColors.unknown}`}>
-                        {providerLabels[row.provider] || row.provider}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3 text-right font-code text-xs">
-                      {selectedGroup && row.original_input !== row.input_price ? (
-                        <>
-                          <span className="line-through text-text-secondary">¥{row.original_input.toFixed(2)}</span>
-                          {' '}
-                          <span className="text-accent">¥{row.input_price.toFixed(2)}</span>
-                        </>
-                      ) : (
-                        <span className="text-accent">¥{row.input_price.toFixed(2)}</span>
-                      )}
-                      <span className="text-text-secondary text-[10px]"> {t('home.pricing.unit')}</span>
-                    </td>
-                    <td className="px-5 py-3 text-right font-code text-xs">
-                      {selectedGroup && row.original_output !== row.output_price ? (
-                        <>
-                          <span className="line-through text-text-secondary">¥{row.original_output.toFixed(2)}</span>
-                          {' '}
-                          <span className="text-accent-amber">¥{row.output_price.toFixed(2)}</span>
-                        </>
-                      ) : (
-                        <span className="text-accent-amber">¥{row.output_price.toFixed(2)}</span>
-                      )}
-                      <span className="text-text-secondary text-[10px]"> {t('home.pricing.unit')}</span>
-                    </td>
-                  </motion.tr>
-                ))}
-              </tbody>
-            </table>
-            );
-            })()}
+            <p className="text-text-secondary text-sm mb-8">{t('home.pricing.subtitle')}</p>
+            <Link to="/pricing" className="btn-primary px-8 py-3 text-sm">
+              {t('home.hero.pricing')}
+            </Link>
           </motion.div>
         </div>
       </section>

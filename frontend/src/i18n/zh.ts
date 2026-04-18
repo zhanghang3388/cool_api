@@ -284,6 +284,7 @@ const zh = {
     pricing: {
       title: '模型定价',
       subtitle: '按 Token 计费，透明公开',
+      backHome: '返回首页',
       model: '模型',
       provider: '厂商',
       inputPrice: '输入价格',

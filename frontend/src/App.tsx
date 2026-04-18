@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Home from '@/pages/Home';
+import PricingPublic from '@/pages/PricingPublic';
 import Login from '@/pages/auth/Login';
 import Register from '@/pages/auth/Register';
 import AdminLayout from '@/components/layout/AdminLayout';
@@ -33,6 +34,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/pricing" element={<PricingPublic />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
 
