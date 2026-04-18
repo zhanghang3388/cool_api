@@ -26,7 +26,12 @@ export default function Login() {
       setAuth(data.access_token, data.refresh_token, data.user);
       navigate(data.user.role === 'admin' ? '/admin' : '/dashboard');
     } catch (err: any) {
-      setError(err.response?.data?.error?.message || 'Login failed');
+      const msg = err.response?.data?.error?.message || '';
+      if (msg.includes('Invalid credentials') || msg.includes('not found')) {
+        setError(t('auth.invalidCredentials'));
+      } else {
+        setError(t('auth.loginFailed'));
+      }
     } finally {
       setLoading(false);
     }

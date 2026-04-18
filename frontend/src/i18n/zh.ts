@@ -36,6 +36,8 @@ const zh = {
     emailPlaceholder: 'you@example.com',
     usernameHint: '3-64 个字符',
     passwordHint: '至少 6 个字符',
+    invalidCredentials: '用户名或密码错误',
+    loginFailed: '登录失败，请稍后重试',
   },
   nav: {
     dashboard: '仪表盘',

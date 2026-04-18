@@ -36,6 +36,8 @@ const en = {
     emailPlaceholder: 'you@example.com',
     usernameHint: '3-64 characters',
     passwordHint: 'At least 6 characters',
+    invalidCredentials: 'Incorrect username or password',
+    loginFailed: 'Login failed, please try again',
   },
   nav: {
     dashboard: 'Dashboard',
