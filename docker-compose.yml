@@ -6,8 +6,6 @@ services:
       POSTGRES_USER: ${DB_USER:-cool_api}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-cool_api}
       POSTGRES_DB: ${DB_NAME:-cool_api}
-    ports:
-      - "5432:5432"
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
     healthcheck:
