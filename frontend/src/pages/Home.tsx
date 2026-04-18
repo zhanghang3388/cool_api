@@ -26,6 +26,18 @@ const providerLabels: Record<string, string> = {
   gemini: 'Gemini',
 };
 
+const pricingData = [
+  { model: 'gpt-4o', provider: 'openai', input: '2.50', output: '10.00' },
+  { model: 'gpt-4o-mini', provider: 'openai', input: '0.15', output: '0.60' },
+  { model: 'gpt-4-turbo', provider: 'openai', input: '10.00', output: '30.00' },
+  { model: 'gpt-3.5-turbo', provider: 'openai', input: '0.50', output: '1.50' },
+  { model: 'claude-sonnet-4', provider: 'claude', input: '3.00', output: '15.00' },
+  { model: 'claude-haiku-4', provider: 'claude', input: '0.80', output: '4.00' },
+  { model: 'claude-opus-4', provider: 'claude', input: '15.00', output: '75.00' },
+  { model: 'gemini-2.0', provider: 'gemini', input: '1.25', output: '5.00' },
+  { model: 'gemini-1.5-flash', provider: 'gemini', input: '0.075', output: '0.30' },
+];
+
 export default function Home() {
   const { t } = useTranslation();
   const { isAuthenticated, isAdmin } = useAuthStore();
@@ -116,6 +128,9 @@ export default function Home() {
                 <Link to="/register" className="btn-primary px-8 py-3">{t('home.hero.register')}</Link>
                 <Link to="/login" className="btn-secondary px-8 py-3">{t('home.hero.login')}</Link>
               </>
+            )}
+            <a href="#pricing" className="btn-secondary px-8 py-3">{t('home.hero.pricing')}</a>
+          </div>
             )}
           </div>
         </motion.div>
@@ -220,6 +235,64 @@ export default function Home() {
               ))}
             </div>
           )}
+        </div>
+      </section>
+
+      {/* Pricing */}
+      <section id="pricing" className="py-20 px-6">
+        <div className="max-w-4xl mx-auto">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="text-center mb-10"
+          >
+            <h2 className="text-3xl font-display font-bold mb-3">{t('home.pricing.title')}</h2>
+            <p className="text-text-secondary text-sm">{t('home.pricing.subtitle')}</p>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="card overflow-hidden p-0"
+          >
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-text-secondary font-display">
+                  <th className="px-5 py-4">{t('home.pricing.model')}</th>
+                  <th className="px-5 py-4">{t('home.pricing.provider')}</th>
+                  <th className="px-5 py-4 text-right">{t('home.pricing.inputPrice')}</th>
+                  <th className="px-5 py-4 text-right">{t('home.pricing.outputPrice')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pricingData.map((row, i) => (
+                  <motion.tr
+                    key={row.model}
+                    initial={{ opacity: 0 }}
+                    whileInView={{ opacity: 1 }}
+                    viewport={{ once: true }}
+                    transition={{ delay: i * 0.03 }}
+                    className="glass-row border-b border-border/50"
+                  >
+                    <td className="px-5 py-3 font-code text-xs">{row.model}</td>
+                    <td className="px-5 py-3">
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${providerColors[row.provider] || providerColors.unknown}`}>
+                        {providerLabels[row.provider] || row.provider}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3 text-right font-code text-xs text-accent">
+                      ${row.input} <span className="text-text-secondary text-[10px]">{t('home.pricing.unit')}</span>
+                    </td>
+                    <td className="px-5 py-3 text-right font-code text-xs text-accent-amber">
+                      ${row.output} <span className="text-text-secondary text-[10px]">{t('home.pricing.unit')}</span>
+                    </td>
+                  </motion.tr>
+                ))}
+              </tbody>
+            </table>
+          </motion.div>
         </div>
       </section>
 

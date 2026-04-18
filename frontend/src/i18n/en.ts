@@ -214,6 +214,7 @@ const en = {
       login: 'Login',
       register: 'Get Started Free',
       console: 'Go to Console',
+      pricing: 'View Pricing',
     },
     features: {
       title: 'Why COOL API',
@@ -233,6 +234,15 @@ const en = {
       channel: 'Channel',
       strategy: 'Strategy',
       noModels: 'No models configured yet. Contact admin.',
+    },
+    pricing: {
+      title: 'Model Pricing',
+      subtitle: 'Per-token billing, transparent and open',
+      model: 'Model',
+      provider: 'Provider',
+      inputPrice: 'Input Price',
+      outputPrice: 'Output Price',
+      unit: '/ 1M Tokens',
     },
     cta: {
       title: 'Get Started',

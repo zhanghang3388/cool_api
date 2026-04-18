@@ -214,6 +214,7 @@ const zh = {
       login: '登录',
       register: '免费注册',
       console: '进入控制台',
+      pricing: '查看定价',
     },
     features: {
       title: '为什么选择 COOL API',
@@ -233,6 +234,15 @@ const zh = {
       channel: '渠道',
       strategy: '策略',
       noModels: '暂未配置模型，请联系管理员。',
+    },
+    pricing: {
+      title: '模型定价',
+      subtitle: '按 Token 计费，透明公开',
+      model: '模型',
+      provider: '厂商',
+      inputPrice: '输入价格',
+      outputPrice: '输出价格',
+      unit: '/ 百万 Tokens',
     },
     cta: {
       title: '开始使用',
