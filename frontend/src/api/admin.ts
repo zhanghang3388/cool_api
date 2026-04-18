@@ -97,6 +97,13 @@ export const adminApi = {
   topup: (data: { user_id: string; amount: number; description?: string }) =>
     api.post<BillingTransaction>('/admin/billing/topup', data),
 
+  // Pricing
+  listPricing: () => api.get<any[]>('/admin/pricing'),
+  syncPricing: () => api.post<{ added: number; updated: number; total: number }>('/admin/pricing/sync'),
+  updatePricing: (id: string, data: any) => api.patch(`/admin/pricing/${id}`, data),
+  deletePricing: (id: string) => api.delete(`/admin/pricing/${id}`),
+  batchMultiplier: (data: { ids: string[]; multiplier: number }) => api.patch('/admin/pricing/batch-multiplier', data),
+
   // Settings
   getSettings: () => api.get<[string, unknown][]>('/admin/settings'),
   updateSettings: (data: Record<string, unknown>) => api.patch('/admin/settings', data),

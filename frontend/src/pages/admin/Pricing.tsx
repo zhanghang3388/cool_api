@@ -41,14 +41,10 @@ export default function PricingPage() {
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [editGroup, setEditGroup] = useState<PricingGroupWithChannels | null>(null);
 
-  const token = localStorage.getItem('token');
-  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
-
   const fetchPricing = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin/pricing', { headers });
-      const data = await res.json();
+      const { data } = await adminApi.listPricing();
       setItems(Array.isArray(data) ? data : []);
     } catch { /* ignore */ }
     setLoading(false);
@@ -74,8 +70,7 @@ export default function PricingPage() {
     setSyncing(true);
     setSyncResult('');
     try {
-      const res = await fetch('/api/admin/pricing/sync', { method: 'POST', headers });
-      const data = await res.json();
+      const { data } = await adminApi.syncPricing();
       setSyncResult(t('admin.pricing.syncResult', { added: data.added, updated: data.updated, total: data.total }));
       fetchPricing();
     } catch { setSyncResult('Error'); }
@@ -83,18 +78,12 @@ export default function PricingPage() {
   };
 
   const handleToggle = async (item: PricingItem) => {
-    await fetch(`/api/admin/pricing/${item.id}`, {
-      method: 'PATCH', headers,
-      body: JSON.stringify({ is_active: !item.is_active }),
-    });
+    await adminApi.updatePricing(item.id, { is_active: !item.is_active });
     fetchPricing();
   };
 
   const handleSaveEdit = async (id: string) => {
-    await fetch(`/api/admin/pricing/${id}`, {
-      method: 'PATCH', headers,
-      body: JSON.stringify({ multiplier: parseFloat(editValues.multiplier) || 1.0, is_active: editValues.is_active }),
-    });
+    await adminApi.updatePricing(id, { multiplier: parseFloat(editValues.multiplier) || 1.0, is_active: editValues.is_active });
     setEditingId(null);
     fetchPricing();
   };
@@ -102,17 +91,14 @@ export default function PricingPage() {
   const handleBatchMultiplier = async () => {
     const ids = Array.from(selected);
     if (ids.length === 0) return;
-    await fetch('/api/admin/pricing/batch-multiplier', {
-      method: 'PATCH', headers,
-      body: JSON.stringify({ ids, multiplier: parseFloat(batchMultiplier) || 1.0 }),
-    });
+    await adminApi.batchMultiplier({ ids, multiplier: parseFloat(batchMultiplier) || 1.0 });
     setSelected(new Set());
     fetchPricing();
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm(t('admin.pricing.deleteConfirm'))) return;
-    await fetch(`/api/admin/pricing/${id}`, { method: 'DELETE', headers });
+    await adminApi.deletePricing(id);
     fetchPricing();
   };
 
