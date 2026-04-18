@@ -139,7 +139,7 @@ async fn sync_pricing(
             let existing = ModelPricing::find_by_model(&pool, model_name).await?;
             if existing.is_some() {
                 sqlx::query(
-                    "UPDATE model_pricing SET provider = $1, input_price = $2, output_price = $3, updated_at = now() WHERE model = $4"
+                    "UPDATE model_pricing SET provider = $1, input_price = $2, output_price = $3, is_active = true, updated_at = now() WHERE model = $4"
                 )
                 .bind(&item.provider)
                 .bind(item.input_price)
