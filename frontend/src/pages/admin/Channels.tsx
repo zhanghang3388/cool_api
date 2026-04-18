@@ -4,8 +4,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Trash2, Power, X, Download } from 'lucide-react';
 import { adminApi, type Channel, type ProviderKey } from '@/api/admin';
 
-const STRATEGIES = ['round_robin', 'weighted', 'priority'] as const;
-
 export default function ChannelsPage() {
   const { t } = useTranslation();
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -202,7 +200,7 @@ function AddChannelModal({ keys, onClose, onSaved }: { keys: ProviderKey[]; onCl
         ? (document.getElementById('manual-pattern') as HTMLInputElement)?.value || ''
         : selectedModels.join(',');
 
-      await adminApi.createChannel({ name, model_pattern: modelPattern, strategy: 'round_robin', key_ids: keyIds });
+      await adminApi.createChannel({ name, model_pattern: modelPattern, key_ids: keyIds });
       onSaved();
       onClose();
     } catch (err: any) {
