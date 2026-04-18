@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Key, BarChart3, CreditCard, BookOpen,
   Terminal, ChevronLeft, ChevronRight, LogOut, Zap, ShieldCheck
 } from 'lucide-react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -20,7 +20,6 @@ const navItems = [
 export default function ClientLayout() {
   const { user, isAuthenticated, isAdmin, logout } = useAuthStore();
   const [collapsed, setCollapsed] = useState(false);
-  const navigate = useNavigate();
 
   if (!isAuthenticated()) return <Navigate to="/login" replace />;
 

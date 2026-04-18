@@ -34,7 +34,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     async function load() {
       try {
-        const [usersRes, keysRes, channelsRes, overviewRes, dailyRes] = await Promise.all([
+        const [, keysRes, channelsRes, overviewRes, dailyRes] = await Promise.all([
           adminApi.listUsers(1, 1),
           adminApi.listProviderKeys(),
           adminApi.listChannels(),
@@ -146,7 +146,7 @@ export default function AdminDashboard() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#2A2A40" />
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#8888A0' }} tickFormatter={d => d.slice(5)} />
                 <YAxis tick={{ fontSize: 10, fill: '#8888A0' }} tickFormatter={v => `$${v}`} />
-                <Tooltip {...chartTooltipStyle} formatter={(v: number) => [`$${v.toFixed(4)}`, 'Revenue']} />
+                <Tooltip {...chartTooltipStyle} formatter={(v: unknown) => [`$${Number(v).toFixed(4)}`, 'Revenue']} />
                 <Area type="monotone" dataKey="cost" stroke="#FFB800" fill="url(#costGrad)" strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>

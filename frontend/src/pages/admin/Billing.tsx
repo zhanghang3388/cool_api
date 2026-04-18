@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { DollarSign } from 'lucide-react';
-import { adminApi, type BillingTransaction, type User } from '@/api/admin';
+import { adminApi, type BillingTransaction } from '@/api/admin';
 
 export default function BillingPage() {
   const [transactions, setTransactions] = useState<BillingTransaction[]>([]);
