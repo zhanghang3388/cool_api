@@ -36,6 +36,6 @@ services:
       dockerfile: ../Dockerfile.frontend
     container_name: cool_api_frontend
     ports:
-      - "80:80"
+      - "7631:80"
     depends_on:
       - backend
