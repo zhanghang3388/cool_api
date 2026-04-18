@@ -40,19 +40,20 @@ export default function PricingPage() {
   const [syncResult, setSyncResult] = useState('');
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [editGroup, setEditGroup] = useState<PricingGroupWithChannels | null>(null);
-  const [providerFilter, setProviderFilter] = useState('all');
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
 
   const fetchPricing = async () => {
     setLoading(true);
-    try {
-      const { data } = await adminApi.listPricing();
-      setItems(Array.isArray(data) ? data : []);
-    } catch { /* ignore */ }
+    try { const { data } = await adminApi.listPricing(); setItems(Array.isArray(data) ? data : []); } catch {}
     setLoading(false);
   };
 
   const fetchGroups = async () => {
-    try { const { data } = await adminApi.listGroups(); setGroups(data); } catch {}
+    try {
+      const { data } = await adminApi.listGroups();
+      setGroups(data);
+      if (!activeGroupId && data.length > 0) setActiveGroupId(data[0].id);
+    } catch {}
   };
 
   const fetchChannels = async () => {
@@ -81,179 +82,129 @@ export default function PricingPage() {
     if (!confirm(t('admin.pricing.deleteConfirm'))) return;
     await adminApi.deleteGroup(id);
     fetchGroups();
+    if (activeGroupId === id) setActiveGroupId(groups.find(g => g.id !== id)?.id || null);
   };
 
   const channelName = (id: string) => channels.find(c => c.id === id)?.name ?? id.slice(0, 8);
 
-  // Get models for a group (from its channels)
   const getGroupModels = (g: PricingGroupWithChannels) => {
     const models: string[] = [];
     for (const cid of g.channel_ids) {
       const ch = channels.find(c => c.id === cid);
-      if (ch) {
-        ch.model_pattern.split(',').map(m => m.trim()).filter(Boolean).forEach(m => {
-          if (!models.includes(m)) models.push(m);
-        });
-      }
+      if (ch) ch.model_pattern.split(',').map(m => m.trim()).filter(Boolean).forEach(m => { if (!models.includes(m)) models.push(m); });
     }
     return models;
   };
 
-  const providers = ['all', ...new Set(items.map(i => i.provider))];
-  const filteredItems = providerFilter === 'all' ? items : items.filter(i => i.provider === providerFilter);
+  const activeGroup = groups.find(g => g.id === activeGroupId) || null;
+  const groupModels = activeGroup ? getGroupModels(activeGroup) : [];
+  const groupPricing = activeGroup ? items.filter(p => groupModels.includes(p.model)) : items;
+  const multiplier = activeGroup?.multiplier ?? 1;
 
   return (
-    <div className="space-y-8">
-      {/* Section 1: Pricing Groups */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-lg font-display">{t('admin.pricing.groups')}</h1>
+    <div className="space-y-6">
+      {/* Header: Groups + Sync */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-lg font-display">{t('admin.pricing.title')}</h1>
+        <div className="flex items-center gap-2">
+          {syncResult && <span className="text-xs text-success">{syncResult}</span>}
+          <button onClick={handleSync} disabled={syncing} className="btn-secondary text-xs flex items-center gap-2">
+            <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? t('admin.pricing.syncing') : t('admin.pricing.syncBtn')}
+          </button>
           <button onClick={() => { setEditGroup(null); setShowGroupModal(true); }} className="btn-primary text-xs flex items-center gap-2">
             <Plus className="w-3.5 h-3.5" /> {t('admin.pricing.addGroup')}
           </button>
         </div>
-
-        {groups.length === 0 ? (
-          <div className="card text-center text-text-secondary text-sm py-8">{t('admin.pricing.noGroups')}</div>
-        ) : (
-          <div className="space-y-3">
-            {groups.map(g => {
-              const groupModels = getGroupModels(g);
-              const groupPricing = items.filter(p => groupModels.includes(p.model));
-              return (
-                <div key={g.id} className={`card ${!g.is_active ? 'opacity-50' : ''}`}>
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <span className="font-display text-sm font-semibold">{g.name}</span>
-                      <span className="font-code text-xs text-accent px-2 py-0.5 rounded-full bg-accent/10">{g.multiplier}x</span>
-                      <span className="text-xs text-text-secondary">{g.channel_ids.length} {t('admin.pricing.channelsCount')}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => { setEditGroup(g); setShowGroupModal(true); }} className="p-1.5 rounded hover:bg-accent/10 text-text-secondary hover:text-accent">
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button onClick={() => handleDeleteGroup(g.id)} className="p-1.5 rounded hover:bg-danger/10 text-text-secondary hover:text-danger">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                  {/* Channels */}
-                  <div className="flex flex-wrap gap-1 mb-3">
-                    {g.channel_ids.map(cid => (
-                      <span key={cid} className="text-[10px] px-2 py-0.5 rounded-full bg-bg-tertiary border border-border">
-                        {channelName(cid)}
-                      </span>
-                    ))}
-                  </div>
-                  {/* Group model pricing preview */}
-                  {groupPricing.length > 0 && (
-                    <div className="overflow-x-auto -mx-4 px-4">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="text-left text-text-secondary">
-                            <th className="pr-4 py-1.5">{t('admin.pricing.model')}</th>
-                            <th className="pr-4 py-1.5">{t('admin.pricing.provider')}</th>
-                            <th className="pr-4 py-1.5 text-right">{t('admin.pricing.inputPrice')}</th>
-                            <th className="py-1.5 text-right">{t('admin.pricing.outputPrice')}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {groupPricing.map(p => (
-                            <tr key={p.id} className="border-t border-border/30">
-                              <td className="pr-4 py-1.5 font-code">{p.model}</td>
-                              <td className="pr-4 py-1.5">
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${providerColors[p.provider] || 'text-text-secondary border-border'}`}>
-                                  {providerLabels[p.provider] || p.provider}
-                                </span>
-                              </td>
-                              <td className="pr-4 py-1.5 text-right font-code">
-                                {g.multiplier !== 1 && <span className="line-through text-text-secondary mr-1">${p.input_price.toFixed(2)}</span>}
-                                <span className="text-accent">${(p.input_price * g.multiplier).toFixed(2)}</span>
-                              </td>
-                              <td className="py-1.5 text-right font-code">
-                                {g.multiplier !== 1 && <span className="line-through text-text-secondary mr-1">${p.output_price.toFixed(2)}</span>}
-                                <span className="text-accent-amber">${(p.output_price * g.multiplier).toFixed(2)}</span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
       </div>
 
-      {/* Section 2: Official Model Prices */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-lg font-display">{t('admin.pricing.title')}</h1>
-          <div className="flex items-center gap-3">
-            {syncResult && <span className="text-xs text-success">{syncResult}</span>}
-            <button onClick={handleSync} disabled={syncing} className="btn-primary text-xs flex items-center gap-2">
-              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
-              {syncing ? t('admin.pricing.syncing') : t('admin.pricing.syncBtn')}
+      {/* Group tabs */}
+      {groups.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {groups.map(g => (
+            <button
+              key={g.id}
+              onClick={() => setActiveGroupId(g.id)}
+              className={`px-4 py-2 rounded-lg text-xs font-display transition-colors flex items-center gap-2 ${
+                activeGroupId === g.id ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary'
+              }`}
+            >
+              {g.name}
+              <span className="text-[10px] opacity-60">{g.multiplier}x</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Active group info */}
+      {activeGroup && (
+        <div className="card flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <span className="font-display text-sm font-semibold">{activeGroup.name}</span>
+            <span className="font-code text-xs text-accent px-2 py-0.5 rounded-full bg-accent/10">{t('admin.pricing.multiplier')}: {activeGroup.multiplier}x</span>
+            <div className="flex flex-wrap gap-1">
+              {activeGroup.channel_ids.map(cid => (
+                <span key={cid} className="text-[10px] px-2 py-0.5 rounded-full bg-bg-tertiary border border-border">{channelName(cid)}</span>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <button onClick={() => { setEditGroup(activeGroup); setShowGroupModal(true); }} className="p-1.5 rounded hover:bg-accent/10 text-text-secondary hover:text-accent">
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button onClick={() => handleDeleteGroup(activeGroup.id)} className="p-1.5 rounded hover:bg-danger/10 text-text-secondary hover:text-danger">
+              <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
+      )}
 
-        {/* Provider filter */}
-        {items.length > 0 && (
-          <div className="flex gap-1 mb-4">
-            {providers.map(p => (
-              <button key={p} onClick={() => setProviderFilter(p)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-display transition-colors ${
-                  providerFilter === p ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary'
-                }`}>
-                {p === 'all' ? t('home.models.all') : providerLabels[p] || p}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {loading ? (
-          <div className="card animate-pulse h-40" />
-        ) : items.length === 0 ? (
-          <div className="card text-center text-text-secondary text-sm py-12">{t('admin.pricing.empty')}</div>
-        ) : (
-          <div className="card overflow-hidden p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-text-secondary font-display">
-                  <th className="px-4 py-3">{t('admin.pricing.model')}</th>
-                  <th className="px-4 py-3">{t('admin.pricing.provider')}</th>
-                  <th className="px-4 py-3 text-right">{t('admin.pricing.inputPrice')}</th>
-                  <th className="px-4 py-3 text-right">{t('admin.pricing.outputPrice')}</th>
-                  <th className="px-4 py-3 text-center">{t('admin.pricing.status')}</th>
+      {/* Pricing table */}
+      {loading ? (
+        <div className="card animate-pulse h-40" />
+      ) : groupPricing.length === 0 ? (
+        <div className="card text-center text-text-secondary text-sm py-12">{t('admin.pricing.empty')}</div>
+      ) : (
+        <div className="card overflow-hidden p-0">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-text-secondary font-display">
+                <th className="px-4 py-3">{t('admin.pricing.model')}</th>
+                <th className="px-4 py-3">{t('admin.pricing.provider')}</th>
+                <th className="px-4 py-3 text-right">{t('admin.pricing.inputPrice')}</th>
+                <th className="px-4 py-3 text-right">{t('admin.pricing.outputPrice')}</th>
+                <th className="px-4 py-3 text-center">{t('admin.pricing.status')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groupPricing.map(item => (
+                <tr key={item.id} className={`border-b border-border/50 ${!item.is_active ? 'opacity-50' : ''}`}>
+                  <td className="px-4 py-3 font-code text-xs">{item.model}</td>
+                  <td className="px-4 py-3">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${providerColors[item.provider] || 'text-text-secondary border-border'}`}>
+                      {providerLabels[item.provider] || item.provider}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right font-code text-xs">
+                    {multiplier !== 1 && <span className="line-through text-text-secondary mr-1">¥{item.input_price.toFixed(2)}</span>}
+                    <span className="text-accent">¥{(item.input_price * multiplier).toFixed(2)}</span>
+                  </td>
+                  <td className="px-4 py-3 text-right font-code text-xs">
+                    {multiplier !== 1 && <span className="line-through text-text-secondary mr-1">¥{item.output_price.toFixed(2)}</span>}
+                    <span className="text-accent-amber">¥{(item.output_price * multiplier).toFixed(2)}</span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <button onClick={() => handleToggle(item)}
+                      className={`text-[10px] px-2 py-0.5 rounded-full border ${item.is_active ? 'text-success border-success/20 bg-success/5' : 'text-text-secondary border-border bg-bg-tertiary'}`}>
+                      {item.is_active ? t('common.active') : t('common.disabled')}
+                    </button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {filteredItems.map(item => (
-                  <tr key={item.id} className={`border-b border-border/50 ${!item.is_active ? 'opacity-50' : ''}`}>
-                    <td className="px-4 py-3 font-code text-xs">{item.model}</td>
-                    <td className="px-4 py-3">
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${providerColors[item.provider] || 'text-text-secondary border-border'}`}>
-                        {providerLabels[item.provider] || item.provider}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right font-code text-xs text-accent">${item.input_price.toFixed(2)}</td>
-                    <td className="px-4 py-3 text-right font-code text-xs text-accent-amber">${item.output_price.toFixed(2)}</td>
-                    <td className="px-4 py-3 text-center">
-                      <button onClick={() => handleToggle(item)}
-                        className={`text-[10px] px-2 py-0.5 rounded-full border ${item.is_active ? 'text-success border-success/20 bg-success/5' : 'text-text-secondary border-border bg-bg-tertiary'}`}>
-                        {item.is_active ? t('common.active') : t('common.disabled')}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <AnimatePresence>
         {showGroupModal && (

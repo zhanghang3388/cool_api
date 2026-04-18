@@ -378,24 +378,24 @@ export default function Home() {
                     <td className="px-5 py-3 text-right font-code text-xs">
                       {selectedGroup && row.original_input !== row.input_price ? (
                         <>
-                          <span className="line-through text-text-secondary">${row.original_input.toFixed(2)}</span>
+                          <span className="line-through text-text-secondary">¥{row.original_input.toFixed(2)}</span>
                           {' '}
-                          <span className="text-accent">${row.input_price.toFixed(2)}</span>
+                          <span className="text-accent">¥{row.input_price.toFixed(2)}</span>
                         </>
                       ) : (
-                        <span className="text-accent">${row.input_price.toFixed(2)}</span>
+                        <span className="text-accent">¥{row.input_price.toFixed(2)}</span>
                       )}
                       <span className="text-text-secondary text-[10px]"> {t('home.pricing.unit')}</span>
                     </td>
                     <td className="px-5 py-3 text-right font-code text-xs">
                       {selectedGroup && row.original_output !== row.output_price ? (
                         <>
-                          <span className="line-through text-text-secondary">${row.original_output.toFixed(2)}</span>
+                          <span className="line-through text-text-secondary">¥{row.original_output.toFixed(2)}</span>
                           {' '}
-                          <span className="text-accent-amber">${row.output_price.toFixed(2)}</span>
+                          <span className="text-accent-amber">¥{row.output_price.toFixed(2)}</span>
                         </>
                       ) : (
-                        <span className="text-accent-amber">${row.output_price.toFixed(2)}</span>
+                        <span className="text-accent-amber">¥{row.output_price.toFixed(2)}</span>
                       )}
                       <span className="text-text-secondary text-[10px]"> {t('home.pricing.unit')}</span>
                     </td>
