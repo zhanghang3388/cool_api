@@ -3,9 +3,9 @@ services:
     image: postgres:16-alpine
     container_name: cool_api_db_dev
     environment:
-      POSTGRES_USER: cool_api
-      POSTGRES_PASSWORD: cool_api
-      POSTGRES_DB: cool_api
+      POSTGRES_USER: ${DB_USER:-cool_api}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-cool_api}
+      POSTGRES_DB: ${DB_NAME:-cool_api}
     ports:
       - "5432:5432"
     volumes:
