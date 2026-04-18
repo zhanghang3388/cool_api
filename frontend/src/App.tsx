@@ -28,12 +28,6 @@ function Placeholder({ title }: { title: string }) {
   );
 }
 
-function RootRedirect() {
-  const { isAuthenticated, isAdmin } = useAuthStore();
-  if (!isAuthenticated()) return <Navigate to="/login" replace />;
-  return <Navigate to={isAdmin() ? '/admin' : '/dashboard'} replace />;
-}
-
 export default function App() {
   return (
     <BrowserRouter>
