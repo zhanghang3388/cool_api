@@ -104,11 +104,15 @@ async fn list_public_pricing(
     let list = ModelPricing::list_active(&pool).await.unwrap_or_default();
     let result: Vec<PublicPricing> = list
         .into_iter()
-        .map(|p| PublicPricing {
-            model: p.model,
-            provider: p.provider,
-            input_price: p.effective_input_price(),
-            output_price: p.effective_output_price(),
+        .map(|p| {
+            let input_price = p.effective_input_price();
+            let output_price = p.effective_output_price();
+            PublicPricing {
+                model: p.model,
+                provider: p.provider,
+                input_price,
+                output_price,
+            }
         })
         .collect();
     Json(result)
