@@ -71,9 +71,15 @@ export default function ChannelsPage() {
                       {ch.is_active ? t('common.active') : t('common.disabled')}
                     </span>
                   </div>
-                  <div className="flex items-center gap-4 text-xs text-text-secondary">
-                    <span className="font-code">{ch.model_pattern}</span>
+                  <div className="flex items-center gap-4 text-xs text-text-secondary mb-2">
                     <span className="px-2 py-0.5 rounded bg-bg-tertiary">{ch.strategy}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {ch.model_pattern.split(',').map(m => m.trim()).filter(Boolean).map(model => (
+                      <span key={model} className="text-[10px] px-2 py-0.5 rounded-full border border-border bg-bg-tertiary font-code">
+                        {model}
+                      </span>
+                    ))}
                   </div>
                   {ch.key_ids.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-2">
