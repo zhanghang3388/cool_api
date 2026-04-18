@@ -36,28 +36,92 @@ pub struct UpdatePricing {
 /// Built-in official pricing data ($/1M tokens)
 pub fn official_pricing() -> Vec<CreatePricing> {
     vec![
-        // OpenAI
+        // OpenAI - GPT-4o
         CreatePricing { model: "gpt-4o".into(), provider: "openai".into(), input_price: 2.50, output_price: 10.00, multiplier: None },
+        CreatePricing { model: "gpt-4o-2024-11-20".into(), provider: "openai".into(), input_price: 2.50, output_price: 10.00, multiplier: None },
+        CreatePricing { model: "gpt-4o-2024-08-06".into(), provider: "openai".into(), input_price: 2.50, output_price: 10.00, multiplier: None },
+        CreatePricing { model: "gpt-4o-2024-05-13".into(), provider: "openai".into(), input_price: 5.00, output_price: 15.00, multiplier: None },
+        // OpenAI - GPT-4o-mini
         CreatePricing { model: "gpt-4o-mini".into(), provider: "openai".into(), input_price: 0.15, output_price: 0.60, multiplier: None },
+        CreatePricing { model: "gpt-4o-mini-2024-07-18".into(), provider: "openai".into(), input_price: 0.15, output_price: 0.60, multiplier: None },
+        // OpenAI - GPT-4-turbo
         CreatePricing { model: "gpt-4-turbo".into(), provider: "openai".into(), input_price: 10.00, output_price: 30.00, multiplier: None },
+        CreatePricing { model: "gpt-4-turbo-2024-04-09".into(), provider: "openai".into(), input_price: 10.00, output_price: 30.00, multiplier: None },
+        CreatePricing { model: "gpt-4-turbo-preview".into(), provider: "openai".into(), input_price: 10.00, output_price: 30.00, multiplier: None },
+        // OpenAI - GPT-4
         CreatePricing { model: "gpt-4".into(), provider: "openai".into(), input_price: 30.00, output_price: 60.00, multiplier: None },
+        CreatePricing { model: "gpt-4-0613".into(), provider: "openai".into(), input_price: 30.00, output_price: 60.00, multiplier: None },
+        CreatePricing { model: "gpt-4-32k".into(), provider: "openai".into(), input_price: 60.00, output_price: 120.00, multiplier: None },
+        // OpenAI - GPT-3.5
         CreatePricing { model: "gpt-3.5-turbo".into(), provider: "openai".into(), input_price: 0.50, output_price: 1.50, multiplier: None },
+        CreatePricing { model: "gpt-3.5-turbo-0125".into(), provider: "openai".into(), input_price: 0.50, output_price: 1.50, multiplier: None },
+        CreatePricing { model: "gpt-3.5-turbo-1106".into(), provider: "openai".into(), input_price: 1.00, output_price: 2.00, multiplier: None },
+        CreatePricing { model: "gpt-3.5-turbo-16k".into(), provider: "openai".into(), input_price: 3.00, output_price: 4.00, multiplier: None },
+        // OpenAI - o series
         CreatePricing { model: "o1".into(), provider: "openai".into(), input_price: 15.00, output_price: 60.00, multiplier: None },
+        CreatePricing { model: "o1-2024-12-17".into(), provider: "openai".into(), input_price: 15.00, output_price: 60.00, multiplier: None },
+        CreatePricing { model: "o1-preview".into(), provider: "openai".into(), input_price: 15.00, output_price: 60.00, multiplier: None },
         CreatePricing { model: "o1-mini".into(), provider: "openai".into(), input_price: 3.00, output_price: 12.00, multiplier: None },
+        CreatePricing { model: "o1-mini-2024-09-12".into(), provider: "openai".into(), input_price: 3.00, output_price: 12.00, multiplier: None },
+        CreatePricing { model: "o3".into(), provider: "openai".into(), input_price: 10.00, output_price: 40.00, multiplier: None },
         CreatePricing { model: "o3-mini".into(), provider: "openai".into(), input_price: 1.10, output_price: 4.40, multiplier: None },
-        // Claude
-        CreatePricing { model: "claude-sonnet-4-20250514".into(), provider: "claude".into(), input_price: 3.00, output_price: 15.00, multiplier: None },
-        CreatePricing { model: "claude-opus-4-20250514".into(), provider: "claude".into(), input_price: 15.00, output_price: 75.00, multiplier: None },
-        CreatePricing { model: "claude-haiku-4-20250514".into(), provider: "claude".into(), input_price: 0.80, output_price: 4.00, multiplier: None },
-        CreatePricing { model: "claude-3-5-sonnet-20241022".into(), provider: "claude".into(), input_price: 3.00, output_price: 15.00, multiplier: None },
-        CreatePricing { model: "claude-3-5-haiku-20241022".into(), provider: "claude".into(), input_price: 0.80, output_price: 4.00, multiplier: None },
-        CreatePricing { model: "claude-3-opus-20240229".into(), provider: "claude".into(), input_price: 15.00, output_price: 75.00, multiplier: None },
+        CreatePricing { model: "o3-mini-2025-01-31".into(), provider: "openai".into(), input_price: 1.10, output_price: 4.40, multiplier: None },
+        CreatePricing { model: "o4-mini".into(), provider: "openai".into(), input_price: 1.10, output_price: 4.40, multiplier: None },
+        // OpenAI - Embeddings
+        CreatePricing { model: "text-embedding-3-large".into(), provider: "openai".into(), input_price: 0.13, output_price: 0.0, multiplier: None },
+        CreatePricing { model: "text-embedding-3-small".into(), provider: "openai".into(), input_price: 0.02, output_price: 0.0, multiplier: None },
+        CreatePricing { model: "text-embedding-ada-002".into(), provider: "openai".into(), input_price: 0.10, output_price: 0.0, multiplier: None },
+        // OpenAI - DALL-E / TTS / Whisper (per-token approximation)
+        CreatePricing { model: "dall-e-3".into(), provider: "openai".into(), input_price: 40.00, output_price: 0.0, multiplier: None },
+        CreatePricing { model: "dall-e-2".into(), provider: "openai".into(), input_price: 20.00, output_price: 0.0, multiplier: None },
+        CreatePricing { model: "tts-1".into(), provider: "openai".into(), input_price: 15.00, output_price: 0.0, multiplier: None },
+        CreatePricing { model: "tts-1-hd".into(), provider: "openai".into(), input_price: 30.00, output_price: 0.0, multiplier: None },
+        CreatePricing { model: "whisper-1".into(), provider: "openai".into(), input_price: 6.00, output_price: 0.0, multiplier: None },
+
+        // Claude 4
+        CreatePricing { model: "claude-sonnet-4-20250514".into(), provider: "anthropic".into(), input_price: 3.00, output_price: 15.00, multiplier: None },
+        CreatePricing { model: "claude-sonnet-4".into(), provider: "anthropic".into(), input_price: 3.00, output_price: 15.00, multiplier: None },
+        CreatePricing { model: "claude-opus-4-20250514".into(), provider: "anthropic".into(), input_price: 15.00, output_price: 75.00, multiplier: None },
+        CreatePricing { model: "claude-opus-4".into(), provider: "anthropic".into(), input_price: 15.00, output_price: 75.00, multiplier: None },
+        CreatePricing { model: "claude-haiku-4-20250514".into(), provider: "anthropic".into(), input_price: 0.80, output_price: 4.00, multiplier: None },
+        CreatePricing { model: "claude-haiku-4".into(), provider: "anthropic".into(), input_price: 0.80, output_price: 4.00, multiplier: None },
+        // Claude 3.5
+        CreatePricing { model: "claude-3-5-sonnet-20241022".into(), provider: "anthropic".into(), input_price: 3.00, output_price: 15.00, multiplier: None },
+        CreatePricing { model: "claude-3-5-sonnet-20240620".into(), provider: "anthropic".into(), input_price: 3.00, output_price: 15.00, multiplier: None },
+        CreatePricing { model: "claude-3-5-sonnet-latest".into(), provider: "anthropic".into(), input_price: 3.00, output_price: 15.00, multiplier: None },
+        CreatePricing { model: "claude-3-5-haiku-20241022".into(), provider: "anthropic".into(), input_price: 0.80, output_price: 4.00, multiplier: None },
+        CreatePricing { model: "claude-3-5-haiku-latest".into(), provider: "anthropic".into(), input_price: 0.80, output_price: 4.00, multiplier: None },
+        // Claude 3
+        CreatePricing { model: "claude-3-opus-20240229".into(), provider: "anthropic".into(), input_price: 15.00, output_price: 75.00, multiplier: None },
+        CreatePricing { model: "claude-3-opus-latest".into(), provider: "anthropic".into(), input_price: 15.00, output_price: 75.00, multiplier: None },
+        CreatePricing { model: "claude-3-sonnet-20240229".into(), provider: "anthropic".into(), input_price: 3.00, output_price: 15.00, multiplier: None },
+        CreatePricing { model: "claude-3-haiku-20240307".into(), provider: "anthropic".into(), input_price: 0.25, output_price: 1.25, multiplier: None },
+
         // Gemini
-        CreatePricing { model: "gemini-2.5-pro".into(), provider: "gemini".into(), input_price: 1.25, output_price: 10.00, multiplier: None },
-        CreatePricing { model: "gemini-2.5-flash".into(), provider: "gemini".into(), input_price: 0.15, output_price: 0.60, multiplier: None },
-        CreatePricing { model: "gemini-2.0-flash".into(), provider: "gemini".into(), input_price: 0.10, output_price: 0.40, multiplier: None },
-        CreatePricing { model: "gemini-1.5-pro".into(), provider: "gemini".into(), input_price: 1.25, output_price: 5.00, multiplier: None },
-        CreatePricing { model: "gemini-1.5-flash".into(), provider: "gemini".into(), input_price: 0.075, output_price: 0.30, multiplier: None },
+        CreatePricing { model: "gemini-2.5-pro".into(), provider: "google".into(), input_price: 1.25, output_price: 10.00, multiplier: None },
+        CreatePricing { model: "gemini-2.5-pro-latest".into(), provider: "google".into(), input_price: 1.25, output_price: 10.00, multiplier: None },
+        CreatePricing { model: "gemini-2.5-pro-preview-05-06".into(), provider: "google".into(), input_price: 1.25, output_price: 10.00, multiplier: None },
+        CreatePricing { model: "gemini-2.5-flash".into(), provider: "google".into(), input_price: 0.15, output_price: 0.60, multiplier: None },
+        CreatePricing { model: "gemini-2.5-flash-preview-04-17".into(), provider: "google".into(), input_price: 0.15, output_price: 0.60, multiplier: None },
+        CreatePricing { model: "gemini-2.0-flash".into(), provider: "google".into(), input_price: 0.10, output_price: 0.40, multiplier: None },
+        CreatePricing { model: "gemini-2.0-flash-exp".into(), provider: "google".into(), input_price: 0.10, output_price: 0.40, multiplier: None },
+        CreatePricing { model: "gemini-2.0-flash-lite".into(), provider: "google".into(), input_price: 0.075, output_price: 0.30, multiplier: None },
+        CreatePricing { model: "gemini-1.5-pro".into(), provider: "google".into(), input_price: 1.25, output_price: 5.00, multiplier: None },
+        CreatePricing { model: "gemini-1.5-pro-latest".into(), provider: "google".into(), input_price: 1.25, output_price: 5.00, multiplier: None },
+        CreatePricing { model: "gemini-1.5-flash".into(), provider: "google".into(), input_price: 0.075, output_price: 0.30, multiplier: None },
+        CreatePricing { model: "gemini-1.5-flash-latest".into(), provider: "google".into(), input_price: 0.075, output_price: 0.30, multiplier: None },
+        CreatePricing { model: "gemini-1.5-flash-8b".into(), provider: "google".into(), input_price: 0.0375, output_price: 0.15, multiplier: None },
+
+        // DeepSeek
+        CreatePricing { model: "deepseek-chat".into(), provider: "deepseek".into(), input_price: 0.27, output_price: 1.10, multiplier: None },
+        CreatePricing { model: "deepseek-reasoner".into(), provider: "deepseek".into(), input_price: 0.55, output_price: 2.19, multiplier: None },
+        CreatePricing { model: "deepseek-coder".into(), provider: "deepseek".into(), input_price: 0.14, output_price: 0.28, multiplier: None },
+
+        // Mistral
+        CreatePricing { model: "mistral-large-latest".into(), provider: "mistral".into(), input_price: 2.00, output_price: 6.00, multiplier: None },
+        CreatePricing { model: "mistral-medium-latest".into(), provider: "mistral".into(), input_price: 2.70, output_price: 8.10, multiplier: None },
+        CreatePricing { model: "mistral-small-latest".into(), provider: "mistral".into(), input_price: 0.20, output_price: 0.60, multiplier: None },
+        CreatePricing { model: "codestral-latest".into(), provider: "mistral".into(), input_price: 0.30, output_price: 0.90, multiplier: None },
     ]
 }
 

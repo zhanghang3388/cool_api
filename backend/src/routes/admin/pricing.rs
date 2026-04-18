@@ -12,6 +12,9 @@ use crate::error::AppError;
 use crate::models::channel::Channel;
 use crate::models::pricing::{official_pricing, CreatePricing, ModelPricing, UpdatePricing};
 
+/// Default remote pricing data URL (raw GitHub)
+const PRICING_JSON_URL: &str = "https://raw.githubusercontent.com/zhanghang3388/cool_api/main/pricing.json";
+
 pub fn router(pool: PgPool) -> Router {
     Router::new()
         .route("/", get(list_pricing).post(create_pricing))
@@ -57,11 +60,46 @@ async fn delete_pricing(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+#[derive(Debug, Deserialize)]
+struct RemotePricingItem {
+    model: String,
+    provider: String,
+    input_price: f64,
+    output_price: f64,
+}
+
+/// Fetch pricing data from remote URL, fallback to built-in
+async fn fetch_pricing_data() -> Vec<CreatePricing> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build();
+
+    if let Ok(client) = client {
+        if let Ok(resp) = client.get(PRICING_JSON_URL).send().await {
+            if resp.status().is_success() {
+                if let Ok(items) = resp.json::<Vec<RemotePricingItem>>().await {
+                    return items.into_iter().map(|i| CreatePricing {
+                        model: i.model,
+                        provider: i.provider,
+                        input_price: i.input_price,
+                        output_price: i.output_price,
+                        multiplier: None,
+                    }).collect();
+                }
+            }
+        }
+    }
+
+    // Fallback to built-in
+    official_pricing()
+}
+
 async fn sync_pricing(
     _admin: AdminUser,
     State(pool): State<PgPool>,
 ) -> Result<Json<SyncResult>, AppError> {
-    let official = official_pricing();
+    // Fetch pricing from remote (or fallback to built-in)
+    let all_pricing = fetch_pricing_data().await;
 
     // Get all models from active channels
     let channels = Channel::list(&pool).await?;
@@ -81,17 +119,21 @@ async fn sync_pricing(
     let mut matched = 0u32;
 
     for model_name in &channel_models {
-        // Find best matching official pricing (prefer longest/most specific match)
-        let mut best_match: Option<&CreatePricing> = None;
-        let mut best_len = 0;
-        for p in &official {
-            if model_name == &p.model || model_name.starts_with(&p.model) {
-                if p.model.len() > best_len {
+        // Exact match first, then longest prefix match
+        let exact = all_pricing.iter().find(|p| &p.model == model_name);
+        let best_match = if exact.is_some() {
+            exact
+        } else {
+            let mut best: Option<&CreatePricing> = None;
+            let mut best_len = 0;
+            for p in &all_pricing {
+                if model_name.starts_with(&p.model) && p.model.len() > best_len {
                     best_len = p.model.len();
-                    best_match = Some(p);
+                    best = Some(p);
                 }
             }
-        }
+            best
+        };
 
         if let Some(item) = best_match {
             let existing = ModelPricing::find_by_model(&pool, model_name).await?;

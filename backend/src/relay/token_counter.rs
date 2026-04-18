@@ -42,8 +42,15 @@ pub fn estimate_cost_micro_cents(model: &str, prompt_tokens: u32, completion_tok
         m if m.contains("claude-3-5-sonnet") || m.contains("claude-sonnet-4") => (3.00, 15.00),
         m if m.contains("claude-3-5-haiku") || m.contains("claude-haiku-4") => (0.80, 4.00),
         m if m.contains("claude-3-opus") || m.contains("claude-opus-4") => (15.00, 75.00),
+        m if m.contains("claude-3-haiku") => (0.25, 1.25),
+        m if m.contains("gemini-2.5-pro") => (1.25, 10.00),
+        m if m.contains("gemini-2.5-flash") => (0.15, 0.60),
+        m if m.contains("gemini-2.0-flash") => (0.10, 0.40),
         m if m.contains("gemini-1.5-pro") || m.contains("gemini-2") => (1.25, 5.00),
         m if m.contains("gemini-1.5-flash") => (0.075, 0.30),
+        m if m.contains("deepseek-chat") => (0.27, 1.10),
+        m if m.contains("deepseek-reasoner") => (0.55, 2.19),
+        m if m.contains("deepseek-coder") => (0.14, 0.28),
         _ => (1.00, 3.00),
     };
 
