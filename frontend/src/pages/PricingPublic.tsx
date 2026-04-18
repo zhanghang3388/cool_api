@@ -42,7 +42,7 @@ export default function PricingPublic() {
   const [pricingData, setPricingData] = useState<PricingItem[]>([]);
   const [groups, setGroups] = useState<PublicGroup[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('all');
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -50,24 +50,24 @@ export default function PricingPublic() {
       fetch('/v1/groups').then(r => r.json()).catch(() => []),
     ]).then(([pricing, grps]) => {
       setPricingData(Array.isArray(pricing) ? pricing : []);
-      setGroups(Array.isArray(grps) ? grps : []);
+      const g = Array.isArray(grps) ? grps : [];
+      setGroups(g);
+      if (g.length > 0) setActiveGroupId(g[0].id);
       setLoading(false);
     });
   }, []);
 
-  const selectedGroup = filter.startsWith('group:') ? groups.find(g => g.id === filter.slice(6)) : null;
-  const filteredPricing = pricingData.filter(row => {
-    if (filter === 'all') return true;
-    if (filter.startsWith('provider:')) return row.provider === filter.slice(9);
-    if (selectedGroup) return selectedGroup.models.includes(row.model);
-    return true;
-  });
+  const activeGroup = groups.find(g => g.id === activeGroupId) || null;
+  const filteredPricing = activeGroup
+    ? pricingData.filter(row => activeGroup.models.includes(row.model))
+    : [];
+  const multiplier = activeGroup?.multiplier ?? 1;
   const displayPricing = filteredPricing.map(row => ({
     ...row,
     original_input: row.input_price,
     original_output: row.output_price,
-    input_price: selectedGroup ? row.input_price * selectedGroup.multiplier : row.input_price,
-    output_price: selectedGroup ? row.output_price * selectedGroup.multiplier : row.output_price,
+    input_price: row.input_price * multiplier,
+    output_price: row.output_price * multiplier,
   }));
 
   return (
@@ -111,39 +111,22 @@ export default function PricingPublic() {
             <p className="text-text-secondary text-sm">{t('home.pricing.subtitle')}</p>
           </motion.div>
 
-          {/* Filter tabs */}
-          <div className="flex justify-center gap-2 mb-8 flex-wrap">
-            <button
-              onClick={() => setFilter('all')}
-              className={`px-4 py-2 rounded-lg text-xs font-display transition-colors ${
-                filter === 'all' ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary'
-              }`}
-            >
-              {t('home.models.all')}
-            </button>
-            {groups.map(g => (
-              <button
-                key={`g-${g.id}`}
-                onClick={() => setFilter(`group:${g.id}`)}
-                className={`px-4 py-2 rounded-lg text-xs font-display transition-colors ${
-                  filter === `group:${g.id}` ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary'
-                }`}
-              >
-                {g.name} <span className="text-[10px] opacity-60">{g.multiplier}x</span>
-              </button>
-            ))}
-            {[...new Set(pricingData.map(d => d.provider))].map(p => (
-              <button
-                key={`p-${p}`}
-                onClick={() => setFilter(`provider:${p}`)}
-                className={`px-4 py-2 rounded-lg text-xs font-display transition-colors ${
-                  filter === `provider:${p}` ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary'
-                }`}
-              >
-                {providerLabels[p] || p}
-              </button>
-            ))}
-          </div>
+          {/* Group tabs */}
+          {groups.length > 0 && (
+            <div className="flex justify-center gap-2 mb-8 flex-wrap">
+              {groups.map(g => (
+                <button
+                  key={g.id}
+                  onClick={() => setActiveGroupId(g.id)}
+                  className={`px-4 py-2 rounded-lg text-xs font-display transition-colors ${
+                    activeGroupId === g.id ? 'bg-accent/10 text-accent' : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary'
+                  }`}
+                >
+                  {g.name} <span className="text-[10px] opacity-60">{g.multiplier}x</span>
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Cards */}
           {loading ? (
@@ -172,7 +155,7 @@ export default function PricingPublic() {
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] text-text-secondary">{t('home.pricing.inputPrice')}</span>
                       <div className="font-code text-xs">
-                        {selectedGroup && item.original_input !== item.input_price ? (
+                        {multiplier !== 1 ? (
                           <>
                             <span className="line-through text-text-secondary mr-1">¥{item.original_input.toFixed(2)}</span>
                             <span className="text-accent">¥{item.input_price.toFixed(2)}</span>
@@ -185,7 +168,7 @@ export default function PricingPublic() {
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] text-text-secondary">{t('home.pricing.outputPrice')}</span>
                       <div className="font-code text-xs">
-                        {selectedGroup && item.original_output !== item.output_price ? (
+                        {multiplier !== 1 ? (
                           <>
                             <span className="line-through text-text-secondary mr-1">¥{item.original_output.toFixed(2)}</span>
                             <span className="text-accent-amber">¥{item.output_price.toFixed(2)}</span>
