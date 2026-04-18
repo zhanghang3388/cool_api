@@ -70,6 +70,8 @@ export const adminApi = {
   updateProviderKey: (id: string, data: Partial<ProviderKey>) =>
     api.patch<ProviderKey>(`/admin/provider-keys/${id}`, data),
   deleteProviderKey: (id: string) => api.delete(`/admin/provider-keys/${id}`),
+  fetchModels: (data: { provider: string; api_key: string; base_url?: string }) =>
+    api.post<{ models: { id: string }[] }>('/admin/provider-keys/fetch-models', data),
 
   // Channels
   listChannels: () => api.get<Channel[]>('/admin/channels'),

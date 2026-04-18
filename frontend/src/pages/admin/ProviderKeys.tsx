@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Trash2, Power, X } from 'lucide-react';
+import { Plus, Trash2, Power, X, Download } from 'lucide-react';
 import { adminApi, type ProviderKey } from '@/api/admin';
 
 const PROVIDERS = ['openai', 'claude', 'gemini'] as const;
@@ -130,6 +130,43 @@ function AddKeyModal({ provider, onClose, onSaved }: { provider: string; onClose
   const [priority, setPriority] = useState('0');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [fetchedModels, setFetchedModels] = useState<string[]>([]);
+  const [selectedModels, setSelectedModels] = useState<string[]>([]);
+  const [fetching, setFetching] = useState(false);
+  const [fetchError, setFetchError] = useState('');
+
+  const handleFetchModels = async () => {
+    if (!apiKey) return;
+    setFetching(true);
+    setFetchError('');
+    setFetchedModels([]);
+    setSelectedModels([]);
+    try {
+      const { data } = await adminApi.fetchModels({
+        provider,
+        api_key: apiKey,
+        base_url: baseUrl || undefined,
+      });
+      const ids = data.models.map(m => m.id);
+      setFetchedModels(ids);
+    } catch (err: any) {
+      setFetchError(err.response?.data?.error?.message || t('admin.keys.fetchError'));
+    } finally {
+      setFetching(false);
+    }
+  };
+
+  const toggleModel = (id: string) => {
+    setSelectedModels(prev => prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]);
+  };
+
+  const toggleAllModels = () => {
+    if (selectedModels.length === fetchedModels.length) {
+      setSelectedModels([]);
+    } else {
+      setSelectedModels([...fetchedModels]);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,7 +182,7 @@ function AddKeyModal({ provider, onClose, onSaved }: { provider: string; onClose
         priority: parseInt(priority) || 0,
         rpm_limit: null,
         tpm_limit: null,
-        models: null,
+        models: selectedModels.length > 0 ? selectedModels : null,
       });
       onSaved();
       onClose();
@@ -168,7 +205,7 @@ function AddKeyModal({ provider, onClose, onSaved }: { provider: string; onClose
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
-        className="card w-full max-w-md mx-4"
+        className="card w-full max-w-md mx-4 max-h-[85vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
@@ -201,6 +238,47 @@ function AddKeyModal({ provider, onClose, onSaved }: { provider: string; onClose
               <input type="number" value={priority} onChange={e => setPriority(e.target.value)} className="input-field" min="0" />
             </div>
           </div>
+
+          {/* Fetch Models */}
+          <div>
+            <button
+              type="button"
+              onClick={handleFetchModels}
+              disabled={!apiKey || fetching}
+              className="btn-secondary text-xs flex items-center gap-2 w-full justify-center"
+            >
+              <Download className={`w-3.5 h-3.5 ${fetching ? 'animate-spin' : ''}`} />
+              {fetching ? t('admin.keys.fetching') : t('admin.keys.fetchModels')}
+            </button>
+            {fetchError && <p className="text-danger text-xs mt-1">{fetchError}</p>}
+          </div>
+
+          {fetchedModels.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-text-secondary font-display">
+                  {t('admin.keys.modelsFound', { count: fetchedModels.length })}
+                </label>
+                <button type="button" onClick={toggleAllModels} className="text-xs text-accent hover:underline">
+                  {selectedModels.length === fetchedModels.length ? t('admin.keys.deselectAll') : t('admin.keys.selectAll')}
+                </button>
+              </div>
+              <div className="max-h-48 overflow-y-auto space-y-0.5 rounded-lg border border-border p-2 bg-bg-tertiary">
+                {fetchedModels.map(id => (
+                  <label key={id} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-bg-secondary cursor-pointer text-xs">
+                    <input
+                      type="checkbox"
+                      checked={selectedModels.includes(id)}
+                      onChange={() => toggleModel(id)}
+                      className="accent-accent"
+                    />
+                    <span className="font-code">{id}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
           {error && <p className="text-danger text-xs">{error}</p>}
           <button type="submit" disabled={loading} className="btn-primary w-full">
             {loading ? t('admin.keys.creating') : t('admin.keys.createKey')}
