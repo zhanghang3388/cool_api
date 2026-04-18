@@ -177,6 +177,12 @@ const zh = {
       total: '共 {{count}} 个令牌',
       noTokens: '暂无令牌',
       deleteConfirm: '确定删除此令牌？',
+      createToken: '创建令牌',
+      userIdPlaceholder: '用户 ID',
+      namePlaceholder: '令牌名称',
+      noGroup: '不选分组',
+      creating: '创建中...',
+      copyWarning: '请立即复制此密钥，之后将无法再次查看。',
     },
     logs: {
       title: '请求日志',

@@ -177,6 +177,12 @@ const en = {
       total: '{{count}} tokens',
       noTokens: 'No tokens',
       deleteConfirm: 'Delete this token?',
+      createToken: 'Create Token',
+      userIdPlaceholder: 'User ID',
+      namePlaceholder: 'Token name',
+      noGroup: 'No group',
+      creating: 'Creating...',
+      copyWarning: 'Copy this key now. It won\'t be shown again.',
     },
     logs: {
       title: 'Request Logs',
