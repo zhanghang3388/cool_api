@@ -17,7 +17,6 @@ import UsagePage from '@/pages/client/Usage';
 import ClientBilling from '@/pages/client/Billing';
 import DocsPage from '@/pages/client/Docs';
 import PlaygroundPage from '@/pages/client/Playground';
-import { useAuthStore } from '@/stores/auth';
 
 function Placeholder({ title }: { title: string }) {
   return (
