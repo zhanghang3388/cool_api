@@ -76,7 +76,7 @@ async fn chat_completions(
 
     // Balance pre-check: estimate minimum cost and reject if insufficient
     let prompt_tokens_est = token_counter::count_message_tokens(&request.messages, &request.model);
-    let est_cost = token_counter::estimate_cost_micro_cents(&request.model, prompt_tokens_est, 100);
+    let est_cost = token_counter::estimate_cost_from_db(&pool, &request.model, prompt_tokens_est, 100).await;
     if user.balance < est_cost {
         return Err(AppError::Forbidden("Insufficient balance".into()));
     }
@@ -109,7 +109,7 @@ async fn handle_non_stream(
             let prompt_tokens = usage.map(|u| u.prompt_tokens).unwrap_or(prompt_tokens_est);
             let completion_tokens = usage.map(|u| u.completion_tokens).unwrap_or(0);
             let total_tokens = prompt_tokens + completion_tokens;
-            let cost = token_counter::estimate_cost_micro_cents(&model, prompt_tokens, completion_tokens);
+            let cost = token_counter::estimate_cost_from_db(&pool, &model, prompt_tokens, completion_tokens).await;
 
             // Async log + billing
             let pool2 = pool.clone();
@@ -200,7 +200,7 @@ async fn handle_stream(
                                     .unwrap_or_else(|| token_counter::count_tokens(&content.text, &model3));
                                 let prompt_tokens = content.prompt_tokens.unwrap_or(prompt_tokens_est);
                                 let total_tokens = prompt_tokens + completion_tokens;
-                                let cost = token_counter::estimate_cost_micro_cents(&model3, prompt_tokens, completion_tokens);
+                                let cost = token_counter::estimate_cost_from_db(&pool3, &model3, prompt_tokens, completion_tokens).await;
                                 let latency = start.elapsed().as_millis() as i32;
 
                                 tokio::spawn(async move {

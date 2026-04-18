@@ -1,17 +1,13 @@
-/// Approximate token counting.
-/// For OpenAI models we use a simple heuristic (chars / 4).
-/// In production, consider using tiktoken-rs for exact counts.
+use crate::models::pricing::ModelPricing;
+use sqlx::PgPool;
 
 pub fn count_tokens(text: &str, _model: &str) -> u32 {
-    // Simple heuristic: ~4 chars per token for English text
-    // This is a reasonable approximation across models
     (text.len() as f64 / 4.0).ceil() as u32
 }
 
 pub fn count_message_tokens(messages: &[super::providers::ChatMessage], model: &str) -> u32 {
     let mut total: u32 = 0;
     for msg in messages {
-        // Role overhead ~4 tokens
         total += 4;
         let content = match &msg.content {
             serde_json::Value::String(s) => s.clone(),
@@ -19,14 +15,24 @@ pub fn count_message_tokens(messages: &[super::providers::ChatMessage], model: &
         };
         total += count_tokens(&content, model);
     }
-    // Every reply is primed with assistant
     total += 3;
     total
 }
 
+/// Estimate cost from database pricing. Falls back to hardcoded defaults if not found.
+pub async fn estimate_cost_from_db(pool: &PgPool, model: &str, prompt_tokens: u32, completion_tokens: u32) -> i64 {
+    if let Ok(Some(pricing)) = ModelPricing::find_best_match(pool, model).await {
+        let prompt_price = pricing.effective_input_price();
+        let completion_price = pricing.effective_output_price();
+        let prompt_cost = prompt_tokens as f64 * prompt_price;
+        let completion_cost = completion_tokens as f64 * completion_price;
+        return (prompt_cost + completion_cost).ceil() as i64;
+    }
+    // Fallback to hardcoded
+    estimate_cost_micro_cents(model, prompt_tokens, completion_tokens)
+}
+
 pub fn estimate_cost_micro_cents(model: &str, prompt_tokens: u32, completion_tokens: u32) -> i64 {
-    // Pricing per 1M tokens in micro-cents (1e-4 cents = 1e-6 dollars)
-    // $1 = 100 cents = 1_000_000 micro-cents
     let (prompt_price, completion_price): (f64, f64) = match model {
         m if m.starts_with("gpt-4o-mini") => (0.15, 0.60),
         m if m.starts_with("gpt-4o") => (2.50, 10.00),
@@ -38,13 +44,10 @@ pub fn estimate_cost_micro_cents(model: &str, prompt_tokens: u32, completion_tok
         m if m.contains("claude-3-opus") || m.contains("claude-opus-4") => (15.00, 75.00),
         m if m.contains("gemini-1.5-pro") || m.contains("gemini-2") => (1.25, 5.00),
         m if m.contains("gemini-1.5-flash") => (0.075, 0.30),
-        _ => (1.00, 3.00), // default fallback
+        _ => (1.00, 3.00),
     };
 
-    // price is per 1M tokens in dollars, convert to micro-cents
-    // $X per 1M tokens = X * 1_000_000 micro-cents per 1M tokens = X micro-cents per token
     let prompt_cost = prompt_tokens as f64 * prompt_price;
     let completion_cost = completion_tokens as f64 * completion_price;
-
     (prompt_cost + completion_cost).ceil() as i64
 }

@@ -4,6 +4,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 
 use crate::models::channel::Channel;
+use crate::models::pricing::ModelPricing;
 use crate::relay::dispatcher::Dispatcher;
 
 #[derive(Serialize)]
@@ -31,6 +32,7 @@ pub fn router(dispatcher: Arc<Dispatcher>, pool: PgPool) -> Router {
     Router::new()
         .route("/models", get(list_models))
         .route("/channels/public", get(list_public_channels))
+        .route("/pricing", get(list_public_pricing))
         .with_state((dispatcher, pool))
 }
 
@@ -85,5 +87,29 @@ async fn list_public_channels(
         });
     }
 
+    Json(result)
+}
+
+#[derive(Serialize)]
+struct PublicPricing {
+    model: String,
+    provider: String,
+    input_price: f64,
+    output_price: f64,
+}
+
+async fn list_public_pricing(
+    State((_, pool)): State<(Arc<Dispatcher>, PgPool)>,
+) -> Json<Vec<PublicPricing>> {
+    let list = ModelPricing::list_active(&pool).await.unwrap_or_default();
+    let result: Vec<PublicPricing> = list
+        .into_iter()
+        .map(|p| PublicPricing {
+            model: p.model,
+            provider: p.provider,
+            input_price: p.effective_input_price(),
+            output_price: p.effective_output_price(),
+        })
+        .collect();
     Json(result)
 }

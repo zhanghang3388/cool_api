@@ -26,17 +26,12 @@ const providerLabels: Record<string, string> = {
   gemini: 'Gemini',
 };
 
-const pricingData = [
-  { model: 'gpt-4o', provider: 'openai', input: '2.50', output: '10.00' },
-  { model: 'gpt-4o-mini', provider: 'openai', input: '0.15', output: '0.60' },
-  { model: 'gpt-4-turbo', provider: 'openai', input: '10.00', output: '30.00' },
-  { model: 'gpt-3.5-turbo', provider: 'openai', input: '0.50', output: '1.50' },
-  { model: 'claude-sonnet-4', provider: 'claude', input: '3.00', output: '15.00' },
-  { model: 'claude-haiku-4', provider: 'claude', input: '0.80', output: '4.00' },
-  { model: 'claude-opus-4', provider: 'claude', input: '15.00', output: '75.00' },
-  { model: 'gemini-2.0', provider: 'gemini', input: '1.25', output: '5.00' },
-  { model: 'gemini-1.5-flash', provider: 'gemini', input: '0.075', output: '0.30' },
-];
+interface PricingItem {
+  model: string;
+  provider: string;
+  input_price: number;
+  output_price: number;
+}
 
 export default function Home() {
   const { t } = useTranslation();
@@ -44,6 +39,8 @@ export default function Home() {
   const [channels, setChannels] = useState<PublicChannel[]>([]);
   const [tab, setTab] = useState('all');
   const [loading, setLoading] = useState(true);
+  const [pricingData, setPricingData] = useState<PricingItem[]>([]);
+  const [pricingLoading, setPricingLoading] = useState(true);
 
   useEffect(() => {
     fetch('/v1/channels/public')
@@ -53,6 +50,14 @@ export default function Home() {
         setLoading(false);
       })
       .catch(() => setLoading(false));
+
+    fetch('/v1/pricing')
+      .then(r => r.json())
+      .then(data => {
+        setPricingData(Array.isArray(data) ? data : []);
+        setPricingLoading(false);
+      })
+      .catch(() => setPricingLoading(false));
   }, []);
 
   const providers = ['all', ...new Set(channels.map(c => c.provider))];
@@ -257,6 +262,11 @@ export default function Home() {
             viewport={{ once: true }}
             className="card overflow-hidden p-0"
           >
+            {pricingLoading ? (
+              <div className="animate-pulse h-40" />
+            ) : pricingData.length === 0 ? (
+              <div className="text-center text-text-secondary text-sm py-12">{t('common.noData')}</div>
+            ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-text-secondary font-display">
@@ -283,15 +293,16 @@ export default function Home() {
                       </span>
                     </td>
                     <td className="px-5 py-3 text-right font-code text-xs text-accent">
-                      ${row.input} <span className="text-text-secondary text-[10px]">{t('home.pricing.unit')}</span>
+                      ${row.input_price.toFixed(2)} <span className="text-text-secondary text-[10px]">{t('home.pricing.unit')}</span>
                     </td>
                     <td className="px-5 py-3 text-right font-code text-xs text-accent-amber">
-                      ${row.output} <span className="text-text-secondary text-[10px]">{t('home.pricing.unit')}</span>
+                      ${row.output_price.toFixed(2)} <span className="text-text-secondary text-[10px]">{t('home.pricing.unit')}</span>
                     </td>
                   </motion.tr>
                 ))}
               </tbody>
             </table>
+            )}
           </motion.div>
         </div>
       </section>

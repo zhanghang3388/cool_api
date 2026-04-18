@@ -11,6 +11,7 @@ import ChannelsPage from '@/pages/admin/Channels';
 import AdminBillingPage from '@/pages/admin/Billing';
 import SettingsPage from '@/pages/admin/Settings';
 import LogsPage from '@/pages/admin/Logs';
+import PricingPage from '@/pages/admin/Pricing';
 import ClientDashboard from '@/pages/client/Dashboard';
 import ApiKeysPage from '@/pages/client/ApiKeys';
 import UsagePage from '@/pages/client/Usage';
@@ -44,6 +45,7 @@ export default function App() {
           <Route path="rate-limits" element={<Placeholder title="Rate Limits" />} />
           <Route path="logs" element={<LogsPage />} />
           <Route path="billing" element={<AdminBillingPage />} />
+          <Route path="pricing" element={<PricingPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
 

@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import {
   LayoutDashboard, Users, Key, GitBranch, Shield, FileText,
-  CreditCard, Settings, ChevronLeft, ChevronRight, LogOut, Zap
+  CreditCard, Settings, ChevronLeft, ChevronRight, LogOut, Zap, DollarSign
 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import LangSwitch from '@/components/ui/LangSwitch';
@@ -18,6 +18,7 @@ const navItems = [
   { to: '/admin/rate-limits', icon: Shield, key: 'nav.rateLimits' },
   { to: '/admin/logs', icon: FileText, key: 'nav.logs' },
   { to: '/admin/billing', icon: CreditCard, key: 'nav.billing' },
+  { to: '/admin/pricing', icon: DollarSign, key: 'nav.pricing' },
   { to: '/admin/settings', icon: Settings, key: 'nav.settings' },
 ];
 
