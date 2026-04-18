@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Trash2, Power, X, Download } from 'lucide-react';
+import { Plus, Trash2, Power, X, Download, Pencil } from 'lucide-react';
 import { adminApi, type Channel, type ProviderKey } from '@/api/admin';
 
 export default function ChannelsPage() {
@@ -9,6 +9,7 @@ export default function ChannelsPage() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [keys, setKeys] = useState<ProviderKey[]>([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [editChannel, setEditChannel] = useState<Channel | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
@@ -92,6 +93,9 @@ export default function ChannelsPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-2 ml-4">
+                  <button onClick={() => setEditChannel(ch)} className="p-2 rounded-lg hover:bg-accent/10 text-text-secondary hover:text-accent transition-colors">
+                    <Pencil className="w-4 h-4" />
+                  </button>
                   <button onClick={() => toggleActive(ch)} className="p-2 rounded-lg hover:bg-bg-tertiary text-text-secondary transition-colors">
                     <Power className="w-4 h-4" />
                   </button>
@@ -107,6 +111,7 @@ export default function ChannelsPage() {
 
       <AnimatePresence>
         {showAdd && <AddChannelModal keys={keys} onClose={() => setShowAdd(false)} onSaved={load} />}
+        {editChannel && <EditChannelModal channel={editChannel} keys={keys} onClose={() => setEditChannel(null)} onSaved={load} />}
       </AnimatePresence>
     </div>
   );
@@ -342,6 +347,131 @@ function AddChannelModal({ keys, onClose, onSaved }: { keys: ProviderKey[]; onCl
           {error && <p className="text-danger text-xs">{error}</p>}
           <button type="submit" disabled={loading} className="btn-primary w-full">
             {loading ? t('admin.channels.creating') : t('admin.channels.createChannel')}
+          </button>
+        </form>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function EditChannelModal({ channel, keys, onClose, onSaved }: { channel: Channel; keys: ProviderKey[]; onClose: () => void; onSaved: () => void }) {
+  const { t } = useTranslation();
+  const [name, setName] = useState(channel.name);
+  const [models, setModels] = useState<string[]>(channel.model_pattern.split(',').map(m => m.trim()).filter(Boolean));
+  const [selectedKeys, setSelectedKeys] = useState<string[]>(channel.key_ids);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [newModel, setNewModel] = useState('');
+
+  const toggleKey = (id: string) => {
+    setSelectedKeys(prev => prev.includes(id) ? prev.filter(k => k !== id) : [...prev, id]);
+  };
+
+  const removeModel = (model: string) => {
+    setModels(prev => prev.filter(m => m !== model));
+  };
+
+  const addModel = () => {
+    const m = newModel.trim();
+    if (m && !models.includes(m)) {
+      setModels(prev => [...prev, m]);
+      setNewModel('');
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (models.length === 0) {
+      setError(t('admin.channels.noModelsSelected'));
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      await adminApi.updateChannel(channel.id, {
+        name,
+        model_pattern: models.join(','),
+        key_ids: selectedKeys,
+      });
+      onSaved();
+      onClose();
+    } catch (err: any) {
+      setError(err.response?.data?.error?.message || 'Failed to update channel');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.95, opacity: 0 }}
+        className="card w-full max-w-lg mx-4 max-h-[85vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display font-bold">{t('admin.channels.editChannel')}</h2>
+          <button onClick={onClose} className="text-text-secondary hover:text-text-primary"><X className="w-4 h-4" /></button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.channels.name')}</label>
+            <input value={name} onChange={e => setName(e.target.value)} className="input-field" required />
+          </div>
+
+          {/* Models as tags */}
+          <div>
+            <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.channels.models')}</label>
+            <div className="flex flex-wrap gap-1 mb-2 min-h-[32px] p-2 rounded-lg border border-border bg-bg-tertiary">
+              {models.map(model => (
+                <span key={model} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border border-border bg-bg-secondary font-code">
+                  {model}
+                  <button type="button" onClick={() => removeModel(model)} className="text-text-secondary hover:text-danger">
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input
+                value={newModel}
+                onChange={e => setNewModel(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addModel(); } }}
+                className="input-field font-code text-xs flex-1"
+                placeholder={t('admin.channels.addModelPlaceholder')}
+              />
+              <button type="button" onClick={addModel} className="btn-secondary text-xs px-3">
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Provider keys */}
+          <div>
+            <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.channels.providerKeys')}</label>
+            <div className="space-y-1 max-h-40 overflow-y-auto">
+              {keys.filter(k => k.is_active).map(k => (
+                <label key={k.id} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-bg-tertiary cursor-pointer text-sm">
+                  <input type="checkbox" checked={selectedKeys.includes(k.id)} onChange={() => toggleKey(k.id)} className="accent-accent" />
+                  <span>{k.name}</span>
+                  <span className="text-xs text-text-secondary ml-auto">{k.provider}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {error && <p className="text-danger text-xs">{error}</p>}
+          <button type="submit" disabled={loading} className="btn-primary w-full">
+            {loading ? t('common.loading') : t('common.save')}
           </button>
         </form>
       </motion.div>
