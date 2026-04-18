@@ -206,6 +206,40 @@ const zh = {
       startChat: '发送消息开始对话',
     },
   },
+  home: {
+    hero: {
+      title: 'COOL API',
+      subtitle: 'AI API 中转站',
+      description: '统一接入 OpenAI、Claude、Gemini 等主流 AI 模型，一个 Key 畅享所有模型。',
+      login: '登录',
+      register: '免费注册',
+      console: '进入控制台',
+    },
+    features: {
+      title: '为什么选择 COOL API',
+      multiModel: '多模型支持',
+      multiModelDesc: '统一接入 OpenAI、Claude、Gemini 等主流 AI 模型，无需分别管理多个 API Key。',
+      streaming: '流式输出',
+      streamingDesc: '完整支持 SSE 流式响应，实时获取模型输出，体验与官方 API 一致。',
+      billing: '精准计费',
+      billingDesc: '按 Token 精确计费，实时查看用量和余额，费用透明可控。',
+      compatible: 'OpenAI 兼容',
+      compatibleDesc: '完全兼容 OpenAI API 格式，现有代码零改动即可接入，支持所有主流 SDK。',
+    },
+    models: {
+      title: '支持的模型',
+      subtitle: '通过渠道智能路由，自动选择最优线路',
+      all: '全部',
+      channel: '渠道',
+      strategy: '策略',
+      noModels: '暂未配置模型，请联系管理员。',
+    },
+    cta: {
+      title: '开始使用',
+      description: '注册账号，获取 API Key，即刻接入全球顶级 AI 模型。',
+      register: '立即注册',
+    },
+  },
 };
 
 export default zh;

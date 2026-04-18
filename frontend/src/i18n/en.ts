@@ -206,6 +206,40 @@ const en = {
       startChat: 'Send a message to start chatting',
     },
   },
+  home: {
+    hero: {
+      title: 'COOL API',
+      subtitle: 'AI API Relay Station',
+      description: 'Unified access to OpenAI, Claude, Gemini and more. One key for all models.',
+      login: 'Login',
+      register: 'Get Started Free',
+      console: 'Go to Console',
+    },
+    features: {
+      title: 'Why COOL API',
+      multiModel: 'Multi-Model Support',
+      multiModelDesc: 'Unified access to OpenAI, Claude, Gemini and more. No need to manage multiple API keys.',
+      streaming: 'Streaming Output',
+      streamingDesc: 'Full SSE streaming support. Real-time model output, identical to official APIs.',
+      billing: 'Precise Billing',
+      billingDesc: 'Per-token billing with real-time usage and balance tracking. Transparent and controllable.',
+      compatible: 'OpenAI Compatible',
+      compatibleDesc: 'Fully compatible with OpenAI API format. Zero code changes needed. Works with all major SDKs.',
+    },
+    models: {
+      title: 'Supported Models',
+      subtitle: 'Smart channel routing for optimal performance',
+      all: 'All',
+      channel: 'Channel',
+      strategy: 'Strategy',
+      noModels: 'No models configured yet. Contact admin.',
+    },
+    cta: {
+      title: 'Get Started',
+      description: 'Sign up, get your API key, and start using world-class AI models instantly.',
+      register: 'Sign Up Now',
+    },
+  },
 };
 
 export default en;

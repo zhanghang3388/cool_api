@@ -23,5 +23,5 @@ pub fn router(pool: PgPool) -> Router {
 
     Router::new()
         .nest("/v1", chat::router(pool.clone(), dispatcher.clone(), rate_limiter))
-        .nest("/v1", models::router(dispatcher.clone()))
+        .nest("/v1", models::router(dispatcher.clone(), pool.clone()))
 }

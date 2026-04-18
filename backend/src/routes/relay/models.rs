@@ -1,7 +1,9 @@
 use axum::{extract::State, routing::get, Json, Router};
 use serde::Serialize;
+use sqlx::PgPool;
 use std::sync::Arc;
 
+use crate::models::channel::Channel;
 use crate::relay::dispatcher::Dispatcher;
 
 #[derive(Serialize)]
@@ -17,14 +19,23 @@ struct ModelEntry {
     owned_by: &'static str,
 }
 
-pub fn router(dispatcher: Arc<Dispatcher>) -> Router {
+#[derive(Serialize)]
+struct PublicChannel {
+    name: String,
+    model_pattern: String,
+    strategy: String,
+    provider: String,
+}
+
+pub fn router(dispatcher: Arc<Dispatcher>, pool: PgPool) -> Router {
     Router::new()
         .route("/models", get(list_models))
-        .with_state(dispatcher)
+        .route("/channels/public", get(list_public_channels))
+        .with_state((dispatcher, pool))
 }
 
 async fn list_models(
-    State(dispatcher): State<Arc<Dispatcher>>,
+    State((dispatcher, _)): State<(Arc<Dispatcher>, PgPool)>,
 ) -> Json<ModelsResponse> {
     let model_patterns = dispatcher.list_models().await.unwrap_or_default();
 
@@ -41,4 +52,38 @@ async fn list_models(
         object: "list",
         data,
     })
+}
+
+async fn list_public_channels(
+    State((_, pool)): State<(Arc<Dispatcher>, PgPool)>,
+) -> Json<Vec<PublicChannel>> {
+    let channels = Channel::list(&pool).await.unwrap_or_default();
+    let mut result = Vec::new();
+
+    for ch in channels {
+        if !ch.is_active {
+            continue;
+        }
+        let key_ids = Channel::get_key_ids(&pool, ch.id).await.unwrap_or_default();
+        // Determine provider from the first key
+        let provider = if let Some(kid) = key_ids.first() {
+            crate::models::provider_key::ProviderKey::find_by_id(&pool, *kid)
+                .await
+                .ok()
+                .flatten()
+                .map(|k| k.provider)
+                .unwrap_or_else(|| "unknown".into())
+        } else {
+            "unknown".into()
+        };
+
+        result.push(PublicChannel {
+            name: ch.name,
+            model_pattern: ch.model_pattern,
+            strategy: ch.strategy,
+            provider,
+        });
+    }
+
+    Json(result)
 }
