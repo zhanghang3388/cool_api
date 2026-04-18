@@ -16,14 +16,22 @@ interface PublicChannel {
 const providerColors: Record<string, string> = {
   openai: 'text-success border-success/20 bg-success/5',
   claude: 'text-accent-amber border-accent-amber/20 bg-accent-amber/5',
+  anthropic: 'text-accent-amber border-accent-amber/20 bg-accent-amber/5',
   gemini: 'text-accent border-accent/20 bg-accent/5',
+  google: 'text-accent border-accent/20 bg-accent/5',
+  deepseek: 'text-blue-400 border-blue-400/20 bg-blue-400/5',
+  mistral: 'text-orange-400 border-orange-400/20 bg-orange-400/5',
   unknown: 'text-text-secondary border-border bg-bg-tertiary',
 };
 
 const providerLabels: Record<string, string> = {
   openai: 'OpenAI',
   claude: 'Claude',
+  anthropic: 'Anthropic',
   gemini: 'Gemini',
+  google: 'Google',
+  deepseek: 'DeepSeek',
+  mistral: 'Mistral',
 };
 
 interface PricingItem {
@@ -290,7 +298,7 @@ export default function Home() {
                   {g.name} <span className="text-[10px] opacity-60">{g.multiplier}x</span>
                 </button>
               ))}
-              {['openai', 'claude', 'gemini'].filter(p => pricingData.some(d => d.provider === p)).map(p => (
+              {[...new Set(pricingData.map(d => d.provider))].map(p => (
                 <button
                   key={`prov-${p}`}
                   onClick={() => setPricingFilter(`provider:${p}`)}
@@ -324,6 +332,8 @@ export default function Home() {
               });
               const displayPricing = filteredPricing.map(row => ({
                 ...row,
+                original_input: row.input_price,
+                original_output: row.output_price,
                 input_price: selectedGroup ? row.input_price * selectedGroup.multiplier : row.input_price,
                 output_price: selectedGroup ? row.output_price * selectedGroup.multiplier : row.output_price,
               }));
@@ -355,11 +365,29 @@ export default function Home() {
                         {providerLabels[row.provider] || row.provider}
                       </span>
                     </td>
-                    <td className="px-5 py-3 text-right font-code text-xs text-accent">
-                      ${row.input_price.toFixed(2)} <span className="text-text-secondary text-[10px]">{t('home.pricing.unit')}</span>
+                    <td className="px-5 py-3 text-right font-code text-xs">
+                      {selectedGroup && row.original_input !== row.input_price ? (
+                        <>
+                          <span className="line-through text-text-secondary">${row.original_input.toFixed(2)}</span>
+                          {' '}
+                          <span className="text-accent">${row.input_price.toFixed(2)}</span>
+                        </>
+                      ) : (
+                        <span className="text-accent">${row.input_price.toFixed(2)}</span>
+                      )}
+                      <span className="text-text-secondary text-[10px]"> {t('home.pricing.unit')}</span>
                     </td>
-                    <td className="px-5 py-3 text-right font-code text-xs text-accent-amber">
-                      ${row.output_price.toFixed(2)} <span className="text-text-secondary text-[10px]">{t('home.pricing.unit')}</span>
+                    <td className="px-5 py-3 text-right font-code text-xs">
+                      {selectedGroup && row.original_output !== row.output_price ? (
+                        <>
+                          <span className="line-through text-text-secondary">${row.original_output.toFixed(2)}</span>
+                          {' '}
+                          <span className="text-accent-amber">${row.output_price.toFixed(2)}</span>
+                        </>
+                      ) : (
+                        <span className="text-accent-amber">${row.output_price.toFixed(2)}</span>
+                      )}
+                      <span className="text-text-secondary text-[10px]"> {t('home.pricing.unit')}</span>
                     </td>
                   </motion.tr>
                 ))}

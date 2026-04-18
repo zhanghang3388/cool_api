@@ -17,13 +17,21 @@ interface PricingItem {
 const providerColors: Record<string, string> = {
   openai: 'text-success border-success/20 bg-success/5',
   claude: 'text-accent-amber border-accent-amber/20 bg-accent-amber/5',
+  anthropic: 'text-accent-amber border-accent-amber/20 bg-accent-amber/5',
   gemini: 'text-accent border-accent/20 bg-accent/5',
+  google: 'text-accent border-accent/20 bg-accent/5',
+  deepseek: 'text-blue-400 border-blue-400/20 bg-blue-400/5',
+  mistral: 'text-orange-400 border-orange-400/20 bg-orange-400/5',
 };
 
 const providerLabels: Record<string, string> = {
   openai: 'OpenAI',
   claude: 'Claude',
+  anthropic: 'Anthropic',
   gemini: 'Gemini',
+  google: 'Google',
+  deepseek: 'DeepSeek',
+  mistral: 'Mistral',
 };
 
 export default function PricingPage() {
@@ -200,8 +208,6 @@ export default function PricingPage() {
                 <th className="px-4 py-3 text-right">{t('admin.pricing.inputPrice')}</th>
                 <th className="px-4 py-3 text-right">{t('admin.pricing.outputPrice')}</th>
                 <th className="px-4 py-3 text-center">{t('admin.pricing.multiplier')}</th>
-                <th className="px-4 py-3 text-right">{t('admin.pricing.effectiveInput')}</th>
-                <th className="px-4 py-3 text-right">{t('admin.pricing.effectiveOutput')}</th>
                 <th className="px-4 py-3 text-center">{t('admin.pricing.status')}</th>
                 <th className="px-4 py-3">{t('common.actions')}</th>
               </tr>
@@ -216,18 +222,12 @@ export default function PricingPage() {
                       {providerLabels[item.provider] || item.provider}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right font-code text-xs">${item.input_price.toFixed(2)}</td>
-                  <td className="px-4 py-3 text-right font-code text-xs">${item.output_price.toFixed(2)}</td>
-                  <td className="px-4 py-3 text-center">
-                    {editingId === item.id ? (
-                      <input type="number" step="0.1" min="0.1" value={editValues.multiplier}
-                        onChange={e => setEditValues({ ...editValues, multiplier: e.target.value })} className="input w-20 text-xs text-center" />
-                    ) : (
-                      <span className="font-code text-xs text-accent">{item.multiplier}x</span>
-                    )}
+                  <td className="px-4 py-3 text-right font-code text-xs">
+                    {item.multiplier !== 1 ? (<><span className="line-through text-text-secondary">${item.input_price.toFixed(2)}</span>{' '}<span className="text-accent">${(item.input_price * item.multiplier).toFixed(2)}</span></>) : (<span className="text-accent">${item.input_price.toFixed(2)}</span>)}
                   </td>
-                  <td className="px-4 py-3 text-right font-code text-xs text-accent">${(item.input_price * item.multiplier).toFixed(2)}</td>
-                  <td className="px-4 py-3 text-right font-code text-xs text-accent-amber">${(item.output_price * item.multiplier).toFixed(2)}</td>
+                  <td className="px-4 py-3 text-right font-code text-xs">
+                    {item.multiplier !== 1 ? (<><span className="line-through text-text-secondary">${item.output_price.toFixed(2)}</span>{' '}<span className="text-accent-amber">${(item.output_price * item.multiplier).toFixed(2)}</span></>) : (<span className="text-accent-amber">${item.output_price.toFixed(2)}</span>)}
+                  </td>
                   <td className="px-4 py-3 text-center">
                     <button onClick={() => handleToggle(item)}
                       className={`text-[10px] px-2 py-0.5 rounded-full border ${item.is_active ? 'text-success border-success/20 bg-success/5' : 'text-text-secondary border-border bg-bg-tertiary'}`}>
