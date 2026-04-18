@@ -81,12 +81,19 @@ async fn sync_pricing(
     let mut matched = 0u32;
 
     for model_name in &channel_models {
-        // Find best matching official pricing for this channel model
-        let pricing_match = official.iter().find(|p| {
-            model_name == &p.model || model_name.starts_with(&p.model)
-        });
+        // Find best matching official pricing (prefer longest/most specific match)
+        let mut best_match: Option<&CreatePricing> = None;
+        let mut best_len = 0;
+        for p in &official {
+            if model_name == &p.model || model_name.starts_with(&p.model) {
+                if p.model.len() > best_len {
+                    best_len = p.model.len();
+                    best_match = Some(p);
+                }
+            }
+        }
 
-        if let Some(item) = pricing_match {
+        if let Some(item) = best_match {
             let existing = ModelPricing::find_by_model(&pool, model_name).await?;
             if existing.is_some() {
                 sqlx::query(
