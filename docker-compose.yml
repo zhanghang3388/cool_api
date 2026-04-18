@@ -23,8 +23,9 @@ services:
       - .env
     environment:
       DATABASE_URL: postgres://${DB_USER:-cool_api}:${DB_PASSWORD:-cool_api}@postgres:5432/${DB_NAME:-cool_api}
-    ports:
-      - "3000:3000"
+      SERVER_PORT: "9821"
+    expose:
+      - "9821"
     depends_on:
       postgres:
         condition: service_healthy
