@@ -136,8 +136,6 @@ export default function Home() {
             )}
             <a href="#pricing" className="btn-secondary px-8 py-3">{t('home.hero.pricing')}</a>
           </div>
-            )}
-          </div>
         </motion.div>
       </section>
 
