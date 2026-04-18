@@ -121,7 +121,6 @@ function AddChannelModal({ keys, onClose, onSaved }: { keys: ProviderKey[]; onCl
   const [provider, setProvider] = useState<string>('openai');
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
-  const [strategy, setStrategy] = useState<string>('round_robin');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -203,7 +202,7 @@ function AddChannelModal({ keys, onClose, onSaved }: { keys: ProviderKey[]; onCl
         ? (document.getElementById('manual-pattern') as HTMLInputElement)?.value || ''
         : selectedModels.join(',');
 
-      await adminApi.createChannel({ name, model_pattern: modelPattern, strategy, key_ids: keyIds });
+      await adminApi.createChannel({ name, model_pattern: modelPattern, strategy: 'round_robin', key_ids: keyIds });
       onSaved();
       onClose();
     } catch (err: any) {
@@ -237,12 +236,6 @@ function AddChannelModal({ keys, onClose, onSaved }: { keys: ProviderKey[]; onCl
           <div>
             <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.channels.name')}</label>
             <input value={name} onChange={e => setName(e.target.value)} className="input-field" placeholder="GPT-4o Channel" required />
-          </div>
-          <div>
-            <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.channels.strategy')}</label>
-            <select value={strategy} onChange={e => setStrategy(e.target.value)} className="input-field">
-              {STRATEGIES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
-            </select>
           </div>
 
           {/* Mode toggle */}
