@@ -135,7 +135,7 @@ const en = {
       title: 'Billing Management',
       topup: 'Topup',
       topupTitle: 'Topup User Balance',
-      userId: 'User ID',
+      userId: 'Username',
       amount: 'Amount ($)',
       description: 'Description',
       processing: 'Processing...',

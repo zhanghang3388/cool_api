@@ -14,7 +14,7 @@ use crate::models::user::User;
 
 #[derive(Debug, Deserialize)]
 pub struct TopupRequest {
-    pub user_id: Uuid,
+    pub username: String,
     pub amount: i64,
     pub description: Option<String>,
 }
@@ -52,13 +52,16 @@ async fn topup(
     if req.amount <= 0 {
         return Err(AppError::BadRequest("Amount must be positive".into()));
     }
-    let user = User::update_balance(&pool, req.user_id, req.amount).await?;
+    let user = User::find_by_username(&pool, &req.username)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("User '{}' not found", req.username)))?;
+    let updated = User::update_balance(&pool, user.id, req.amount).await?;
     let tx = BillingTransaction::create(
         &pool,
-        req.user_id,
+        user.id,
         "topup",
         req.amount,
-        user.balance,
+        updated.balance,
         req.description.as_deref(),
         None,
     ).await?;

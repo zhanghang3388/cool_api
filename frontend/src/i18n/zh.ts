@@ -135,7 +135,7 @@ const zh = {
       title: '计费管理',
       topup: '充值',
       topupTitle: '用户充值',
-      userId: '用户 ID',
+      userId: '用户名',
       amount: '金额 ($)',
       description: '备注',
       processing: '处理中...',

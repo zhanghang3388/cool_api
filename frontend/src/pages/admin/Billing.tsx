@@ -8,7 +8,7 @@ export default function BillingPage() {
   const { t } = useTranslation();
   const [transactions, setTransactions] = useState<BillingTransaction[]>([]);
   const [loading, setLoading] = useState(true);
-  const [topupUserId, setTopupUserId] = useState('');
+  const [topupUsername, setTopupUsername] = useState('');
   const [topupAmount, setTopupAmount] = useState('');
   const [topupDesc, setTopupDesc] = useState('');
   const [topupLoading, setTopupLoading] = useState(false);
@@ -40,13 +40,13 @@ export default function BillingPage() {
       }
       const microCents = Math.round(amountDollars * 1_000_000);
       await adminApi.topup({
-        user_id: topupUserId,
+        username: topupUsername,
         amount: microCents,
         description: topupDesc || undefined,
       });
       setTopupMsg(t('admin.billing.topupSuccess'));
       setTopupSuccess(true);
-      setTopupUserId('');
+      setTopupUsername('');
       setTopupAmount('');
       setTopupDesc('');
       load();
@@ -69,8 +69,8 @@ export default function BillingPage() {
         </h2>
         <form onSubmit={handleTopup} className="flex flex-wrap items-end gap-3">
           <div className="flex-1 min-w-[200px]">
-            <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.billing.userId')}</label>
-            <input value={topupUserId} onChange={e => setTopupUserId(e.target.value)} className="input-field font-code text-xs" placeholder="UUID" required />
+            <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.billing.username')}</label>
+            <input value={topupUsername} onChange={e => setTopupUsername(e.target.value)} className="input-field font-code text-xs" placeholder="username" required />
           </div>
           <div className="w-32">
             <label className="block text-xs text-text-secondary mb-1 font-display">{t('admin.billing.amount')}</label>

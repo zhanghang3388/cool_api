@@ -130,7 +130,7 @@ export const adminApi = {
   // Billing
   listTransactions: (page = 1, per_page = 20) =>
     api.get<BillingTransaction[]>('/admin/billing/transactions', { params: { page, per_page } }),
-  topup: (data: { user_id: string; amount: number; description?: string }) =>
+  topup: (data: { username: string; amount: number; description?: string }) =>
     api.post<BillingTransaction>('/admin/billing/topup', data),
 
   // Pricing
