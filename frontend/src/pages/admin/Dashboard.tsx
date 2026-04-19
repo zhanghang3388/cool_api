@@ -251,7 +251,10 @@ export default function AdminDashboard() {
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(42, 42, 64, 0.6)" horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 10, fill: '#8888A0' }} axisLine={false} tickLine={false} />
                 <YAxis type="category" dataKey="model" tick={{ fontSize: 10, fill: '#8888A0' }} width={130} axisLine={false} tickLine={false} />
-                <Tooltip {...chartTooltipStyle} />
+                <Tooltip
+                  {...chartTooltipStyle}
+                  cursor={{ fill: 'rgba(0, 212, 255, 0.04)', radius: 4 }}
+                />
                 <Bar dataKey="count" radius={[0, 6, 6, 0]} barSize={20}>
                   {modelRanking.map((_, idx) => (
                     <Cell key={idx} fill={BAR_COLORS[idx % BAR_COLORS.length]} />
