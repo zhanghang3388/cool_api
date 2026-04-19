@@ -258,8 +258,17 @@ impl Dispatcher {
             }
             for pat in ch.model_pattern.split(',') {
                 let pat = pat.trim();
-                if !pat.is_empty() && !models.contains(&pat.to_string()) {
-                    models.push(pat.to_string());
+                if pat.is_empty() || models.contains(&pat.to_string()) {
+                    continue;
+                }
+                models.push(pat.to_string());
+                // For non-wildcard Claude models, also add [1m] variant
+                // so Claude Code can find its expected model name
+                if !pat.ends_with('*') && pat.starts_with("claude-") {
+                    let variant = format!("{pat}[1m]");
+                    if !models.contains(&variant) {
+                        models.push(variant);
+                    }
                 }
             }
         }
