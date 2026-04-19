@@ -251,21 +251,47 @@ impl Dispatcher {
             retryable: false,
         })?;
 
-        Ok(channels
-            .into_iter()
-            .filter(|c| c.is_active)
-            .map(|c| c.model_pattern)
-            .collect())
+        let mut models = Vec::new();
+        for ch in channels {
+            if !ch.is_active {
+                continue;
+            }
+            for pat in ch.model_pattern.split(',') {
+                let pat = pat.trim();
+                if !pat.is_empty() && !models.contains(&pat.to_string()) {
+                    models.push(pat.to_string());
+                }
+            }
+        }
+        Ok(models)
     }
 }
 
-/// Simple glob matching: supports trailing * wildcard
-fn model_matches(pattern: &str, model: &str) -> bool {
-    if pattern == model {
-        return true;
+/// Strip bracket suffix like `[1m]` from model names (e.g. `claude-sonnet-4-6[1m]` → `claude-sonnet-4-6`)
+pub fn strip_model_suffix(model: &str) -> &str {
+    if let Some(idx) = model.find('[') {
+        &model[..idx]
+    } else {
+        model
     }
-    if let Some(prefix) = pattern.strip_suffix('*') {
-        return model.starts_with(prefix);
+}
+
+/// Simple glob matching: supports trailing * wildcard and comma-separated patterns
+fn model_matches(pattern: &str, model: &str) -> bool {
+    let model_clean = strip_model_suffix(model);
+    for pat in pattern.split(',') {
+        let pat = pat.trim();
+        if pat.is_empty() {
+            continue;
+        }
+        if pat == model || pat == model_clean {
+            return true;
+        }
+        if let Some(prefix) = pat.strip_suffix('*') {
+            if model.starts_with(prefix) || model_clean.starts_with(prefix) {
+                return true;
+            }
+        }
     }
     false
 }

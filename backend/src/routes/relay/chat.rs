@@ -17,7 +17,7 @@ use crate::models::request_log::CreateRequestLog;
 use crate::models::request_log::RequestLog;
 use crate::models::user::User;
 use crate::models::pricing_group::PricingGroup;
-use crate::relay::dispatcher::Dispatcher;
+use crate::relay::dispatcher::{Dispatcher, strip_model_suffix};
 use crate::relay::providers::{ChatRequest, ProviderError};
 use crate::relay::streaming::SseCollector;
 use crate::middleware::rate_limiter::RateLimiter;
@@ -46,7 +46,7 @@ fn extract_relay_key(headers: &HeaderMap) -> Result<String, AppError> {
 async fn chat_completions(
     State((pool, dispatcher, rate_limiter)): State<(PgPool, Arc<Dispatcher>, RateLimiter)>,
     headers: HeaderMap,
-    Json(request): Json<ChatRequest>,
+    Json(mut request): Json<ChatRequest>,
 ) -> Result<Response, AppError> {
     let start = Instant::now();
     let raw_key = extract_relay_key(&headers)?;
@@ -118,6 +118,12 @@ async fn chat_completions(
 
     let is_stream = request.stream.unwrap_or(false);
     let model = request.model.clone();
+
+    // Strip bracket suffix (e.g. [1m]) from model name for upstream compatibility
+    let clean_model = strip_model_suffix(&request.model).to_string();
+    if clean_model != request.model {
+        request.model = clean_model;
+    }
 
     if is_stream {
         handle_stream(pool, dispatcher, relay_key, user, request, model, start, group_multiplier).await

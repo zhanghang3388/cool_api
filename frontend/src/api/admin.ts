@@ -55,6 +55,42 @@ export interface BillingTransaction {
   created_at: string;
 }
 
+export interface TodayStats {
+  today_requests: number;
+  today_cost: number;
+  requests_change: number;
+  cost_change: number;
+  active_tokens: number;
+  online_users: number;
+}
+
+export interface DailyData {
+  date: string;
+  requests: number;
+  tokens: number;
+  cost: number;
+}
+
+export interface ModelRanking {
+  model: string;
+  count: number;
+}
+
+export interface RequestLog {
+  id: string;
+  user_id: string | null;
+  model: string;
+  status_code: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost: number;
+  latency_ms: number;
+  is_stream: boolean;
+  error_message: string | null;
+  created_at: string;
+}
+
 export interface PricingGroupWithChannels {
   id: string;
   name: string;
@@ -116,4 +152,13 @@ export const adminApi = {
   updateGroup: (id: string, data: { name?: string; multiplier?: number; is_active?: boolean; channel_ids?: string[] }) =>
     api.patch<PricingGroupWithChannels>(`/admin/groups/${id}`, data),
   deleteGroup: (id: string) => api.delete(`/admin/groups/${id}`),
+
+  // Stats
+  getTodayStats: () => api.get<TodayStats>('/admin/stats/today'),
+  getDailyStats: (days: number = 30) =>
+    api.get<DailyData[]>('/admin/stats/daily', { params: { days } }),
+  getModelRanking: (days: number = 7) =>
+    api.get<ModelRanking[]>('/admin/stats/model-ranking', { params: { days } }),
+  getRecentLogs: (perPage: number = 10) =>
+    api.get<RequestLog[]>('/admin/stats/logs', { params: { page: 1, per_page: perPage } }),
 };
