@@ -6,7 +6,8 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
 import { useTranslation } from 'react-i18next';
-import { adminApi, TodayStats, DailyData, ModelRanking, RequestLog } from '@/api/admin';
+import { adminApi } from '@/api/admin';
+import type { TodayStats, DailyData, ModelRanking, RequestLog } from '@/api/admin';
 
 export default function AdminDashboard() {
   const { t } = useTranslation();
