@@ -91,7 +91,7 @@ async fn overview(
         .await?;
 
     let row: (Option<i64>, Option<i64>) = sqlx::query_as(
-        "SELECT COALESCE(SUM(total_tokens), 0), COALESCE(SUM(cost), 0) FROM request_logs"
+        "SELECT COALESCE(SUM(total_tokens)::bigint, 0), COALESCE(SUM(cost)::bigint, 0) FROM request_logs"
     )
     .fetch_one(&pool)
     .await?;
@@ -114,7 +114,7 @@ async fn today_stats(
 ) -> Result<Json<TodayStats>, AppError> {
     // Today's requests and cost
     let today: (i64, Option<i64>) = sqlx::query_as(
-        "SELECT COUNT(*), COALESCE(SUM(cost), 0) FROM request_logs WHERE created_at >= CURRENT_DATE"
+        "SELECT COUNT(*), COALESCE(SUM(cost)::bigint, 0) FROM request_logs WHERE created_at >= CURRENT_DATE"
     )
     .fetch_one(&pool)
     .await?;
@@ -123,7 +123,7 @@ async fn today_stats(
 
     // Yesterday's requests and cost
     let yesterday: (i64, Option<i64>) = sqlx::query_as(
-        "SELECT COUNT(*), COALESCE(SUM(cost), 0) FROM request_logs WHERE created_at >= CURRENT_DATE - INTERVAL '1 day' AND created_at < CURRENT_DATE"
+        "SELECT COUNT(*), COALESCE(SUM(cost)::bigint, 0) FROM request_logs WHERE created_at >= CURRENT_DATE - INTERVAL '1 day' AND created_at < CURRENT_DATE"
     )
     .fetch_one(&pool)
     .await?;
@@ -178,8 +178,8 @@ async fn daily(
             "SELECT
                 TO_CHAR(created_at::date, 'YYYY-MM-DD') as date,
                 COUNT(*) as requests,
-                COALESCE(SUM(total_tokens), 0) as tokens,
-                COALESCE(SUM(cost), 0) as cost
+                COALESCE(SUM(total_tokens)::bigint, 0) as tokens,
+                COALESCE(SUM(cost)::bigint, 0) as cost
              FROM request_logs
              WHERE created_at >= NOW() - INTERVAL '7 days'
              GROUP BY created_at::date
@@ -192,8 +192,8 @@ async fn daily(
             "SELECT
                 TO_CHAR(created_at::date, 'YYYY-MM-DD') as date,
                 COUNT(*) as requests,
-                COALESCE(SUM(total_tokens), 0) as tokens,
-                COALESCE(SUM(cost), 0) as cost
+                COALESCE(SUM(total_tokens)::bigint, 0) as tokens,
+                COALESCE(SUM(cost)::bigint, 0) as cost
              FROM request_logs
              WHERE created_at >= NOW() - INTERVAL '30 days'
              GROUP BY created_at::date
