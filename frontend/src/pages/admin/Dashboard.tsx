@@ -28,22 +28,27 @@ export default function AdminDashboard() {
   const loadAll = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [todayRes, dailyRes, rankingRes, logsRes, cacheRes, groupsRes] = await Promise.all([
+      const [todayRes, dailyRes, rankingRes, logsRes] = await Promise.all([
         adminApi.getTodayStats(),
         adminApi.getDailyStats(30),
         adminApi.getModelRanking(modelDays),
         adminApi.getRecentLogs(10),
-        adminApi.getCacheHitRate(cacheGroupId || undefined),
-        adminApi.listGroups(),
       ]);
       setToday(todayRes.data);
       setDaily(dailyRes.data);
       setModelRanking(rankingRes.data);
       setRecentLogs(logsRes.data);
-      setCacheRates(cacheRes.data);
-      setGroups(groupsRes.data);
     } catch { /* silently fail */ }
     finally { setLoading(false); }
+    // Load cache stats independently so failures don't block core data
+    try {
+      const [cacheRes, groupsRes] = await Promise.all([
+        adminApi.getCacheHitRate(cacheGroupId || undefined),
+        adminApi.listGroups(),
+      ]);
+      setCacheRates(cacheRes.data);
+      setGroups(groupsRes.data);
+    } catch { /* ignore */ }
   }, [modelDays, cacheGroupId]);
 
   useEffect(() => {
