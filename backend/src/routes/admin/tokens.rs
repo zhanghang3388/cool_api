@@ -14,7 +14,9 @@ use crate::models::relay_key::RelayKey;
 #[derive(Debug, Deserialize)]
 pub struct AdminCreateTokenRequest {
     pub name: String,
+    #[serde(default)]
     pub group_id: Option<Uuid>,
+    #[serde(default)]
     pub remark: Option<String>,
 }
 

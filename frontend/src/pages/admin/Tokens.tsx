@@ -35,6 +35,7 @@ export default function AdminTokensPage() {
   const [creating, setCreating] = useState(false);
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -58,6 +59,7 @@ export default function AdminTokensPage() {
   const createToken = async () => {
     if (!newName.trim()) return;
     setCreating(true);
+    setError('');
     try {
       const { data } = await api.post<{ key: RelayToken; full_key: string }>('/admin/tokens', {
         name: newName.trim(),
@@ -70,6 +72,8 @@ export default function AdminTokensPage() {
       setRemark('');
       setShowModal(false);
       load();
+    } catch (e: any) {
+      setError(e?.response?.data?.error?.message || e?.message || t('common.error'));
     } finally {
       setCreating(false);
     }
@@ -100,7 +104,7 @@ export default function AdminTokensPage() {
         <h1 className="text-2xl font-display font-bold">{t('admin.tokens.title')}</h1>
         <div className="flex items-center gap-3">
           <span className="text-xs text-text-secondary">{t('admin.tokens.total', { count: tokens.length })}</span>
-          <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
+          <button onClick={() => { setError(''); setShowModal(true); }} className="btn-primary flex items-center gap-2">
             <Plus className="w-4 h-4" /> {t('admin.tokens.createToken')}
           </button>
         </div>
@@ -225,6 +229,9 @@ export default function AdminTokensPage() {
                   placeholder={t('admin.tokens.remarkPlaceholder')}
                 />
               </div>
+              {error && (
+                <p className="text-xs text-danger">{error}</p>
+              )}
               <button
                 onClick={createToken}
                 disabled={creating || !newName.trim()}

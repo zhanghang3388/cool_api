@@ -35,6 +35,7 @@ export default function ApiKeysPage() {
   const [creating, setCreating] = useState(false);
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -58,6 +59,7 @@ export default function ApiKeysPage() {
   const createKey = async () => {
     if (!newName.trim()) return;
     setCreating(true);
+    setError('');
     try {
       const { data } = await api.post<{ key: RelayKey; full_key: string }>('/client/keys', {
         name: newName.trim(),
@@ -70,6 +72,8 @@ export default function ApiKeysPage() {
       setRemark('');
       setShowModal(false);
       load();
+    } catch (e: any) {
+      setError(e?.response?.data?.error?.message || e?.message || t('common.error'));
     } finally {
       setCreating(false);
     }
@@ -98,7 +102,7 @@ export default function ApiKeysPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-display font-bold">{t('client.keys.title')}</h1>
-        <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
+        <button onClick={() => { setError(''); setShowModal(true); }} className="btn-primary flex items-center gap-2">
           <Plus className="w-4 h-4" /> {t('client.keys.generateNew')}
         </button>
       </div>
@@ -225,6 +229,9 @@ export default function ApiKeysPage() {
                   placeholder={t('client.keys.remarkPlaceholder')}
                 />
               </div>
+              {error && (
+                <p className="text-xs text-danger">{error}</p>
+              )}
               <button
                 onClick={createKey}
                 disabled={creating || !newName.trim()}

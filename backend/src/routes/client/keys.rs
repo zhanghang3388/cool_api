@@ -35,7 +35,9 @@ async fn list_keys(
 #[derive(serde::Deserialize)]
 pub struct CreateKeyRequest {
     pub name: String,
+    #[serde(default)]
     pub group_id: Option<Uuid>,
+    #[serde(default)]
     pub remark: Option<String>,
 }
 
