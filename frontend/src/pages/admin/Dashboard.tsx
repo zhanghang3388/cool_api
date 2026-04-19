@@ -7,7 +7,7 @@ import {
 } from 'recharts';
 import { useTranslation } from 'react-i18next';
 import { adminApi } from '@/api/admin';
-import type { TodayStats, DailyData, ModelRanking, RequestLog } from '@/api/admin';
+import type { TodayStats, DailyData, ModelRanking, RequestLog, CacheHitRate, PricingGroupWithChannels } from '@/api/admin';
 
 const BAR_COLORS = ['#00D4FF', '#00B4D8', '#0096C7', '#0077B6', '#006DA4', '#005E93', '#005082', '#004271', '#003560', '#002850'];
 
@@ -21,25 +21,36 @@ export default function AdminDashboard() {
   const [modelRanking, setModelRanking] = useState<ModelRanking[]>([]);
   const [modelDays, setModelDays] = useState<7 | 30>(7);
   const [recentLogs, setRecentLogs] = useState<RequestLog[]>([]);
+  const [cacheRates, setCacheRates] = useState<CacheHitRate[]>([]);
+  const [groups, setGroups] = useState<PricingGroupWithChannels[]>([]);
+  const [cacheGroupId, setCacheGroupId] = useState<string>('');
+
+  const loadAll = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const [todayRes, dailyRes, rankingRes, logsRes, cacheRes, groupsRes] = await Promise.all([
+        adminApi.getTodayStats(),
+        adminApi.getDailyStats(30),
+        adminApi.getModelRanking(modelDays),
+        adminApi.getRecentLogs(10),
+        adminApi.getCacheHitRate(cacheGroupId || undefined),
+        adminApi.listGroups(),
+      ]);
+      setToday(todayRes.data);
+      setDaily(dailyRes.data);
+      setModelRanking(rankingRes.data);
+      setRecentLogs(logsRes.data);
+      setCacheRates(cacheRes.data);
+      setGroups(groupsRes.data);
+    } catch { /* silently fail */ }
+    finally { setLoading(false); }
+  }, [modelDays, cacheGroupId]);
 
   useEffect(() => {
-    async function load() {
-      try {
-        const [todayRes, dailyRes, rankingRes, logsRes] = await Promise.all([
-          adminApi.getTodayStats(),
-          adminApi.getDailyStats(30),
-          adminApi.getModelRanking(7),
-          adminApi.getRecentLogs(10),
-        ]);
-        setToday(todayRes.data);
-        setDaily(dailyRes.data);
-        setModelRanking(rankingRes.data);
-        setRecentLogs(logsRes.data);
-      } catch { /* silently fail */ }
-      finally { setLoading(false); }
-    }
-    load();
-  }, []);
+    loadAll();
+    const timer = setInterval(() => loadAll(true), 30_000);
+    return () => clearInterval(timer);
+  }, [loadAll]);
 
   const loadModelRanking = useCallback(async (days: 7 | 30) => {
     setModelDays(days);
@@ -301,6 +312,62 @@ export default function AdminDashboard() {
           )}
         </motion.div>
       </div>
+
+      {/* Cache Hit Rate */}
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.75, duration: 0.4 }}
+        className="card"
+      >
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-display text-sm font-semibold">{t('admin.dashboard.cacheHitRate')}</h3>
+          <select
+            value={cacheGroupId}
+            onChange={e => setCacheGroupId(e.target.value)}
+            className="bg-bg-primary/60 border border-border rounded-lg px-3 py-1 text-[11px] font-display text-text-secondary focus:outline-none focus:border-accent/40"
+          >
+            <option value="">{t('admin.dashboard.allGroups')}</option>
+            {groups.map(g => (
+              <option key={g.id} value={g.id}>{g.name}</option>
+            ))}
+          </select>
+        </div>
+        {cacheRates.length === 0 ? (
+          <div className="flex items-center justify-center py-12 text-text-secondary">
+            <p className="text-xs">{t('admin.dashboard.noData')}</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {cacheRates.map((item, i) => (
+              <motion.div
+                key={item.model}
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.75 + i * 0.04 }}
+                className="flex items-center gap-4"
+              >
+                <span className="text-xs font-code w-[160px] truncate shrink-0" title={item.model}>{item.model}</span>
+                <div className="flex-1 h-5 bg-bg-primary/60 rounded-full overflow-hidden relative">
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{
+                      width: `${Math.max(item.cache_hit_rate * 100, 1)}%`,
+                      background: `linear-gradient(90deg, #00D4FF, ${item.cache_hit_rate > 0.5 ? '#00E676' : '#FFB800'})`,
+                    }}
+                  />
+                </div>
+                <span className="text-xs font-display font-semibold tabular-nums w-[52px] text-right">
+                  {(item.cache_hit_rate * 100).toFixed(1)}%
+                </span>
+                <span className="text-[10px] text-text-secondary tabular-nums w-[60px] text-right">
+                  {item.total_requests} {t('admin.dashboard.requests')}
+                </span>
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </motion.div>
     </div>
   );
 }

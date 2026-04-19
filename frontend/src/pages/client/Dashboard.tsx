@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { Key, BarChart3, CreditCard, Zap } from 'lucide-react';
@@ -12,16 +12,24 @@ export default function ClientDashboard() {
   const [recentLogs, setRecentLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    Promise.all([
-      api.get('/client/keys'),
-      api.get('/client/usage/logs', { params: { page: 1, per_page: 5 } }),
-    ]).then(([keysRes, logsRes]) => {
+  const loadData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const [keysRes, logsRes] = await Promise.all([
+        api.get('/client/keys'),
+        api.get('/client/usage/logs', { params: { page: 1, per_page: 5 } }),
+      ]);
       setKeyCount(keysRes.data.length);
       setRecentLogs(logsRes.data);
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    } catch { /* ignore */ }
+    finally { setLoading(false); }
   }, []);
+
+  useEffect(() => {
+    loadData();
+    const timer = setInterval(() => loadData(true), 30_000);
+    return () => clearInterval(timer);
+  }, [loadData]);
 
   const totalTokens = recentLogs.reduce((s, l) => s + l.total_tokens, 0);
   const totalCost = recentLogs.reduce((s, l) => s + l.cost, 0);

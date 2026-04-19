@@ -22,6 +22,8 @@ pub struct RequestLog {
     pub is_stream: bool,
     pub error_message: Option<String>,
     pub ip_address: Option<String>,
+    pub cache_creation_tokens: i32,
+    pub cache_read_tokens: i32,
     pub created_at: DateTime<Utc>,
 }
 
@@ -42,13 +44,15 @@ pub struct CreateRequestLog {
     pub is_stream: bool,
     pub error_message: Option<String>,
     pub ip_address: Option<String>,
+    pub cache_creation_tokens: i32,
+    pub cache_read_tokens: i32,
 }
 
 impl RequestLog {
     pub async fn create(pool: &PgPool, input: &CreateRequestLog) -> Result<Self, sqlx::Error> {
         sqlx::query_as(
-            "INSERT INTO request_logs (user_id, relay_key_id, provider_key_id, channel_id, model, method, path, status_code, prompt_tokens, completion_tokens, total_tokens, cost, latency_ms, is_stream, error_message, ip_address)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *"
+            "INSERT INTO request_logs (user_id, relay_key_id, provider_key_id, channel_id, model, method, path, status_code, prompt_tokens, completion_tokens, total_tokens, cost, latency_ms, is_stream, error_message, ip_address, cache_creation_tokens, cache_read_tokens)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *"
         )
         .bind(input.user_id)
         .bind(input.relay_key_id)
@@ -66,6 +70,8 @@ impl RequestLog {
         .bind(input.is_stream)
         .bind(&input.error_message)
         .bind(&input.ip_address)
+        .bind(input.cache_creation_tokens)
+        .bind(input.cache_read_tokens)
         .fetch_one(pool)
         .await
     }

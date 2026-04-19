@@ -101,6 +101,14 @@ export interface PricingGroupWithChannels {
   channel_ids: string[];
 }
 
+export interface CacheHitRate {
+  model: string;
+  total_requests: number;
+  cache_creation_tokens: number;
+  cache_read_tokens: number;
+  cache_hit_rate: number;
+}
+
 export const adminApi = {
   // Users
   listUsers: (page = 1, per_page = 20) =>
@@ -161,4 +169,6 @@ export const adminApi = {
     api.get<ModelRanking[]>('/admin/stats/model-ranking', { params: { days } }),
   getRecentLogs: (perPage: number = 10) =>
     api.get<RequestLog[]>('/admin/stats/logs', { params: { page: 1, per_page: perPage } }),
+  getCacheHitRate: (groupId?: string) =>
+    api.get<CacheHitRate[]>('/admin/stats/cache-hit-rate', { params: groupId ? { group_id: groupId } : {} }),
 };

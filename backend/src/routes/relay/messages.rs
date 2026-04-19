@@ -58,6 +58,10 @@ struct MessagesRequest {
 struct AnthropicUsage {
     input_tokens: Option<u32>,
     output_tokens: Option<u32>,
+    #[serde(default)]
+    cache_creation_input_tokens: Option<u32>,
+    #[serde(default)]
+    cache_read_input_tokens: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -193,6 +197,8 @@ async fn messages(
 
                     let mut input_tokens: u32 = 0;
                     let mut output_tokens: u32 = 0;
+                    let mut cache_creation_tokens: u32 = 0;
+                    let mut cache_read_tokens: u32 = 0;
 
                     let body_stream = futures::stream::unfold(
                         (raw_stream, false),
@@ -217,6 +223,12 @@ async fn messages(
                                                         }
                                                         if let Some(ot) = usage.get("output_tokens").and_then(|v| v.as_u64()) {
                                                             output_tokens = ot as u32;
+                                                        }
+                                                        if let Some(ct) = usage.get("cache_creation_input_tokens").and_then(|v| v.as_u64()) {
+                                                            cache_creation_tokens = ct as u32;
+                                                        }
+                                                        if let Some(cr) = usage.get("cache_read_input_tokens").and_then(|v| v.as_u64()) {
+                                                            cache_read_tokens = cr as u32;
                                                         }
                                                     }
                                                     // message_stop = end of stream
@@ -255,6 +267,8 @@ async fn messages(
                                                                 is_stream: true,
                                                                 error_message: None,
                                                                 ip_address: None,
+                                                                cache_creation_tokens: cache_creation_tokens as i32,
+                                                                cache_read_tokens: cache_read_tokens as i32,
                                                             }).await;
                                                         });
                                                     }
@@ -284,13 +298,15 @@ async fn messages(
                     let resp_bytes = resp.bytes().await.map_err(|e| AppError::Internal(e.to_string()))?;
                     let latency = start.elapsed().as_millis() as i32;
 
-                    let (prompt_tokens, completion_tokens) = if let Ok(parsed) = serde_json::from_slice::<AnthropicResponse>(&resp_bytes) {
+                    let (prompt_tokens, completion_tokens, cache_creation_tokens, cache_read_tokens) = if let Ok(parsed) = serde_json::from_slice::<AnthropicResponse>(&resp_bytes) {
                         (
                             parsed.usage.as_ref().and_then(|u| u.input_tokens).unwrap_or(0),
                             parsed.usage.as_ref().and_then(|u| u.output_tokens).unwrap_or(0),
+                            parsed.usage.as_ref().and_then(|u| u.cache_creation_input_tokens).unwrap_or(0),
+                            parsed.usage.as_ref().and_then(|u| u.cache_read_input_tokens).unwrap_or(0),
                         )
                     } else {
-                        (0, 0)
+                        (0, 0, 0, 0)
                     };
                     let total_tokens = prompt_tokens + completion_tokens;
                     let mut cost = token_counter::estimate_cost_from_db(&pool, &clean_model, prompt_tokens, completion_tokens).await;
@@ -326,6 +342,8 @@ async fn messages(
                             is_stream: false,
                             error_message: None,
                             ip_address: None,
+                            cache_creation_tokens: cache_creation_tokens as i32,
+                            cache_read_tokens: cache_read_tokens as i32,
                         }).await;
                     });
 
@@ -368,5 +386,7 @@ async fn log_error(pool: &PgPool, relay_key: &RelayKey, user: &User, model: &str
         is_stream: false,
         error_message: Some(msg.to_string()),
         ip_address: None,
+        cache_creation_tokens: 0,
+        cache_read_tokens: 0,
     }).await;
 }

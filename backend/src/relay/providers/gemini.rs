@@ -90,6 +90,8 @@ impl GeminiProvider {
             prompt_tokens: u.prompt_token_count.unwrap_or(0),
             completion_tokens: u.candidates_token_count.unwrap_or(0),
             total_tokens: u.total_token_count.unwrap_or(0),
+            cache_creation_tokens: 0,
+            cache_read_tokens: 0,
         });
 
         ChatResponse {
@@ -304,6 +306,8 @@ impl Provider for GeminiProvider {
                             prompt_tokens: u.prompt_token_count.unwrap_or(0),
                             completion_tokens: u.candidates_token_count.unwrap_or(0),
                             total_tokens: u.total_token_count.unwrap_or(0),
+                            cache_creation_tokens: 0,
+                            cache_read_tokens: 0,
                         }),
                     };
                     if let Ok(json) = serde_json::to_string(&chunk) {

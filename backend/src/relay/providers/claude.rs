@@ -96,6 +96,8 @@ impl ClaudeProvider {
                 prompt_tokens: resp.usage.input_tokens,
                 completion_tokens: resp.usage.output_tokens,
                 total_tokens: resp.usage.input_tokens + resp.usage.output_tokens,
+                cache_creation_tokens: resp.usage.cache_creation_input_tokens,
+                cache_read_tokens: resp.usage.cache_read_input_tokens,
             }),
         }
     }
@@ -154,6 +156,10 @@ struct ContentBlock {
 struct ClaudeUsage {
     input_tokens: u32,
     output_tokens: u32,
+    #[serde(default)]
+    cache_creation_input_tokens: u32,
+    #[serde(default)]
+    cache_read_input_tokens: u32,
 }
 
 // Claude SSE event types
@@ -342,6 +348,8 @@ impl Provider for ClaudeProvider {
                                         prompt_tokens: u.input_tokens,
                                         completion_tokens: u.output_tokens,
                                         total_tokens: u.input_tokens + u.output_tokens,
+                                        cache_creation_tokens: u.cache_creation_input_tokens,
+                                        cache_read_tokens: u.cache_read_input_tokens,
                                     }),
                                 };
                                 if let Ok(json) = serde_json::to_string(&chunk) {

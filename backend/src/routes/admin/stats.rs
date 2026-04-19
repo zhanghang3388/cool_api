@@ -5,6 +5,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::auth::middleware::AdminUser;
 use crate::error::AppError;
@@ -65,6 +66,7 @@ pub fn router(pool: PgPool) -> Router {
         .route("/today", get(today_stats))
         .route("/daily", get(daily))
         .route("/model-ranking", get(model_ranking))
+        .route("/cache-hit-rate", get(cache_hit_rate))
         .with_state(pool)
 }
 
@@ -230,6 +232,71 @@ async fn model_ranking(
              GROUP BY model
              ORDER BY count DESC
              LIMIT 10"
+        )
+        .fetch_all(&pool)
+        .await?
+    };
+
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CacheHitRateParams {
+    pub group_id: Option<Uuid>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct CacheHitRateRow {
+    pub model: String,
+    pub total_requests: i64,
+    pub cache_creation_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_hit_rate: f64,
+}
+
+async fn cache_hit_rate(
+    _admin: AdminUser,
+    State(pool): State<PgPool>,
+    Query(params): Query<CacheHitRateParams>,
+) -> Result<Json<Vec<CacheHitRateRow>>, AppError> {
+    let rows: Vec<CacheHitRateRow> = if let Some(gid) = params.group_id {
+        sqlx::query_as(
+            "SELECT
+                r.model,
+                COUNT(*) as total_requests,
+                COALESCE(SUM(r.cache_creation_tokens), 0)::bigint as cache_creation_tokens,
+                COALESCE(SUM(r.cache_read_tokens), 0)::bigint as cache_read_tokens,
+                CASE WHEN SUM(r.prompt_tokens + r.cache_creation_tokens + r.cache_read_tokens) = 0 THEN 0.0
+                     ELSE SUM(r.cache_read_tokens)::float / SUM(r.prompt_tokens + r.cache_creation_tokens + r.cache_read_tokens)::float
+                END as cache_hit_rate
+             FROM (
+                SELECT * FROM request_logs
+                WHERE status_code = 200 AND relay_key_id IN (SELECT id FROM relay_keys WHERE group_id = $1)
+                ORDER BY created_at DESC LIMIT 100
+             ) r
+             GROUP BY r.model
+             ORDER BY total_requests DESC"
+        )
+        .bind(gid)
+        .fetch_all(&pool)
+        .await?
+    } else {
+        sqlx::query_as(
+            "SELECT
+                r.model,
+                COUNT(*) as total_requests,
+                COALESCE(SUM(r.cache_creation_tokens), 0)::bigint as cache_creation_tokens,
+                COALESCE(SUM(r.cache_read_tokens), 0)::bigint as cache_read_tokens,
+                CASE WHEN SUM(r.prompt_tokens + r.cache_creation_tokens + r.cache_read_tokens) = 0 THEN 0.0
+                     ELSE SUM(r.cache_read_tokens)::float / SUM(r.prompt_tokens + r.cache_creation_tokens + r.cache_read_tokens)::float
+                END as cache_hit_rate
+             FROM (
+                SELECT * FROM request_logs
+                WHERE status_code = 200
+                ORDER BY created_at DESC LIMIT 100
+             ) r
+             GROUP BY r.model
+             ORDER BY total_requests DESC"
         )
         .fetch_all(&pool)
         .await?

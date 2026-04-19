@@ -151,6 +151,8 @@ async fn handle_non_stream(
             let prompt_tokens = usage.map(|u| u.prompt_tokens).unwrap_or(prompt_tokens_est);
             let completion_tokens = usage.map(|u| u.completion_tokens).unwrap_or(0);
             let total_tokens = prompt_tokens + completion_tokens;
+            let cache_creation_tokens = usage.map(|u| u.cache_creation_tokens).unwrap_or(0);
+            let cache_read_tokens = usage.map(|u| u.cache_read_tokens).unwrap_or(0);
             let mut cost = token_counter::estimate_cost_from_db(&pool, &model, prompt_tokens, completion_tokens).await;
             if let Some(gm) = group_multiplier {
                 cost = (cost as f64 * gm).ceil() as i64;
@@ -186,6 +188,8 @@ async fn handle_non_stream(
                     is_stream: false,
                     error_message: None,
                     ip_address: None,
+                    cache_creation_tokens: cache_creation_tokens as i32,
+                    cache_read_tokens: cache_read_tokens as i32,
                 }).await;
             });
 
@@ -246,6 +250,8 @@ async fn handle_stream(
                                     .unwrap_or_else(|| token_counter::count_tokens(&content.text, &model3));
                                 let prompt_tokens = content.prompt_tokens.unwrap_or(prompt_tokens_est);
                                 let total_tokens = prompt_tokens + completion_tokens;
+                                let cache_creation_tokens = content.cache_creation_tokens.unwrap_or(0);
+                                let cache_read_tokens = content.cache_read_tokens.unwrap_or(0);
                                 let mut cost = token_counter::estimate_cost_from_db(&pool3, &model3, prompt_tokens, completion_tokens).await;
                                 if let Some(gm) = group_multiplier {
                                     cost = (cost as f64 * gm).ceil() as i64;
@@ -276,6 +282,8 @@ async fn handle_stream(
                                         is_stream: true,
                                         error_message: None,
                                         ip_address: None,
+                                        cache_creation_tokens: cache_creation_tokens as i32,
+                                        cache_read_tokens: cache_read_tokens as i32,
                                     }).await;
                                 });
 
@@ -322,6 +330,8 @@ async fn log_error(pool: &PgPool, relay_key: &RelayKey, user: &User, model: &str
         is_stream: false,
         error_message: Some(err.message.clone()),
         ip_address: None,
+        cache_creation_tokens: 0,
+        cache_read_tokens: 0,
     }).await;
 }
 

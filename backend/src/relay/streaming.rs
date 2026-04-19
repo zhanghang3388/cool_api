@@ -18,6 +18,8 @@ pub struct StreamedContent {
     pub finish_reason: Option<String>,
     pub prompt_tokens: Option<u32>,
     pub completion_tokens: Option<u32>,
+    pub cache_creation_tokens: Option<u32>,
+    pub cache_read_tokens: Option<u32>,
 }
 
 impl SseCollector {
@@ -63,6 +65,12 @@ impl Stream for SseCollector {
                                 if let Ok(mut c) = self.collected.lock() {
                                     c.prompt_tokens = Some(usage.prompt_tokens);
                                     c.completion_tokens = Some(usage.completion_tokens);
+                                    if usage.cache_creation_tokens > 0 {
+                                        c.cache_creation_tokens = Some(usage.cache_creation_tokens);
+                                    }
+                                    if usage.cache_read_tokens > 0 {
+                                        c.cache_read_tokens = Some(usage.cache_read_tokens);
+                                    }
                                 }
                             }
                         }
