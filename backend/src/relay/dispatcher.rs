@@ -243,6 +243,13 @@ impl Dispatcher {
         }))
     }
 
+    /// Get channel and ordered keys for a model (used by messages proxy)
+    pub async fn get_route(&self, model: &str) -> Result<(Channel, Vec<ProviderKey>), ProviderError> {
+        let channel = self.find_channel(model).await?;
+        let keys = self.get_ordered_keys(&channel).await?;
+        Ok((channel, keys))
+    }
+
     /// List available models from active channels
     pub async fn list_models(&self) -> Result<Vec<String>, ProviderError> {
         let channels = Channel::list(&self.pool).await.map_err(|e| ProviderError {

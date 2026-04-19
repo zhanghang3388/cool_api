@@ -1,4 +1,5 @@
 pub mod chat;
+pub mod messages;
 pub mod models;
 
 use axum::Router;
@@ -22,6 +23,7 @@ pub fn router(pool: PgPool) -> Router {
     });
 
     Router::new()
-        .nest("/v1", chat::router(pool.clone(), dispatcher.clone(), rate_limiter))
+        .nest("/v1", chat::router(pool.clone(), dispatcher.clone(), rate_limiter.clone()))
+        .nest("/v1", messages::router(pool.clone(), dispatcher.clone(), rate_limiter))
         .nest("/v1", models::router(dispatcher.clone(), pool.clone()))
 }
