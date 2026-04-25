@@ -34,7 +34,10 @@ impl User {
             .await
     }
 
-    pub async fn find_by_username(pool: &PgPool, username: &str) -> Result<Option<Self>, sqlx::Error> {
+    pub async fn find_by_username(
+        pool: &PgPool,
+        username: &str,
+    ) -> Result<Option<Self>, sqlx::Error> {
         sqlx::query_as("SELECT * FROM users WHERE username = $1")
             .bind(username)
             .fetch_optional(pool)
@@ -76,9 +79,13 @@ impl User {
         Ok(count)
     }
 
-    pub async fn update_active(pool: &PgPool, id: Uuid, is_active: bool) -> Result<Self, sqlx::Error> {
+    pub async fn update_active(
+        pool: &PgPool,
+        id: Uuid,
+        is_active: bool,
+    ) -> Result<Self, sqlx::Error> {
         sqlx::query_as(
-            "UPDATE users SET is_active = $1, updated_at = now() WHERE id = $2 RETURNING *"
+            "UPDATE users SET is_active = $1, updated_at = now() WHERE id = $2 RETURNING *",
         )
         .bind(is_active)
         .bind(id)
@@ -88,7 +95,10 @@ impl User {
 
     pub async fn update_balance(pool: &PgPool, id: Uuid, delta: i64) -> Result<Self, sqlx::Error> {
         sqlx::query_as(
-            "UPDATE users SET balance = balance + $1, updated_at = now() WHERE id = $2 RETURNING *"
+            "UPDATE users
+             SET balance = balance + $1, updated_at = now()
+             WHERE id = $2 AND ($1 >= 0 OR balance + $1 >= 0)
+             RETURNING *",
         )
         .bind(delta)
         .bind(id)

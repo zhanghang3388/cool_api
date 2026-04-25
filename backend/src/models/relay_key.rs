@@ -36,7 +36,13 @@ impl RelayKey {
         (full_key, prefix, hash)
     }
 
-    pub async fn create(pool: &PgPool, user_id: Uuid, name: &str, group_id: Option<Uuid>, remark: Option<&str>) -> Result<(Self, String), sqlx::Error> {
+    pub async fn create(
+        pool: &PgPool,
+        user_id: Uuid,
+        name: &str,
+        group_id: Option<Uuid>,
+        remark: Option<&str>,
+    ) -> Result<(Self, String), sqlx::Error> {
         let (full_key, prefix, hash) = Self::generate_key();
         let key: Self = sqlx::query_as(
             "INSERT INTO relay_keys (user_id, name, key_hash, key_prefix, group_id, remark) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *"
@@ -54,10 +60,41 @@ impl RelayKey {
 
     pub async fn find_by_key(pool: &PgPool, raw_key: &str) -> Result<Option<Self>, sqlx::Error> {
         let hash = Self::hash_key(raw_key);
-        sqlx::query_as("SELECT * FROM relay_keys WHERE key_hash = $1 AND is_active = true")
-            .bind(&hash)
-            .fetch_optional(pool)
-            .await
+        sqlx::query_as(
+            "SELECT * FROM relay_keys
+             WHERE key_hash = $1
+               AND is_active = true
+               AND (expires_at IS NULL OR expires_at > now())",
+        )
+        .bind(&hash)
+        .fetch_optional(pool)
+        .await
+    }
+
+    pub fn allows_model(&self, model: &str) -> bool {
+        let Some(allowed_models) = &self.allowed_models else {
+            return true;
+        };
+
+        match allowed_models {
+            serde_json::Value::Null => true,
+            serde_json::Value::String(pattern) => model_matches(pattern, model),
+            serde_json::Value::Array(patterns) => patterns
+                .iter()
+                .filter_map(|value| value.as_str())
+                .any(|pattern| model_matches(pattern, model)),
+            serde_json::Value::Object(map) => map
+                .get("models")
+                .and_then(|value| value.as_array())
+                .map(|patterns| {
+                    patterns
+                        .iter()
+                        .filter_map(|value| value.as_str())
+                        .any(|pattern| model_matches(pattern, model))
+                })
+                .unwrap_or(true),
+            _ => true,
+        }
     }
 
     pub async fn list_by_user(pool: &PgPool, user_id: Uuid) -> Result<Vec<Self>, sqlx::Error> {
@@ -97,7 +134,11 @@ impl RelayKey {
             .await
     }
 
-    pub async fn toggle_active(pool: &PgPool, id: Uuid, user_id: Uuid) -> Result<Self, sqlx::Error> {
+    pub async fn toggle_active(
+        pool: &PgPool,
+        id: Uuid,
+        user_id: Uuid,
+    ) -> Result<Self, sqlx::Error> {
         sqlx::query_as(
             "UPDATE relay_keys SET is_active = NOT is_active WHERE id = $1 AND user_id = $2 RETURNING *"
         )
@@ -105,5 +146,30 @@ impl RelayKey {
         .bind(user_id)
         .fetch_one(pool)
         .await
+    }
+}
+
+fn model_matches(patterns: &str, model: &str) -> bool {
+    let model_clean = strip_model_suffix(model);
+    patterns.split(',').any(|pattern| {
+        let pattern = pattern.trim();
+        if pattern.is_empty() {
+            return false;
+        }
+        if pattern == model || pattern == model_clean {
+            return true;
+        }
+        pattern
+            .strip_suffix('*')
+            .map(|prefix| model.starts_with(prefix) || model_clean.starts_with(prefix))
+            .unwrap_or(false)
+    })
+}
+
+fn strip_model_suffix(model: &str) -> &str {
+    if let Some(idx) = model.find('[') {
+        &model[..idx]
+    } else {
+        model
     }
 }

@@ -1,26 +1,26 @@
 use axum::{
+    Router,
     body::Body,
     extract::State,
     http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    response::Response,
     routing::post,
-    Json, Router,
 };
 use bytes::Bytes;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Instant;
 
 use crate::error::AppError;
+use crate::middleware::rate_limiter::RateLimiter;
 use crate::models::billing::BillingTransaction;
+use crate::models::pricing_group::PricingGroup;
 use crate::models::relay_key::RelayKey;
 use crate::models::request_log::{CreateRequestLog, RequestLog};
 use crate::models::user::User;
-use crate::models::pricing_group::PricingGroup;
 use crate::relay::dispatcher::{Dispatcher, strip_model_suffix};
-use crate::middleware::rate_limiter::RateLimiter;
 use crate::relay::token_counter;
 
 pub fn router(pool: PgPool, dispatcher: Arc<Dispatcher>, rate_limiter: RateLimiter) -> Router {
@@ -70,7 +70,12 @@ struct AnthropicResponse {
 }
 
 async fn messages(
-    State((pool, dispatcher, rate_limiter, client)): State<(PgPool, Arc<Dispatcher>, RateLimiter, Client)>,
+    State((pool, dispatcher, rate_limiter, client)): State<(
+        PgPool,
+        Arc<Dispatcher>,
+        RateLimiter,
+        Client,
+    )>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, AppError> {
@@ -97,20 +102,32 @@ async fn messages(
     if !user.is_active {
         return Err(AppError::Forbidden("Account is disabled".into()));
     }
+    if !relay_key.allows_model(&clean_model) {
+        return Err(AppError::Forbidden(
+            "Model not allowed for this API key".into(),
+        ));
+    }
 
     // Rate limiting
     if let Some(rpm) = relay_key.rpm_limit {
         if let Err(retry_after) = rate_limiter.check_key_rpm(relay_key.id, rpm as u32) {
-            return Err(AppError::BadRequest(format!("Rate limited. Retry after {retry_after}s")));
+            return Err(AppError::TooManyRequests {
+                message: format!("Rate limited. Retry after {retry_after}s"),
+                retry_after: Some(retry_after),
+            });
         }
     }
     if let Err(retry_after) = rate_limiter.check_user_rpm(user.id, 60) {
-        return Err(AppError::BadRequest(format!("Rate limited. Retry after {retry_after}s")));
+        return Err(AppError::TooManyRequests {
+            message: format!("Rate limited. Retry after {retry_after}s"),
+            retry_after: Some(retry_after),
+        });
     }
 
     // Group permission check
     let group_multiplier = if let Some(gid) = relay_key.group_id {
-        let group = PricingGroup::find_by_id(&pool, gid).await?
+        let group = PricingGroup::find_by_id(&pool, gid)
+            .await?
             .ok_or_else(|| AppError::Forbidden("Pricing group not found".into()))?;
         if !group.is_active {
             return Err(AppError::Forbidden("Pricing group is disabled".into()));
@@ -125,14 +142,16 @@ async fn messages(
                 ch.model_pattern.split(',').any(|pat| {
                     let pat = pat.trim();
                     if pat.ends_with('*') {
-                        clean_model.starts_with(&pat[..pat.len()-1])
+                        clean_model.starts_with(&pat[..pat.len() - 1])
                     } else {
                         pat == clean_model
                     }
                 })
             });
             if !model_allowed {
-                return Err(AppError::Forbidden("Model not available in your pricing group".into()));
+                return Err(AppError::Forbidden(
+                    "Model not available in your pricing group".into(),
+                ));
             }
         }
         Some(group.multiplier)
@@ -147,7 +166,9 @@ async fn messages(
     }
 
     // Get route: channel + provider keys
-    let (_channel, keys) = dispatcher.get_route(&clean_model).await
+    let (_channel, keys) = dispatcher
+        .get_route(&clean_model)
+        .await
         .map_err(|e| AppError::NotFound(e.message))?;
 
     // Rewrite model name in request body to clean version
@@ -158,7 +179,10 @@ async fn messages(
     // Try each provider key with failover
     let mut last_err = None;
     for key in &keys {
-        let base_url = key.base_url.as_deref().unwrap_or("https://api.anthropic.com");
+        let base_url = key
+            .base_url
+            .as_deref()
+            .unwrap_or("https://api.anthropic.com");
         let url = format!("{}/v1/messages", base_url.trim_end_matches('/'));
 
         let result = client
@@ -175,7 +199,11 @@ async fn messages(
                 let status = resp.status().as_u16();
                 if status == 429 || status >= 500 {
                     let body = resp.text().await.unwrap_or_default();
-                    tracing::warn!("Provider {} key {} failed: {status} {body}", key.provider, key.name);
+                    tracing::warn!(
+                        "Provider {} key {} failed: {status} {body}",
+                        key.provider,
+                        key.name
+                    );
                     last_err = Some((status, body));
                     continue;
                 }
@@ -216,61 +244,96 @@ async fn messages(
                                         let text = String::from_utf8_lossy(&chunk);
                                         for line in text.lines() {
                                             if let Some(data) = line.strip_prefix("data: ") {
-                                                if let Ok(evt) = serde_json::from_str::<serde_json::Value>(data) {
+                                                if let Ok(evt) =
+                                                    serde_json::from_str::<serde_json::Value>(data)
+                                                {
                                                     if let Some(usage) = evt.get("usage") {
-                                                        if let Some(it) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
+                                                        if let Some(it) = usage
+                                                            .get("input_tokens")
+                                                            .and_then(|v| v.as_u64())
+                                                        {
                                                             input_tokens = it as u32;
                                                         }
-                                                        if let Some(ot) = usage.get("output_tokens").and_then(|v| v.as_u64()) {
+                                                        if let Some(ot) = usage
+                                                            .get("output_tokens")
+                                                            .and_then(|v| v.as_u64())
+                                                        {
                                                             output_tokens = ot as u32;
                                                         }
-                                                        if let Some(ct) = usage.get("cache_creation_input_tokens").and_then(|v| v.as_u64()) {
+                                                        if let Some(ct) = usage
+                                                            .get("cache_creation_input_tokens")
+                                                            .and_then(|v| v.as_u64())
+                                                        {
                                                             cache_creation_tokens = ct as u32;
                                                         }
-                                                        if let Some(cr) = usage.get("cache_read_input_tokens").and_then(|v| v.as_u64()) {
+                                                        if let Some(cr) = usage
+                                                            .get("cache_read_input_tokens")
+                                                            .and_then(|v| v.as_u64())
+                                                        {
                                                             cache_read_tokens = cr as u32;
                                                         }
                                                     }
                                                     // message_stop = end of stream
-                                                    if evt.get("type").and_then(|v| v.as_str()) == Some("message_stop") {
+                                                    if evt.get("type").and_then(|v| v.as_str())
+                                                        == Some("message_stop")
+                                                    {
                                                         let total = input_tokens + output_tokens;
-                                                        let mut cost = token_counter::estimate_cost_from_db(
-                                                            &pool3, &model3, input_tokens as u32, output_tokens as u32
-                                                        ).await;
+                                                        let mut cost =
+                                                            token_counter::estimate_cost_from_db(
+                                                                &pool3,
+                                                                &model3,
+                                                                input_tokens as u32,
+                                                                output_tokens as u32,
+                                                            )
+                                                            .await;
                                                         if let Some(gm) = group_multiplier {
                                                             cost = (cost as f64 * gm).ceil() as i64;
                                                         }
-                                                        let latency = start.elapsed().as_millis() as i32;
-                                                        let pool4 = pool3.clone();
-                                                        let model4 = model3.clone();
-                                                        tokio::spawn(async move {
-                                                            if let Ok(updated) = User::update_balance(&pool4, user_id, -cost).await {
-                                                                let _ = BillingTransaction::create(
-                                                                    &pool4, user_id, "usage", -cost, updated.balance,
-                                                                    Some(&format!("API usage: {model4}")), None,
-                                                                ).await;
+                                                        cost = cost.max(0);
+                                                        let latency =
+                                                            start.elapsed().as_millis() as i32;
+                                                        let log = CreateRequestLog {
+                                                            user_id: Some(user_id),
+                                                            relay_key_id: Some(relay_key_id),
+                                                            provider_key_id: Some(provider_key_id),
+                                                            channel_id: Some(channel_id),
+                                                            model: model3.clone(),
+                                                            method: "POST".into(),
+                                                            path: "/v1/messages".into(),
+                                                            status_code: 200,
+                                                            prompt_tokens: input_tokens as i32,
+                                                            completion_tokens: output_tokens as i32,
+                                                            total_tokens: total as i32,
+                                                            cost,
+                                                            latency_ms: latency,
+                                                            is_stream: true,
+                                                            error_message: None,
+                                                            ip_address: None,
+                                                            cache_creation_tokens:
+                                                                cache_creation_tokens as i32,
+                                                            cache_read_tokens: cache_read_tokens
+                                                                as i32,
+                                                        };
+                                                        match BillingTransaction::record_usage(
+                                                            &pool3,
+                                                            user_id,
+                                                            &log,
+                                                            Some(&format!("API usage: {model3}")),
+                                                        )
+                                                        .await
+                                                        {
+                                                            Ok(Some(_)) => {}
+                                                            Ok(None) => {
+                                                                tracing::warn!(
+                                                                    "Insufficient balance while billing streamed messages request for user {user_id}"
+                                                                );
                                                             }
-                                                            let _ = RequestLog::create(&pool4, &CreateRequestLog {
-                                                                user_id: Some(user_id),
-                                                                relay_key_id: Some(relay_key_id),
-                                                                provider_key_id: Some(provider_key_id),
-                                                                channel_id: Some(channel_id),
-                                                                model: model4,
-                                                                method: "POST".into(),
-                                                                path: "/v1/messages".into(),
-                                                                status_code: 200,
-                                                                prompt_tokens: input_tokens as i32,
-                                                                completion_tokens: output_tokens as i32,
-                                                                total_tokens: total as i32,
-                                                                cost,
-                                                                latency_ms: latency,
-                                                                is_stream: true,
-                                                                error_message: None,
-                                                                ip_address: None,
-                                                                cache_creation_tokens: cache_creation_tokens as i32,
-                                                                cache_read_tokens: cache_read_tokens as i32,
-                                                            }).await;
-                                                        });
+                                                            Err(e) => {
+                                                                tracing::error!(
+                                                                    "Failed to record streamed messages usage: {e}"
+                                                                );
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
@@ -278,7 +341,8 @@ async fn messages(
                                         Some((Ok::<_, std::io::Error>(chunk), (stream, false)))
                                     }
                                     Some(Err(e)) => {
-                                        let err = Bytes::from(format!("event: error\ndata: {e}\n\n"));
+                                        let err =
+                                            Bytes::from(format!("event: error\ndata: {e}\n\n"));
                                         Some((Ok(err), (stream, true)))
                                     }
                                     None => None,
@@ -295,57 +359,89 @@ async fn messages(
                         .unwrap());
                 } else {
                     // Non-streaming: read full response, bill, return
-                    let resp_bytes = resp.bytes().await.map_err(|e| AppError::Internal(e.to_string()))?;
+                    let resp_bytes = resp
+                        .bytes()
+                        .await
+                        .map_err(|e| AppError::Internal(e.to_string()))?;
                     let latency = start.elapsed().as_millis() as i32;
 
-                    let (prompt_tokens, completion_tokens, cache_creation_tokens, cache_read_tokens) = if let Ok(parsed) = serde_json::from_slice::<AnthropicResponse>(&resp_bytes) {
+                    let (
+                        prompt_tokens,
+                        completion_tokens,
+                        cache_creation_tokens,
+                        cache_read_tokens,
+                    ) = if let Ok(parsed) = serde_json::from_slice::<AnthropicResponse>(&resp_bytes)
+                    {
                         (
-                            parsed.usage.as_ref().and_then(|u| u.input_tokens).unwrap_or(0),
-                            parsed.usage.as_ref().and_then(|u| u.output_tokens).unwrap_or(0),
-                            parsed.usage.as_ref().and_then(|u| u.cache_creation_input_tokens).unwrap_or(0),
-                            parsed.usage.as_ref().and_then(|u| u.cache_read_input_tokens).unwrap_or(0),
+                            parsed
+                                .usage
+                                .as_ref()
+                                .and_then(|u| u.input_tokens)
+                                .unwrap_or(0),
+                            parsed
+                                .usage
+                                .as_ref()
+                                .and_then(|u| u.output_tokens)
+                                .unwrap_or(0),
+                            parsed
+                                .usage
+                                .as_ref()
+                                .and_then(|u| u.cache_creation_input_tokens)
+                                .unwrap_or(0),
+                            parsed
+                                .usage
+                                .as_ref()
+                                .and_then(|u| u.cache_read_input_tokens)
+                                .unwrap_or(0),
                         )
                     } else {
                         (0, 0, 0, 0)
                     };
                     let total_tokens = prompt_tokens + completion_tokens;
-                    let mut cost = token_counter::estimate_cost_from_db(&pool, &clean_model, prompt_tokens, completion_tokens).await;
+                    let mut cost = token_counter::estimate_cost_from_db(
+                        &pool,
+                        &clean_model,
+                        prompt_tokens,
+                        completion_tokens,
+                    )
+                    .await;
                     if let Some(gm) = group_multiplier {
                         cost = (cost as f64 * gm).ceil() as i64;
                     }
+                    cost = cost.max(0);
 
-                    let pool2 = pool.clone();
-                    let model2 = clean_model.clone();
-                    let relay_key_id = relay_key.id;
-                    let user_id = user.id;
-                    tokio::spawn(async move {
-                        if let Ok(updated) = User::update_balance(&pool2, user_id, -cost).await {
-                            let _ = BillingTransaction::create(
-                                &pool2, user_id, "usage", -cost, updated.balance,
-                                Some(&format!("API usage: {model2}")), None,
-                            ).await;
-                        }
-                        let _ = RequestLog::create(&pool2, &CreateRequestLog {
-                            user_id: Some(user_id),
-                            relay_key_id: Some(relay_key_id),
-                            provider_key_id: Some(provider_key_id),
-                            channel_id: Some(channel_id),
-                            model: model2,
-                            method: "POST".into(),
-                            path: "/v1/messages".into(),
-                            status_code: 200,
-                            prompt_tokens: prompt_tokens as i32,
-                            completion_tokens: completion_tokens as i32,
-                            total_tokens: total_tokens as i32,
-                            cost,
-                            latency_ms: latency,
-                            is_stream: false,
-                            error_message: None,
-                            ip_address: None,
-                            cache_creation_tokens: cache_creation_tokens as i32,
-                            cache_read_tokens: cache_read_tokens as i32,
-                        }).await;
-                    });
+                    let log = CreateRequestLog {
+                        user_id: Some(user.id),
+                        relay_key_id: Some(relay_key.id),
+                        provider_key_id: Some(provider_key_id),
+                        channel_id: Some(channel_id),
+                        model: clean_model.clone(),
+                        method: "POST".into(),
+                        path: "/v1/messages".into(),
+                        status_code: 200,
+                        prompt_tokens: prompt_tokens as i32,
+                        completion_tokens: completion_tokens as i32,
+                        total_tokens: total_tokens as i32,
+                        cost,
+                        latency_ms: latency,
+                        is_stream: false,
+                        error_message: None,
+                        ip_address: None,
+                        cache_creation_tokens: cache_creation_tokens as i32,
+                        cache_read_tokens: cache_read_tokens as i32,
+                    };
+                    let recorded = BillingTransaction::record_usage(
+                        &pool,
+                        user.id,
+                        &log,
+                        Some(&format!("API usage: {clean_model}")),
+                    )
+                    .await?;
+                    if recorded.is_none() {
+                        return Err(AppError::Forbidden(
+                            "Insufficient balance for final usage cost".into(),
+                        ));
+                    }
 
                     return Ok(Response::builder()
                         .status(StatusCode::OK)
@@ -355,7 +451,11 @@ async fn messages(
                 }
             }
             Err(e) => {
-                tracing::warn!("Provider {} key {} request failed: {e}", key.provider, key.name);
+                tracing::warn!(
+                    "Provider {} key {} request failed: {e}",
+                    key.provider,
+                    key.name
+                );
                 last_err = Some((502, e.to_string()));
                 continue;
             }
@@ -364,29 +464,48 @@ async fn messages(
 
     let (status, msg) = last_err.unwrap_or((503, "All provider keys exhausted".into()));
     log_error(&pool, &relay_key, &user, &clean_model, status, &msg, start).await;
-    Err(AppError::Internal(msg))
+    match status {
+        429 => Err(AppError::TooManyRequests {
+            message: format!("Rate limited by provider: {msg}"),
+            retry_after: None,
+        }),
+        404 => Err(AppError::NotFound(msg)),
+        _ => Err(AppError::Internal(msg)),
+    }
 }
 
-async fn log_error(pool: &PgPool, relay_key: &RelayKey, user: &User, model: &str, status: u16, msg: &str, start: Instant) {
+async fn log_error(
+    pool: &PgPool,
+    relay_key: &RelayKey,
+    user: &User,
+    model: &str,
+    status: u16,
+    msg: &str,
+    start: Instant,
+) {
     let latency = start.elapsed().as_millis() as i32;
-    let _ = RequestLog::create(pool, &CreateRequestLog {
-        user_id: Some(user.id),
-        relay_key_id: Some(relay_key.id),
-        provider_key_id: None,
-        channel_id: None,
-        model: model.to_string(),
-        method: "POST".into(),
-        path: "/v1/messages".into(),
-        status_code: status as i32,
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 0,
-        cost: 0,
-        latency_ms: latency,
-        is_stream: false,
-        error_message: Some(msg.to_string()),
-        ip_address: None,
-        cache_creation_tokens: 0,
-        cache_read_tokens: 0,
-    }).await;
+    let _ = RequestLog::create(
+        pool,
+        &CreateRequestLog {
+            user_id: Some(user.id),
+            relay_key_id: Some(relay_key.id),
+            provider_key_id: None,
+            channel_id: None,
+            model: model.to_string(),
+            method: "POST".into(),
+            path: "/v1/messages".into(),
+            status_code: status as i32,
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+            cost: 0,
+            latency_ms: latency,
+            is_stream: false,
+            error_message: Some(msg.to_string()),
+            ip_address: None,
+            cache_creation_tokens: 0,
+            cache_read_tokens: 0,
+        },
+    )
+    .await;
 }

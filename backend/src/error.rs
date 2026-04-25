@@ -1,4 +1,5 @@
 use axum::http::StatusCode;
+use axum::http::header::RETRY_AFTER;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
@@ -9,6 +10,10 @@ pub enum AppError {
     Forbidden(String),
     NotFound(String),
     Conflict(String),
+    TooManyRequests {
+        message: String,
+        retry_after: Option<u64>,
+    },
     Internal(String),
 }
 
@@ -25,15 +30,23 @@ struct ErrorDetail {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, message) = match self {
-            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
-            AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg),
-            AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg),
-            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
-            AppError::Conflict(msg) => (StatusCode::CONFLICT, msg),
+        let (status, message, retry_after) = match self {
+            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg, None),
+            AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg, None),
+            AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg, None),
+            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg, None),
+            AppError::Conflict(msg) => (StatusCode::CONFLICT, msg, None),
+            AppError::TooManyRequests {
+                message,
+                retry_after,
+            } => (StatusCode::TOO_MANY_REQUESTS, message, retry_after),
             AppError::Internal(msg) => {
                 tracing::error!("Internal error: {msg}");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".into())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".into(),
+                    None,
+                )
             }
         };
 
@@ -44,7 +57,13 @@ impl IntoResponse for AppError {
             },
         };
 
-        (status, axum::Json(body)).into_response()
+        let mut response = (status, axum::Json(body)).into_response();
+        if let Some(seconds) = retry_after {
+            if let Ok(value) = seconds.to_string().parse() {
+                response.headers_mut().insert(RETRY_AFTER, value);
+            }
+        }
+        response
     }
 }
 
