@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Zap, Eye, EyeOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -15,15 +15,17 @@ export default function Register() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const setAuth = useAuthStore((s) => s.setAuth);
   const { t } = useTranslation();
+  const referralCode = searchParams.get('ref')?.trim() || undefined;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const { data } = await authApi.register({ username, email, password });
+      const { data } = await authApi.register({ username, email, password, referral_code: referralCode });
       setAuth(data.access_token, data.refresh_token, data.user);
       navigate('/dashboard');
     } catch (err: any) {
@@ -55,6 +57,12 @@ export default function Register() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {referralCode && (
+            <div className="rounded-lg border border-accent-amber/30 bg-accent-amber/10 px-3 py-2 text-xs text-accent-amber">
+              已识别邀请链接，注册后会自动绑定邀请人
+            </div>
+          )}
+
           <div>
             <label className="block text-xs text-text-secondary mb-1.5 font-display">{t('auth.username')}</label>
             <input

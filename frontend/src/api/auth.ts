@@ -16,7 +16,7 @@ export interface UserInfo {
 }
 
 export const authApi = {
-  register: (data: { username: string; email: string; password: string }) =>
+  register: (data: { username: string; email: string; password: string; referral_code?: string }) =>
     api.post<AuthResponse>('/auth/register', data),
 
   login: (data: { username: string; password: string }) =>

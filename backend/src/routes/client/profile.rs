@@ -3,7 +3,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use crate::auth::password;
@@ -15,6 +15,7 @@ pub fn router(pool: PgPool) -> Router {
     Router::new()
         .route("/", get(get_profile).patch(update_profile))
         .route("/password", axum::routing::patch(update_password))
+        .route("/referrals", get(get_referrals))
         .with_state(pool)
 }
 
@@ -38,6 +39,23 @@ struct UpdateProfileRequest {
 struct UpdatePasswordRequest {
     current_password: String,
     new_password: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ReferralStats {
+    referral_code: String,
+    referral_count: i64,
+}
+
+async fn get_referrals(
+    user: CurrentUser,
+    State(pool): State<PgPool>,
+) -> Result<Json<ReferralStats>, AppError> {
+    let count = User::count_referrals(&pool, user.id).await?;
+    Ok(Json(ReferralStats {
+        referral_code: user.id.to_string(),
+        referral_count: count,
+    }))
 }
 
 async fn update_profile(

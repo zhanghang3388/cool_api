@@ -52,6 +52,7 @@ async fn main() {
                 email: format!("{}@localhost", config.admin_username),
                 password_hash: hash,
                 role: Some("admin".into()),
+                referred_by: None,
             },
         )
         .await

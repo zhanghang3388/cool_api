@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  LayoutDashboard, Key, BarChart3, CreditCard, BookOpen,
+  LayoutDashboard, Key, BarChart3, CreditCard,
   Terminal, ChevronLeft, ChevronRight, LogOut, Zap, ShieldCheck, UserRound
 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
@@ -16,7 +16,6 @@ const navItems = [
   { to: '/keys', icon: Key, key: 'nav.apiKeys' },
   { to: '/usage', icon: BarChart3, key: 'nav.usage' },
   { to: '/billing', icon: CreditCard, key: 'nav.billing' },
-  { to: '/docs', icon: BookOpen, key: 'nav.docs' },
   { to: '/playground', icon: Terminal, key: 'nav.playground' },
 ];
 

@@ -18,7 +18,6 @@ import ClientDashboard from '@/pages/client/Dashboard';
 import ApiKeysPage from '@/pages/client/ApiKeys';
 import UsagePage from '@/pages/client/Usage';
 import ClientBilling from '@/pages/client/Billing';
-import DocsPage from '@/pages/client/Docs';
 import PlaygroundPage from '@/pages/client/Playground';
 import ProfilePage from '@/pages/client/Profile';
 
@@ -51,7 +50,6 @@ export default function App() {
           <Route path="/keys" element={<ApiKeysPage />} />
           <Route path="/usage" element={<UsagePage />} />
           <Route path="/billing" element={<ClientBilling />} />
-          <Route path="/docs" element={<DocsPage />} />
           <Route path="/playground" element={<PlaygroundPage />} />
         </Route>
 

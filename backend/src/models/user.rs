@@ -16,6 +16,7 @@ pub struct User {
     pub balance: i64,
     pub quota_limit: Option<i64>,
     pub rpm_limit: Option<i32>,
+    pub referred_by: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -26,6 +27,7 @@ pub struct CreateUser {
     pub email: String,
     pub password_hash: String,
     pub role: Option<String>,
+    pub referred_by: Option<Uuid>,
 }
 
 impl User {
@@ -56,12 +58,13 @@ impl User {
     pub async fn create(pool: &PgPool, input: &CreateUser) -> Result<Self, sqlx::Error> {
         let role = input.role.as_deref().unwrap_or("client");
         sqlx::query_as(
-            "INSERT INTO users (username, email, password_hash, role) VALUES ($1, $2, $3, $4) RETURNING *"
+            "INSERT INTO users (username, email, password_hash, role, referred_by) VALUES ($1, $2, $3, $4, $5) RETURNING *"
         )
         .bind(&input.username)
         .bind(&input.email)
         .bind(&input.password_hash)
         .bind(role)
+        .bind(input.referred_by)
         .fetch_one(pool)
         .await
     }
@@ -76,6 +79,14 @@ impl User {
 
     pub async fn count(pool: &PgPool) -> Result<i64, sqlx::Error> {
         let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+            .fetch_one(pool)
+            .await?;
+        Ok(count)
+    }
+
+    pub async fn count_referrals(pool: &PgPool, id: Uuid) -> Result<i64, sqlx::Error> {
+        let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE referred_by = $1")
+            .bind(id)
             .fetch_one(pool)
             .await?;
         Ok(count)

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
-import { Key, BarChart3, CreditCard, Zap } from 'lucide-react';
+import { Key, BarChart3, CreditCard, Zap, UsersRound } from 'lucide-react';
 import api from '@/api/client';
 import { useAuthStore } from '@/stores/auth';
 
@@ -9,18 +9,21 @@ export default function ClientDashboard() {
   const { t } = useTranslation();
   const user = useAuthStore((s) => s.user);
   const [keyCount, setKeyCount] = useState(0);
+  const [referralCount, setReferralCount] = useState(0);
   const [recentLogs, setRecentLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [keysRes, logsRes] = await Promise.all([
+      const [keysRes, logsRes, referralsRes] = await Promise.all([
         api.get('/client/keys'),
         api.get('/client/usage/logs', { params: { page: 1, per_page: 5 } }),
+        api.get('/client/profile/referrals'),
       ]);
       setKeyCount(keysRes.data.length);
       setRecentLogs(logsRes.data);
+      setReferralCount(referralsRes.data.referral_count ?? 0);
     } catch { /* ignore */ }
     finally { setLoading(false); }
   }, []);
@@ -39,6 +42,7 @@ export default function ClientDashboard() {
     { label: t('client.dashboard.apiKeys'), value: keyCount, icon: Key, color: 'text-accent' },
     { label: t('client.dashboard.recentTokens'), value: totalTokens.toLocaleString(), icon: Zap, color: 'text-success' },
     { label: t('client.dashboard.recentCost'), value: `$${(totalCost / 1_000_000).toFixed(6)}`, icon: BarChart3, color: 'text-accent' },
+    { label: '邀请人数', value: referralCount.toLocaleString(), icon: UsersRound, color: 'text-accent-amber' },
   ];
 
   return (
@@ -48,9 +52,9 @@ export default function ClientDashboard() {
       </h1>
 
       {/* Bento Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
         {loading
-          ? Array.from({ length: 4 }).map((_, i) => <div key={i} className="card animate-pulse h-28" />)
+          ? Array.from({ length: 5 }).map((_, i) => <div key={i} className="card animate-pulse h-28" />)
           : cards.map((card, i) => (
               <motion.div
                 key={card.label}

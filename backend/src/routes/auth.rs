@@ -12,6 +12,8 @@ pub struct RegisterRequest {
     pub username: String,
     pub email: String,
     pub password: String,
+    #[serde(default)]
+    pub referral_code: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,6 +87,7 @@ async fn register(
 
     let hash =
         password::hash_password(&req.password).map_err(|e| AppError::Internal(e.to_string()))?;
+    let referred_by = resolve_referrer(&pool, req.referral_code.as_deref()).await?;
 
     let user = User::create(
         &pool,
@@ -93,6 +96,7 @@ async fn register(
             email: req.email,
             password_hash: hash,
             role: None,
+            referred_by,
         },
     )
     .await?;
@@ -158,6 +162,21 @@ fn validate_password(password: &str) -> Result<(), AppError> {
         ));
     }
     Ok(())
+}
+
+async fn resolve_referrer(
+    pool: &PgPool,
+    referral_code: Option<&str>,
+) -> Result<Option<uuid::Uuid>, AppError> {
+    let Some(code) = referral_code.map(str::trim).filter(|code| !code.is_empty()) else {
+        return Ok(None);
+    };
+    let id = uuid::Uuid::parse_str(code)
+        .map_err(|_| AppError::BadRequest("Invalid referral link".into()))?;
+    if User::find_by_id(pool, id).await?.is_none() {
+        return Err(AppError::BadRequest("Invalid referral link".into()));
+    }
+    Ok(Some(id))
 }
 
 async fn login(

@@ -4,6 +4,8 @@ import { motion } from 'framer-motion';
 import {
   BadgeDollarSign,
   Bolt,
+  Check,
+  Copy,
   Eye,
   EyeOff,
   KeyRound,
@@ -20,6 +22,11 @@ import type { LucideIcon } from 'lucide-react';
 interface RequestLog {
   id: string;
   cost: number;
+}
+
+interface ReferralStats {
+  referral_code: string;
+  referral_count: number;
 }
 
 type PasswordFieldProps = {
@@ -99,6 +106,8 @@ export default function ProfilePage() {
     confirmPassword: '',
   });
   const [logs, setLogs] = useState<RequestLog[]>([]);
+  const [referralStats, setReferralStats] = useState<ReferralStats | null>(null);
+  const [copiedInvite, setCopiedInvite] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [profileMessage, setProfileMessage] = useState('');
@@ -110,12 +119,14 @@ export default function ProfilePage() {
     Promise.all([
       api.get<UserInfo>('/client/profile'),
       api.get<RequestLog[]>('/client/usage/logs', { params: { page: 1, per_page: 100 } }),
-    ]).then(([profileRes, logsRes]) => {
+      api.get<ReferralStats>('/client/profile/referrals'),
+    ]).then(([profileRes, logsRes, referralsRes]) => {
       if (!mounted) return;
       setProfile(profileRes.data);
       setUser(profileRes.data);
       setDisplayName(profileRes.data.display_name || profileRes.data.username);
       setLogs(logsRes.data);
+      setReferralStats(referralsRes.data);
     }).catch(() => {
       if (mounted) setProfile(storedUser);
     });
@@ -131,6 +142,18 @@ export default function ProfilePage() {
   );
   const visibleName = profile?.display_name || profile?.username || 'User';
   const roleLabel = profile?.role === 'admin' ? '管理员' : '普通用户';
+  const inviteLink = useMemo(() => {
+    const code = referralStats?.referral_code || profile?.id;
+    if (!code) return '';
+    return `${window.location.origin}/register?ref=${encodeURIComponent(code)}`;
+  }, [profile?.id, referralStats?.referral_code]);
+
+  const copyInviteLink = async () => {
+    if (!inviteLink) return;
+    await navigator.clipboard.writeText(inviteLink);
+    setCopiedInvite(true);
+    window.setTimeout(() => setCopiedInvite(false), 1600);
+  };
 
   const submitProfile = async (event: FormEvent) => {
     event.preventDefault();
@@ -306,6 +329,29 @@ export default function ProfilePage() {
           </form>
         </SectionCard>
       </div>
+
+      <SectionCard title="邀请好友" icon={UserRound}>
+        <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
+          <div>
+            <FieldLabel>专属邀请链接</FieldLabel>
+            <div className="rounded-lg border border-[#2b3240] bg-[#151922] px-3 py-3 font-code text-xs text-text-primary break-all">
+              {inviteLink || '正在生成邀请链接...'}
+            </div>
+            <p className="mt-2 text-xs text-text-secondary">
+              已邀请 {referralStats?.referral_count ?? 0} 人
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={copyInviteLink}
+            disabled={!inviteLink}
+            className="btn-primary bg-accent-amber shadow-[0_8px_22px_rgba(255,184,0,0.22)] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {copiedInvite ? <Check className="mr-2 inline h-4 w-4" /> : <Copy className="mr-2 inline h-4 w-4" />}
+            {copiedInvite ? '已复制' : '复制链接'}
+          </button>
+        </div>
+      </SectionCard>
     </div>
   );
 }
