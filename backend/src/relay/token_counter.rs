@@ -1,8 +1,13 @@
 use crate::models::pricing::ModelPricing;
 use sqlx::PgPool;
+use tiktoken_rs::{bpe_for_model, cl100k_base_singleton};
 
-pub fn count_tokens(text: &str, _model: &str) -> u32 {
-    (text.len() as f64 / 4.0).ceil() as u32
+pub fn count_tokens(text: &str, model: &str) -> u32 {
+    let token_count = bpe_for_model(model)
+        .unwrap_or_else(|_| cl100k_base_singleton())
+        .encode_with_special_tokens(text)
+        .len();
+    token_count.min(u32::MAX as usize) as u32
 }
 
 pub fn count_message_tokens(messages: &[super::providers::ChatMessage], model: &str) -> u32 {
@@ -20,7 +25,12 @@ pub fn count_message_tokens(messages: &[super::providers::ChatMessage], model: &
 }
 
 /// Estimate cost from database pricing. Falls back to hardcoded defaults if not found.
-pub async fn estimate_cost_from_db(pool: &PgPool, model: &str, prompt_tokens: u32, completion_tokens: u32) -> i64 {
+pub async fn estimate_cost_from_db(
+    pool: &PgPool,
+    model: &str,
+    prompt_tokens: u32,
+    completion_tokens: u32,
+) -> i64 {
     if let Ok(Some(pricing)) = ModelPricing::find_best_match(pool, model).await {
         let prompt_price = pricing.effective_input_price();
         let completion_price = pricing.effective_output_price();

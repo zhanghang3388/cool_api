@@ -10,6 +10,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::config::AppConfig;
 use crate::error::AppError;
 use crate::middleware::rate_limiter::RateLimiter;
 use crate::models::billing::BillingTransaction;
@@ -23,10 +24,10 @@ use crate::relay::providers::{ChatRequest, ProviderError};
 use crate::relay::streaming::SseCollector;
 use crate::relay::token_counter;
 
-pub fn router(pool: PgPool, dispatcher: Arc<Dispatcher>, rate_limiter: RateLimiter) -> Router {
+pub fn router(pool: PgPool, dispatcher: Arc<Dispatcher>, rate_limiter: RateLimiter, config: AppConfig) -> Router {
     Router::new()
         .route("/chat/completions", post(chat_completions))
-        .with_state((pool, dispatcher, rate_limiter))
+        .with_state((pool, dispatcher, rate_limiter, config))
 }
 
 /// Extract relay key from Authorization header
@@ -44,7 +45,7 @@ fn extract_relay_key(headers: &HeaderMap) -> Result<String, AppError> {
 }
 
 async fn chat_completions(
-    State((pool, dispatcher, rate_limiter)): State<(PgPool, Arc<Dispatcher>, RateLimiter)>,
+    State((pool, dispatcher, rate_limiter, config)): State<(PgPool, Arc<Dispatcher>, RateLimiter, AppConfig)>,
     headers: HeaderMap,
     Json(mut request): Json<ChatRequest>,
 ) -> Result<Response, AppError> {
@@ -65,28 +66,44 @@ async fn chat_completions(
         return Err(AppError::Forbidden("Account is disabled".into()));
     }
 
+    // === 三层限流策略 ===
+
+    // 1. 全局限流（如果配置了）
+    if let Some(global_limit) = config.global_rpm_limit {
+        if let Err(retry_after) = rate_limiter.check_global_rpm(global_limit) {
+            return Err(AppError::TooManyRequests {
+                message: format!("Global rate limit exceeded. Retry after {retry_after}s"),
+                retry_after: Some(retry_after),
+            });
+        }
+    }
+
+    // 2. API Key级别限流（如果该key设置了rpm_limit）
+    if let Some(rpm) = relay_key.rpm_limit {
+        if let Err(retry_after) = rate_limiter.check_key_rpm(relay_key.id, rpm as u32) {
+            return Err(AppError::TooManyRequests {
+                message: format!("API key rate limit exceeded. Retry after {retry_after}s"),
+                retry_after: Some(retry_after),
+            });
+        }
+    }
+
+    // 3. 用户级别限流（优先使用用户自定义的rpm_limit，否则使用全局默认值）
+    let user_rpm_limit = user.rpm_limit.map(|v| v as u32).unwrap_or(config.default_user_rpm_limit);
+    if let Err(retry_after) = rate_limiter.check_user_rpm(user.id, user_rpm_limit) {
+        return Err(AppError::TooManyRequests {
+            message: format!("User rate limit exceeded. Retry after {retry_after}s"),
+            retry_after: Some(retry_after),
+        });
+    }
+
+    // 模型权限检查
     let requested_model = request.model.clone();
     let clean_model = strip_model_suffix(&requested_model).to_string();
     if !relay_key.allows_model(&clean_model) {
         return Err(AppError::Forbidden(
             "Model not allowed for this API key".into(),
         ));
-    }
-
-    // Rate limiting: check per-key RPM if set, then user-level default 60 RPM
-    if let Some(rpm) = relay_key.rpm_limit {
-        if let Err(retry_after) = rate_limiter.check_key_rpm(relay_key.id, rpm as u32) {
-            return Err(AppError::TooManyRequests {
-                message: format!("Rate limited. Retry after {retry_after}s"),
-                retry_after: Some(retry_after),
-            });
-        }
-    }
-    if let Err(retry_after) = rate_limiter.check_user_rpm(user.id, 60) {
-        return Err(AppError::TooManyRequests {
-            message: format!("Rate limited. Retry after {retry_after}s"),
-            retry_after: Some(retry_after),
-        });
     }
 
     // Group permission check: if key has a group, verify the model's channel is allowed
@@ -285,7 +302,15 @@ async fn handle_stream(
                             }
                             None => {
                                 // Stream ended, do billing + logging
-                                let content = collected.lock().unwrap().clone();
+                                let content = match collected.lock() {
+                                    Ok(content) => content.clone(),
+                                    Err(_) => {
+                                        tracing::error!(
+                                            "Stream content collector lock was poisoned"
+                                        );
+                                        return None;
+                                    }
+                                };
                                 let completion_tokens =
                                     content.completion_tokens.unwrap_or_else(|| {
                                         token_counter::count_tokens(&content.text, &clean_model3)
@@ -363,7 +388,7 @@ async fn handle_stream(
                 .header("Cache-Control", "no-cache")
                 .header("Connection", "keep-alive")
                 .body(body)
-                .unwrap())
+                .map_err(|_| AppError::Internal("Failed to build streaming response".into()))?)
         }
         Err(e) => {
             log_error(&pool, &relay_key, &user, &requested_model, &e, start).await;

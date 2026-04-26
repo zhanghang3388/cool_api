@@ -13,6 +13,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::config::AppConfig;
 use crate::error::AppError;
 use crate::middleware::rate_limiter::RateLimiter;
 use crate::models::billing::BillingTransaction;
@@ -23,11 +24,11 @@ use crate::models::user::User;
 use crate::relay::dispatcher::{Dispatcher, strip_model_suffix};
 use crate::relay::token_counter;
 
-pub fn router(pool: PgPool, dispatcher: Arc<Dispatcher>, rate_limiter: RateLimiter) -> Router {
+pub fn router(pool: PgPool, dispatcher: Arc<Dispatcher>, rate_limiter: RateLimiter, config: AppConfig) -> Router {
     let client = Client::new();
     Router::new()
         .route("/messages", post(messages))
-        .with_state((pool, dispatcher, rate_limiter, client))
+        .with_state((pool, dispatcher, rate_limiter, client, config))
 }
 
 /// Extract relay key from Authorization header or x-api-key header
@@ -50,8 +51,6 @@ struct MessagesRequest {
     model: String,
     #[serde(default)]
     stream: bool,
-    #[serde(flatten)]
-    rest: serde_json::Value,
 }
 
 #[derive(Deserialize)]
@@ -70,11 +69,12 @@ struct AnthropicResponse {
 }
 
 async fn messages(
-    State((pool, dispatcher, rate_limiter, client)): State<(
+    State((pool, dispatcher, rate_limiter, client, config)): State<(
         PgPool,
         Arc<Dispatcher>,
         RateLimiter,
         Client,
+        AppConfig,
     )>,
     headers: HeaderMap,
     body: Bytes,
@@ -108,18 +108,33 @@ async fn messages(
         ));
     }
 
-    // Rate limiting
-    if let Some(rpm) = relay_key.rpm_limit {
-        if let Err(retry_after) = rate_limiter.check_key_rpm(relay_key.id, rpm as u32) {
+    // === 三层限流策略 ===
+
+    // 1. 全局限流（如果配置了）
+    if let Some(global_limit) = config.global_rpm_limit {
+        if let Err(retry_after) = rate_limiter.check_global_rpm(global_limit) {
             return Err(AppError::TooManyRequests {
-                message: format!("Rate limited. Retry after {retry_after}s"),
+                message: format!("Global rate limit exceeded. Retry after {retry_after}s"),
                 retry_after: Some(retry_after),
             });
         }
     }
-    if let Err(retry_after) = rate_limiter.check_user_rpm(user.id, 60) {
+
+    // 2. API Key级别限流（如果该key设置了rpm_limit）
+    if let Some(rpm) = relay_key.rpm_limit {
+        if let Err(retry_after) = rate_limiter.check_key_rpm(relay_key.id, rpm as u32) {
+            return Err(AppError::TooManyRequests {
+                message: format!("API key rate limit exceeded. Retry after {retry_after}s"),
+                retry_after: Some(retry_after),
+            });
+        }
+    }
+
+    // 3. 用户级别限流（优先使用用户自定义的rpm_limit，否则使用全局默认值）
+    let user_rpm_limit = user.rpm_limit.map(|v| v as u32).unwrap_or(config.default_user_rpm_limit);
+    if let Err(retry_after) = rate_limiter.check_user_rpm(user.id, user_rpm_limit) {
         return Err(AppError::TooManyRequests {
-            message: format!("Rate limited. Retry after {retry_after}s"),
+            message: format!("User rate limit exceeded. Retry after {retry_after}s"),
             retry_after: Some(retry_after),
         });
     }
@@ -356,7 +371,9 @@ async fn messages(
                         .header("content-type", "text/event-stream")
                         .header("cache-control", "no-cache")
                         .body(Body::from_stream(body_stream))
-                        .unwrap());
+                        .map_err(|_| {
+                            AppError::Internal("Failed to build streaming response".into())
+                        })?);
                 } else {
                     // Non-streaming: read full response, bill, return
                     let resp_bytes = resp
@@ -447,7 +464,9 @@ async fn messages(
                         .status(StatusCode::OK)
                         .header("content-type", "application/json")
                         .body(Body::from(resp_bytes))
-                        .unwrap());
+                        .map_err(|_| {
+                            AppError::Internal("Failed to build JSON response".into())
+                        })?);
                 }
             }
             Err(e) => {

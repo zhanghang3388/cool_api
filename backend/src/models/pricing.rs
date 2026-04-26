@@ -172,27 +172,6 @@ impl ModelPricing {
         .await
     }
 
-    pub async fn upsert(pool: &PgPool, input: &CreatePricing) -> Result<Self, sqlx::Error> {
-        let multiplier = input.multiplier.unwrap_or(1.0);
-        sqlx::query_as(
-            "INSERT INTO model_pricing (model, provider, input_price, output_price, multiplier)
-             VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (model) DO UPDATE SET
-                provider = EXCLUDED.provider,
-                input_price = EXCLUDED.input_price,
-                output_price = EXCLUDED.output_price,
-                updated_at = now()
-             RETURNING *"
-        )
-        .bind(&input.model)
-        .bind(&input.provider)
-        .bind(input.input_price)
-        .bind(input.output_price)
-        .bind(multiplier)
-        .fetch_one(pool)
-        .await
-    }
-
     pub async fn update(pool: &PgPool, id: Uuid, input: &UpdatePricing) -> Result<Self, sqlx::Error> {
         let current = sqlx::query_as::<_, Self>("SELECT * FROM model_pricing WHERE id = $1")
             .bind(id)

@@ -3,6 +3,7 @@ use bytes::Bytes;
 use futures::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 use super::{
     ChatChoice, ChatChunk, ChatMessage, ChatRequest, ChatResponse, ChunkChoice, ChunkDelta,
@@ -16,14 +17,18 @@ pub struct GeminiProvider {
 impl GeminiProvider {
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            client: provider_client(),
         }
     }
 
     fn url(base_url: Option<&str>, model: &str, stream: bool) -> String {
         let base = base_url.unwrap_or("https://generativelanguage.googleapis.com/v1beta");
         let base = base.trim_end_matches('/');
-        let method = if stream { "streamGenerateContent?alt=sse" } else { "generateContent" };
+        let method = if stream {
+            "streamGenerateContent?alt=sse"
+        } else {
+            "generateContent"
+        };
         format!("{base}/models/{model}:{method}")
     }
 
@@ -187,7 +192,10 @@ impl Provider for GeminiProvider {
         request: &ChatRequest,
     ) -> Result<ChatResponse, ProviderError> {
         let gemini_req = Self::to_gemini_request(request);
-        let url = format!("{}&key={api_key}", Self::url(base_url, &request.model, false));
+        let url = format!(
+            "{}&key={api_key}",
+            Self::url(base_url, &request.model, false)
+        );
 
         let resp = self
             .client
@@ -227,7 +235,10 @@ impl Provider for GeminiProvider {
         request: &ChatRequest,
     ) -> Result<SseStream, ProviderError> {
         let gemini_req = Self::to_gemini_request(request);
-        let url = format!("{}&key={api_key}", Self::url(base_url, &request.model, true));
+        let url = format!(
+            "{}&key={api_key}",
+            Self::url(base_url, &request.model, true)
+        );
 
         let resp = self
             .client
@@ -321,8 +332,16 @@ impl Provider for GeminiProvider {
 
         Ok(Box::pin(transformed))
     }
+}
 
-    fn name(&self) -> &'static str {
-        "gemini"
-    }
+fn provider_client() -> Client {
+    let timeout_secs = std::env::var("PROVIDER_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(120);
+
+    Client::builder()
+        .timeout(Duration::from_secs(timeout_secs))
+        .build()
+        .expect("Failed to build Gemini HTTP client")
 }

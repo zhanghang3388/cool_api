@@ -1,7 +1,7 @@
 use axum::{
+    Json, Router,
     extract::{Path, State},
     routing::{get, post},
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -50,6 +50,14 @@ async fn create_key(
             valid_providers.join(", ")
         )));
     }
+    validate_provider_key_input(
+        &req.name,
+        &req.api_key,
+        req.weight,
+        req.priority,
+        req.rpm_limit,
+        req.tpm_limit,
+    )?;
     let key = ProviderKey::create(&pool, &req).await?;
     Ok(Json(key))
 }
@@ -63,6 +71,7 @@ async fn update_key(
     ProviderKey::find_by_id(&pool, id)
         .await?
         .ok_or_else(|| AppError::NotFound("Provider key not found".into()))?;
+    validate_provider_key_update(&req)?;
     let key = ProviderKey::update(&pool, id, &req).await?;
     Ok(Json(key))
 }
@@ -101,6 +110,9 @@ async fn fetch_models(
     State(_pool): State<PgPool>,
     Json(req): Json<FetchModelsRequest>,
 ) -> Result<Json<FetchModelsResponse>, AppError> {
+    if req.api_key.trim().is_empty() {
+        return Err(AppError::BadRequest("API key is required".into()));
+    }
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
@@ -108,75 +120,174 @@ async fn fetch_models(
 
     let models = match req.provider.as_str() {
         "openai" => {
-            let base = req.base_url.as_deref().unwrap_or("https://api.openai.com/v1");
+            let base = req
+                .base_url
+                .as_deref()
+                .unwrap_or("https://api.openai.com/v1");
             let base = base.trim_end_matches('/');
             let url = format!("{base}/models");
-            let resp = client.get(&url)
+            let resp = client
+                .get(&url)
                 .header("Authorization", format!("Bearer {}", req.api_key))
-                .send().await
+                .send()
+                .await
                 .map_err(|e| AppError::BadRequest(format!("Failed to connect: {e}")))?;
             if !resp.status().is_success() {
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
-                return Err(AppError::BadRequest(format!("OpenAI API error {status}: {body}")));
+                return Err(AppError::BadRequest(format!(
+                    "OpenAI API error {status}: {body}"
+                )));
             }
-            let json: serde_json::Value = resp.json().await
+            let json: serde_json::Value = resp
+                .json()
+                .await
                 .map_err(|e| AppError::BadRequest(format!("Invalid response: {e}")))?;
-            json["data"].as_array()
+            json["data"]
+                .as_array()
                 .unwrap_or(&vec![])
                 .iter()
                 .filter_map(|m| m["id"].as_str().map(|s| s.to_string()))
                 .collect::<Vec<_>>()
         }
         "claude" => {
-            let base = req.base_url.as_deref().unwrap_or("https://api.anthropic.com");
+            let base = req
+                .base_url
+                .as_deref()
+                .unwrap_or("https://api.anthropic.com");
             let base = base.trim_end_matches('/');
             let url = format!("{base}/v1/models");
-            let resp = client.get(&url)
+            let resp = client
+                .get(&url)
                 .header("x-api-key", &req.api_key)
                 .header("anthropic-version", "2023-06-01")
-                .send().await
+                .send()
+                .await
                 .map_err(|e| AppError::BadRequest(format!("Failed to connect: {e}")))?;
             if !resp.status().is_success() {
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
-                return Err(AppError::BadRequest(format!("Claude API error {status}: {body}")));
+                return Err(AppError::BadRequest(format!(
+                    "Claude API error {status}: {body}"
+                )));
             }
-            let json: serde_json::Value = resp.json().await
+            let json: serde_json::Value = resp
+                .json()
+                .await
                 .map_err(|e| AppError::BadRequest(format!("Invalid response: {e}")))?;
-            json["data"].as_array()
+            json["data"]
+                .as_array()
                 .unwrap_or(&vec![])
                 .iter()
                 .filter_map(|m| m["id"].as_str().map(|s| s.to_string()))
                 .collect::<Vec<_>>()
         }
         "gemini" => {
-            let base = req.base_url.as_deref().unwrap_or("https://generativelanguage.googleapis.com/v1beta");
+            let base = req
+                .base_url
+                .as_deref()
+                .unwrap_or("https://generativelanguage.googleapis.com/v1beta");
             let base = base.trim_end_matches('/');
             let url = format!("{base}/models?key={}", req.api_key);
-            let resp = client.get(&url)
-                .send().await
+            let resp = client
+                .get(&url)
+                .send()
+                .await
                 .map_err(|e| AppError::BadRequest(format!("Failed to connect: {e}")))?;
             if !resp.status().is_success() {
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
-                return Err(AppError::BadRequest(format!("Gemini API error {status}: {body}")));
+                return Err(AppError::BadRequest(format!(
+                    "Gemini API error {status}: {body}"
+                )));
             }
-            let json: serde_json::Value = resp.json().await
+            let json: serde_json::Value = resp
+                .json()
+                .await
                 .map_err(|e| AppError::BadRequest(format!("Invalid response: {e}")))?;
-            json["models"].as_array()
+            json["models"]
+                .as_array()
                 .unwrap_or(&vec![])
                 .iter()
                 .filter_map(|m| {
-                    m["name"].as_str().map(|s| s.strip_prefix("models/").unwrap_or(s).to_string())
+                    m["name"]
+                        .as_str()
+                        .map(|s| s.strip_prefix("models/").unwrap_or(s).to_string())
                 })
                 .collect::<Vec<_>>()
         }
-        _ => return Err(AppError::BadRequest("Provider must be one of: openai, claude, gemini".into())),
+        _ => {
+            return Err(AppError::BadRequest(
+                "Provider must be one of: openai, claude, gemini".into(),
+            ));
+        }
     };
 
     let mut models: Vec<ModelInfo> = models.into_iter().map(|id| ModelInfo { id }).collect();
     models.sort_by(|a, b| a.id.cmp(&b.id));
 
     Ok(Json(FetchModelsResponse { models }))
+}
+
+fn validate_provider_key_input(
+    name: &str,
+    api_key: &str,
+    weight: Option<i32>,
+    priority: Option<i32>,
+    rpm_limit: Option<i32>,
+    tpm_limit: Option<i32>,
+) -> Result<(), AppError> {
+    if name.trim().is_empty() || name.len() > 128 {
+        return Err(AppError::BadRequest(
+            "Provider key name must be 1-128 characters".into(),
+        ));
+    }
+    if api_key.trim().is_empty() || api_key.len() > 512 {
+        return Err(AppError::BadRequest(
+            "Provider API key must be 1-512 characters".into(),
+        ));
+    }
+    if weight.is_some_and(|value| value <= 0) {
+        return Err(AppError::BadRequest("Weight must be positive".into()));
+    }
+    if priority.is_some_and(|value| value < 0) {
+        return Err(AppError::BadRequest("Priority must be non-negative".into()));
+    }
+    if rpm_limit.is_some_and(|value| value < 0) || tpm_limit.is_some_and(|value| value < 0) {
+        return Err(AppError::BadRequest(
+            "Rate limits must be non-negative".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_provider_key_update(req: &UpdateProviderKey) -> Result<(), AppError> {
+    if let Some(name) = &req.name {
+        if name.trim().is_empty() || name.len() > 128 {
+            return Err(AppError::BadRequest(
+                "Provider key name must be 1-128 characters".into(),
+            ));
+        }
+    }
+    if let Some(api_key) = &req.api_key {
+        if api_key.trim().is_empty() || api_key.len() > 512 {
+            return Err(AppError::BadRequest(
+                "Provider API key must be 1-512 characters".into(),
+            ));
+        }
+    }
+    if req.weight.is_some_and(|value| value <= 0) {
+        return Err(AppError::BadRequest("Weight must be positive".into()));
+    }
+    if req.priority.is_some_and(|value| value < 0) {
+        return Err(AppError::BadRequest("Priority must be non-negative".into()));
+    }
+    if req.rpm_limit.flatten().is_some_and(|value| value < 0)
+        || req.tpm_limit.flatten().is_some_and(|value| value < 0)
+    {
+        return Err(AppError::BadRequest(
+            "Rate limits must be non-negative".into(),
+        ));
+    }
+    Ok(())
 }

@@ -4,7 +4,7 @@ services:
     container_name: cool_api_db
     environment:
       POSTGRES_USER: ${DB_USER:-cool_api}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-cool_api}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
       POSTGRES_DB: ${DB_NAME:-cool_api}
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
@@ -22,7 +22,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgres://${DB_USER:-cool_api}:${DB_PASSWORD:-cool_api}@postgres:5432/${DB_NAME:-cool_api}
+      DATABASE_URL: postgres://${DB_USER:-cool_api}:${DB_PASSWORD:?DB_PASSWORD must be set}@postgres:5432/${DB_NAME:-cool_api}
       SERVER_PORT: "9821"
     expose:
       - "9821"

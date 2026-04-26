@@ -30,6 +30,7 @@ pub struct UpdateUserRequest {
     pub is_active: Option<bool>,
     pub role: Option<String>,
     pub quota_limit: Option<Option<i64>>,
+    pub rpm_limit: Option<Option<i32>>,
 }
 
 pub fn router(pool: PgPool) -> Router {
@@ -105,6 +106,10 @@ async fn update_user(
         .bind(id)
         .fetch_one(&pool)
         .await?;
+    }
+
+    if let Some(rpm_limit) = req.rpm_limit {
+        user = User::update_rpm_limit(&pool, id, rpm_limit).await?;
     }
 
     Ok(Json(user))

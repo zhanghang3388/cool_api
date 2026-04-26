@@ -1,8 +1,6 @@
 use async_trait::async_trait;
-use bytes::Bytes;
-use futures::StreamExt;
 use reqwest::Client;
-use std::pin::Pin;
+use std::time::Duration;
 
 use super::{ChatRequest, ChatResponse, Provider, ProviderError, SseStream};
 
@@ -13,7 +11,7 @@ pub struct OpenAiProvider {
 impl OpenAiProvider {
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            client: provider_client(),
         }
     }
 
@@ -63,11 +61,13 @@ impl Provider for OpenAiProvider {
             });
         }
 
-        resp.json::<ChatResponse>().await.map_err(|e| ProviderError {
-            status: 502,
-            message: format!("Failed to parse response: {e}"),
-            retryable: false,
-        })
+        resp.json::<ChatResponse>()
+            .await
+            .map_err(|e| ProviderError {
+                status: 502,
+                message: format!("Failed to parse response: {e}"),
+                retryable: false,
+            })
     }
 
     async fn chat_stream(
@@ -106,8 +106,16 @@ impl Provider for OpenAiProvider {
         let stream = resp.bytes_stream();
         Ok(Box::pin(stream))
     }
+}
 
-    fn name(&self) -> &'static str {
-        "openai"
-    }
+fn provider_client() -> Client {
+    let timeout_secs = std::env::var("PROVIDER_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(120);
+
+    Client::builder()
+        .timeout(Duration::from_secs(timeout_secs))
+        .build()
+        .expect("Failed to build OpenAI HTTP client")
 }

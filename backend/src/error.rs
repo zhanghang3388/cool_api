@@ -68,8 +68,8 @@ impl IntoResponse for AppError {
 }
 
 impl From<sqlx::Error> for AppError {
-    fn from(e: sqlx::Error) -> Self {
-        AppError::Internal(e.to_string())
+    fn from(_e: sqlx::Error) -> Self {
+        AppError::Internal("Database operation failed".into())
     }
 }
 

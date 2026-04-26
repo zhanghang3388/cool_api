@@ -24,11 +24,17 @@ impl RateLimiter {
         let now = Instant::now();
         let window = Duration::from_secs(60);
 
-        let mut entry = self.windows.entry(key.to_string()).or_insert_with(VecDeque::new);
+        let mut entry = self
+            .windows
+            .entry(key.to_string())
+            .or_insert_with(VecDeque::new);
         let timestamps = entry.value_mut();
 
         // Remove expired entries
-        while timestamps.front().is_some_and(|t| now.duration_since(*t) > window) {
+        while timestamps
+            .front()
+            .is_some_and(|t| now.duration_since(*t) > window)
+        {
             timestamps.pop_front();
         }
 

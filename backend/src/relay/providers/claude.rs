@@ -3,6 +3,7 @@ use bytes::Bytes;
 use futures::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 use super::{
     ChatChoice, ChatChunk, ChatMessage, ChatRequest, ChatResponse, ChunkChoice, ChunkDelta,
@@ -16,7 +17,7 @@ pub struct ClaudeProvider {
 impl ClaudeProvider {
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            client: provider_client(),
         }
     }
 
@@ -50,7 +51,11 @@ impl ClaudeProvider {
             stream: req.stream.unwrap_or(false),
             stop_sequences: req.stop.as_ref().and_then(|s| {
                 if let Some(arr) = s.as_array() {
-                    Some(arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    Some(
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect(),
+                    )
                 } else if let Some(s) = s.as_str() {
                     Some(vec![s.to_string()])
                 } else {
@@ -175,7 +180,7 @@ struct ClaudeStreamEvent {
 #[derive(Deserialize)]
 struct ClaudeStreamDelta {
     #[serde(rename = "type")]
-    delta_type: Option<String>,
+    _delta_type: Option<String>,
     text: Option<String>,
     stop_reason: Option<String>,
 }
@@ -280,13 +285,10 @@ impl Provider for ClaudeProvider {
                 let event_block = buffer[..pos].to_string();
                 buffer = buffer[pos + 2..].to_string();
 
-                let mut event_type = String::new();
                 let mut data_str = String::new();
 
                 for line in event_block.lines() {
-                    if let Some(et) = line.strip_prefix("event: ") {
-                        event_type = et.to_string();
-                    } else if let Some(d) = line.strip_prefix("data: ") {
+                    if let Some(d) = line.strip_prefix("data: ") {
                         data_str = d.to_string();
                     }
                 }
@@ -370,8 +372,16 @@ impl Provider for ClaudeProvider {
 
         Ok(Box::pin(transformed))
     }
+}
 
-    fn name(&self) -> &'static str {
-        "claude"
-    }
+fn provider_client() -> Client {
+    let timeout_secs = std::env::var("PROVIDER_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(120);
+
+    Client::builder()
+        .timeout(Duration::from_secs(timeout_secs))
+        .build()
+        .expect("Failed to build Claude HTTP client")
 }

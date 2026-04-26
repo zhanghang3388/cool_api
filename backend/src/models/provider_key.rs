@@ -78,14 +78,11 @@ impl ProviderKey {
             .await
     }
 
-    pub async fn list_by_provider(pool: &PgPool, provider: &str) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as("SELECT * FROM provider_keys WHERE provider = $1 ORDER BY priority, created_at")
-            .bind(provider)
-            .fetch_all(pool)
-            .await
-    }
-
-    pub async fn update(pool: &PgPool, id: Uuid, input: &UpdateProviderKey) -> Result<Self, sqlx::Error> {
+    pub async fn update(
+        pool: &PgPool,
+        id: Uuid,
+        input: &UpdateProviderKey,
+    ) -> Result<Self, sqlx::Error> {
         let current = sqlx::query_as::<_, Self>("SELECT * FROM provider_keys WHERE id = $1")
             .bind(id)
             .fetch_one(pool)
@@ -96,17 +93,29 @@ impl ProviderKey {
                 name = $1, api_key = $2, base_url = $3, is_active = $4,
                 weight = $5, priority = $6, rpm_limit = $7, tpm_limit = $8,
                 models = $9, updated_at = now()
-             WHERE id = $10 RETURNING *"
+             WHERE id = $10 RETURNING *",
         )
         .bind(input.name.as_deref().unwrap_or(&current.name))
         .bind(input.api_key.as_deref().unwrap_or(&current.api_key))
-        .bind(input.base_url.as_ref().map(|v| v.as_deref()).unwrap_or(current.base_url.as_deref()))
+        .bind(
+            input
+                .base_url
+                .as_ref()
+                .map(|v| v.as_deref())
+                .unwrap_or(current.base_url.as_deref()),
+        )
         .bind(input.is_active.unwrap_or(current.is_active))
         .bind(input.weight.unwrap_or(current.weight))
         .bind(input.priority.unwrap_or(current.priority))
         .bind(input.rpm_limit.unwrap_or(current.rpm_limit))
         .bind(input.tpm_limit.unwrap_or(current.tpm_limit))
-        .bind(input.models.as_ref().map(|v| v.as_ref()).unwrap_or(current.models.as_ref()))
+        .bind(
+            input
+                .models
+                .as_ref()
+                .map(|v| v.as_ref())
+                .unwrap_or(current.models.as_ref()),
+        )
         .bind(id)
         .fetch_one(pool)
         .await
@@ -118,12 +127,5 @@ impl ProviderKey {
             .execute(pool)
             .await?;
         Ok(())
-    }
-
-    pub async fn list_active_for_provider(pool: &PgPool, provider: &str) -> Result<Vec<Self>, sqlx::Error> {
-        sqlx::query_as("SELECT * FROM provider_keys WHERE provider = $1 AND is_active = true ORDER BY priority, weight DESC")
-            .bind(provider)
-            .fetch_all(pool)
-            .await
     }
 }

@@ -1,11 +1,10 @@
 use axum::{
+    Json, Router,
     extract::{Query, State},
     routing::{get, post},
-    Json, Router,
 };
 use serde::Deserialize;
 use sqlx::PgPool;
-use uuid::Uuid;
 
 use crate::auth::middleware::AdminUser;
 use crate::error::AppError;
@@ -64,6 +63,7 @@ async fn topup(
         updated.balance,
         req.description.as_deref(),
         None,
-    ).await?;
+    )
+    .await?;
     Ok(Json(tx))
 }

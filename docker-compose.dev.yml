@@ -4,7 +4,7 @@ services:
     container_name: cool_api_db_dev
     environment:
       POSTGRES_USER: ${DB_USER:-cool_api}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-cool_api}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
       POSTGRES_DB: ${DB_NAME:-cool_api}
     ports:
       - "5432:5432"

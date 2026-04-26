@@ -14,6 +14,7 @@ pub struct User {
     pub is_active: bool,
     pub balance: i64,
     pub quota_limit: Option<i64>,
+    pub rpm_limit: Option<i32>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -106,7 +107,17 @@ impl User {
         .await
     }
 
-    pub fn is_admin(&self) -> bool {
-        self.role == "admin"
+    pub async fn update_rpm_limit(
+        pool: &PgPool,
+        id: Uuid,
+        rpm_limit: Option<i32>,
+    ) -> Result<Self, sqlx::Error> {
+        sqlx::query_as(
+            "UPDATE users SET rpm_limit = $1, updated_at = now() WHERE id = $2 RETURNING *",
+        )
+        .bind(rpm_limit)
+        .bind(id)
+        .fetch_one(pool)
+        .await
     }
 }

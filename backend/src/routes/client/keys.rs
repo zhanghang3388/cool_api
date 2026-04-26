@@ -1,7 +1,7 @@
 use axum::{
+    Json, Router,
     extract::{Path, State},
     routing::get,
-    Json, Router,
 };
 use serde::Serialize;
 use sqlx::PgPool;
@@ -46,7 +46,15 @@ async fn create_key(
     State(pool): State<PgPool>,
     Json(req): Json<CreateKeyRequest>,
 ) -> Result<Json<CreateKeyResponse>, AppError> {
-    let (key, full_key) = RelayKey::create(&pool, user.id, &req.name, req.group_id, req.remark.as_deref()).await?;
+    validate_key_input(&req.name, req.remark.as_deref())?;
+    let (key, full_key) = RelayKey::create(
+        &pool,
+        user.id,
+        &req.name,
+        req.group_id,
+        req.remark.as_deref(),
+    )
+    .await?;
     Ok(Json(CreateKeyResponse { key, full_key }))
 }
 
@@ -66,4 +74,19 @@ async fn toggle_key(
 ) -> Result<Json<RelayKey>, AppError> {
     let key = RelayKey::toggle_active(&pool, id, user.id).await?;
     Ok(Json(key))
+}
+
+fn validate_key_input(name: &str, remark: Option<&str>) -> Result<(), AppError> {
+    let name = name.trim();
+    if name.is_empty() || name.len() > 128 {
+        return Err(AppError::BadRequest(
+            "Key name must be 1-128 characters".into(),
+        ));
+    }
+    if remark.is_some_and(|value| value.len() > 512) {
+        return Err(AppError::BadRequest(
+            "Key remark must be 512 characters or fewer".into(),
+        ));
+    }
+    Ok(())
 }

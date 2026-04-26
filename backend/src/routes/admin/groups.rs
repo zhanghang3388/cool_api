@@ -1,7 +1,7 @@
 use axum::{
+    Json, Router,
     extract::{Path, State},
     routing::get,
-    Json, Router,
 };
 use serde::Serialize;
 use sqlx::PgPool;
@@ -21,7 +21,10 @@ pub struct GroupWithChannels {
 pub fn router(pool: PgPool) -> Router {
     Router::new()
         .route("/", get(list_groups).post(create_group))
-        .route("/{id}", get(get_group).patch(update_group).delete(delete_group))
+        .route(
+            "/{id}",
+            get(get_group).patch(update_group).delete(delete_group),
+        )
         .with_state(pool)
 }
 
@@ -33,7 +36,10 @@ async fn list_groups(
     let mut result = Vec::with_capacity(groups.len());
     for g in groups {
         let channel_ids = PricingGroup::get_channel_ids(&pool, g.id).await?;
-        result.push(GroupWithChannels { group: g, channel_ids });
+        result.push(GroupWithChannels {
+            group: g,
+            channel_ids,
+        });
     }
     Ok(Json(result))
 }
@@ -55,6 +61,7 @@ async fn create_group(
     State(pool): State<PgPool>,
     Json(req): Json<CreatePricingGroup>,
 ) -> Result<Json<GroupWithChannels>, AppError> {
+    validate_group_create(&req)?;
     let group = PricingGroup::create(&pool, &req).await?;
     let channel_ids = PricingGroup::get_channel_ids(&pool, group.id).await?;
     Ok(Json(GroupWithChannels { group, channel_ids }))
@@ -69,6 +76,7 @@ async fn update_group(
     PricingGroup::find_by_id(&pool, id)
         .await?
         .ok_or_else(|| AppError::NotFound("Group not found".into()))?;
+    validate_group_update(&req)?;
     let group = PricingGroup::update(&pool, id, &req).await?;
     let channel_ids = PricingGroup::get_channel_ids(&pool, group.id).await?;
     Ok(Json(GroupWithChannels { group, channel_ids }))
@@ -84,4 +92,35 @@ async fn delete_group(
         .ok_or_else(|| AppError::NotFound("Group not found".into()))?;
     PricingGroup::delete(&pool, id).await?;
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+fn validate_group_create(req: &CreatePricingGroup) -> Result<(), AppError> {
+    validate_group_name(&req.name)?;
+    if req.multiplier.is_some_and(|value| value < 0.0) {
+        return Err(AppError::BadRequest(
+            "Multiplier must be non-negative".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_group_update(req: &UpdatePricingGroup) -> Result<(), AppError> {
+    if let Some(name) = &req.name {
+        validate_group_name(name)?;
+    }
+    if req.multiplier.is_some_and(|value| value < 0.0) {
+        return Err(AppError::BadRequest(
+            "Multiplier must be non-negative".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_group_name(name: &str) -> Result<(), AppError> {
+    if name.trim().is_empty() || name.len() > 64 {
+        return Err(AppError::BadRequest(
+            "Group name must be 1-64 characters".into(),
+        ));
+    }
+    Ok(())
 }

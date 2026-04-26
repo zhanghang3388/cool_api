@@ -1,4 +1,4 @@
-use axum::{extract::State, routing::post, Json, Router};
+use axum::{Json, Router, extract::State, routing::post};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
@@ -65,41 +65,97 @@ async fn register(
     State((pool, config)): State<(PgPool, AppConfig)>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<AuthResponse>, AppError> {
-    if req.username.len() < 3 || req.username.len() > 64 {
-        return Err(AppError::BadRequest("Username must be 3-64 characters".into()));
-    }
-    if !req.email.contains('@') {
+    validate_username(&req.username)?;
+    if !is_valid_email(&req.email) {
         return Err(AppError::BadRequest("Invalid email".into()));
     }
-    if req.password.len() < 6 {
-        return Err(AppError::BadRequest("Password must be at least 6 characters".into()));
-    }
+    validate_password(&req.password)?;
 
-    if User::find_by_username(&pool, &req.username).await?.is_some() {
+    if User::find_by_username(&pool, &req.username)
+        .await?
+        .is_some()
+    {
         return Err(AppError::Conflict("Username already taken".into()));
     }
     if User::find_by_email(&pool, &req.email).await?.is_some() {
         return Err(AppError::Conflict("Email already registered".into()));
     }
 
-    let hash = password::hash_password(&req.password)
-        .map_err(|e| AppError::Internal(e.to_string()))?;
+    let hash =
+        password::hash_password(&req.password).map_err(|e| AppError::Internal(e.to_string()))?;
 
-    let user = User::create(&pool, &CreateUser {
-        username: req.username,
-        email: req.email,
-        password_hash: hash,
-        role: None,
-    }).await?;
+    let user = User::create(
+        &pool,
+        &CreateUser {
+            username: req.username,
+            email: req.email,
+            password_hash: hash,
+            role: None,
+        },
+    )
+    .await?;
 
-    let access_token = jwt::create_access_token(user.id, &user.role, &config.jwt_secret, config.jwt_expiry_hours)?;
-    let refresh_token = jwt::create_refresh_token(user.id, &user.role, &config.jwt_secret, config.jwt_refresh_expiry_days)?;
+    let access_token = jwt::create_access_token(
+        user.id,
+        &user.role,
+        &config.jwt_secret,
+        config.jwt_expiry_hours,
+    )?;
+    let refresh_token = jwt::create_refresh_token(
+        user.id,
+        &user.role,
+        &config.jwt_secret,
+        config.jwt_refresh_expiry_days,
+    )?;
 
     Ok(Json(AuthResponse {
         access_token,
         refresh_token,
         user: UserInfo::from(&user),
     }))
+}
+
+fn validate_username(username: &str) -> Result<(), AppError> {
+    if username.len() < 3 || username.len() > 64 {
+        return Err(AppError::BadRequest(
+            "Username must be 3-64 characters".into(),
+        ));
+    }
+    if !username
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(AppError::BadRequest(
+            "Username can only contain letters, numbers, underscores, and hyphens".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn is_valid_email(email: &str) -> bool {
+    if email.len() > 255 || email.contains(char::is_whitespace) {
+        return false;
+    }
+    let Some((local, domain)) = email.split_once('@') else {
+        return false;
+    };
+    !local.is_empty() && domain.contains('.') && !domain.ends_with('.')
+}
+
+fn validate_password(password: &str) -> Result<(), AppError> {
+    if password.len() < 8 {
+        return Err(AppError::BadRequest(
+            "Password must be at least 8 characters".into(),
+        ));
+    }
+    if !password.chars().any(|c| c.is_ascii_alphabetic())
+        || !password.chars().any(|c| c.is_ascii_digit())
+    {
+        return Err(AppError::BadRequest(
+            "Password must contain both letters and numbers".into(),
+        ));
+    }
+    Ok(())
 }
 
 async fn login(
@@ -121,8 +177,18 @@ async fn login(
         return Err(AppError::Unauthorized("Invalid credentials".into()));
     }
 
-    let access_token = jwt::create_access_token(user.id, &user.role, &config.jwt_secret, config.jwt_expiry_hours)?;
-    let refresh_token = jwt::create_refresh_token(user.id, &user.role, &config.jwt_secret, config.jwt_refresh_expiry_days)?;
+    let access_token = jwt::create_access_token(
+        user.id,
+        &user.role,
+        &config.jwt_secret,
+        config.jwt_expiry_hours,
+    )?;
+    let refresh_token = jwt::create_refresh_token(
+        user.id,
+        &user.role,
+        &config.jwt_secret,
+        config.jwt_refresh_expiry_days,
+    )?;
 
     Ok(Json(AuthResponse {
         access_token,
@@ -149,8 +215,18 @@ async fn refresh(
         return Err(AppError::Forbidden("Account is disabled".into()));
     }
 
-    let access_token = jwt::create_access_token(user.id, &user.role, &config.jwt_secret, config.jwt_expiry_hours)?;
-    let refresh_token = jwt::create_refresh_token(user.id, &user.role, &config.jwt_secret, config.jwt_refresh_expiry_days)?;
+    let access_token = jwt::create_access_token(
+        user.id,
+        &user.role,
+        &config.jwt_secret,
+        config.jwt_expiry_hours,
+    )?;
+    let refresh_token = jwt::create_refresh_token(
+        user.id,
+        &user.role,
+        &config.jwt_secret,
+        config.jwt_refresh_expiry_days,
+    )?;
 
     Ok(Json(AuthResponse {
         access_token,

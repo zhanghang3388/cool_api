@@ -8,8 +8,12 @@ mod relay;
 mod routes;
 mod services;
 
+use axum::http::{
+    HeaderValue, Method,
+    header::{AUTHORIZATION, CONTENT_TYPE},
+};
 use config::AppConfig;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 #[tokio::main]
@@ -54,10 +58,7 @@ async fn main() {
         tracing::info!("Created initial admin user: {}", config.admin_username);
     }
 
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let cors = build_cors(&config);
 
     let app = routes::create_router(pool, config.clone())
         .layer(TraceLayer::new_for_http())
@@ -71,6 +72,70 @@ async fn main() {
         .expect("Failed to bind address");
 
     axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("Server error");
+}
+
+fn build_cors(config: &AppConfig) -> CorsLayer {
+    let layer = CorsLayer::new()
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([AUTHORIZATION, CONTENT_TYPE]);
+
+    if config.is_production() {
+        let origins = config
+            .allowed_origins
+            .iter()
+            .map(|origin| {
+                origin
+                    .parse::<HeaderValue>()
+                    .expect("ALLOWED_ORIGINS contains an invalid origin")
+            })
+            .collect::<Vec<_>>();
+        layer.allow_origin(AllowOrigin::list(origins))
+    } else if config.allowed_origins.is_empty() {
+        layer.allow_origin(Any)
+    } else {
+        let origins = config
+            .allowed_origins
+            .iter()
+            .map(|origin| {
+                origin
+                    .parse::<HeaderValue>()
+                    .expect("ALLOWED_ORIGINS contains an invalid origin")
+            })
+            .collect::<Vec<_>>();
+        layer.allow_origin(AllowOrigin::list(origins))
+    }
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("Failed to install terminate signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
 }

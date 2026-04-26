@@ -1,7 +1,5 @@
 use sqlx::PgPool;
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 
 use crate::models::channel::Channel;
 use crate::models::provider_key::ProviderKey;
@@ -134,10 +132,7 @@ impl Dispatcher {
                 weighted.shuffle(&mut rand::rng());
                 // Deduplicate while preserving shuffled order
                 let mut seen = std::collections::HashSet::new();
-                keys = weighted
-                    .into_iter()
-                    .filter(|k| seen.insert(k.id))
-                    .collect();
+                keys = weighted.into_iter().filter(|k| seen.insert(k.id)).collect();
             }
             _ => {
                 // round_robin
@@ -154,10 +149,7 @@ impl Dispatcher {
     }
 
     /// Dispatch a non-streaming request with failover
-    pub async fn dispatch(
-        &self,
-        request: &ChatRequest,
-    ) -> Result<DispatchResult, ProviderError> {
+    pub async fn dispatch(&self, request: &ChatRequest) -> Result<DispatchResult, ProviderError> {
         let channel = self.find_channel(&request.model).await?;
         let keys = self.get_ordered_keys(&channel).await?;
 
@@ -244,7 +236,10 @@ impl Dispatcher {
     }
 
     /// Get channel and ordered keys for a model (used by messages proxy)
-    pub async fn get_route(&self, model: &str) -> Result<(Channel, Vec<ProviderKey>), ProviderError> {
+    pub async fn get_route(
+        &self,
+        model: &str,
+    ) -> Result<(Channel, Vec<ProviderKey>), ProviderError> {
         let channel = self.find_channel(model).await?;
         let keys = self.get_ordered_keys(&channel).await?;
         Ok((channel, keys))

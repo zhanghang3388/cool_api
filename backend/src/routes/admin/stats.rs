@@ -270,7 +270,8 @@ async fn cache_hit_rate(
                      ELSE SUM(r.cache_read_tokens)::float / SUM(r.prompt_tokens + r.cache_creation_tokens + r.cache_read_tokens)::float
                 END as cache_hit_rate
              FROM (
-                SELECT * FROM request_logs
+                SELECT model, prompt_tokens, cache_creation_tokens, cache_read_tokens
+                FROM request_logs
                 WHERE status_code = 200 AND relay_key_id IN (SELECT id FROM relay_keys WHERE group_id = $1)
                 ORDER BY created_at DESC LIMIT 100
              ) r
@@ -291,7 +292,8 @@ async fn cache_hit_rate(
                      ELSE SUM(r.cache_read_tokens)::float / SUM(r.prompt_tokens + r.cache_creation_tokens + r.cache_read_tokens)::float
                 END as cache_hit_rate
              FROM (
-                SELECT * FROM request_logs
+                SELECT model, prompt_tokens, cache_creation_tokens, cache_read_tokens
+                FROM request_logs
                 WHERE status_code = 200
                 ORDER BY created_at DESC LIMIT 100
              ) r

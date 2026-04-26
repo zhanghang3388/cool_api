@@ -1,6 +1,6 @@
-pub mod openai;
 pub mod claude;
 pub mod gemini;
+pub mod openai;
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -120,7 +120,4 @@ pub trait Provider: Send + Sync {
         base_url: Option<&str>,
         request: &ChatRequest,
     ) -> Result<SseStream, ProviderError>;
-
-    /// Provider name
-    fn name(&self) -> &'static str;
 }

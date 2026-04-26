@@ -10,6 +10,7 @@ pub struct RelayKey {
     pub user_id: Uuid,
     pub name: String,
     #[serde(skip_serializing)]
+    #[allow(dead_code)]
     pub key_hash: String,
     pub key_prefix: String,
     pub is_active: bool,
