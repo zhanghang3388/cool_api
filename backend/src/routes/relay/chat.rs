@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::config::AppConfig;
+use crate::config_helper;
 use crate::error::AppError;
 use crate::middleware::rate_limiter::RateLimiter;
 use crate::models::billing::BillingTransaction;
@@ -68,8 +69,15 @@ async fn chat_completions(
 
     // === 三层限流策略 ===
 
+    // 从数据库获取限流配置（优先使用数据库配置，否则使用环境变量）
+    let (default_user_rpm, global_rpm) = config_helper::get_rate_limit_config(
+        &pool,
+        config.default_user_rpm_limit,
+        config.global_rpm_limit
+    ).await;
+
     // 1. 全局限流（如果配置了）
-    if let Some(global_limit) = config.global_rpm_limit {
+    if let Some(global_limit) = global_rpm {
         if let Err(retry_after) = rate_limiter.check_global_rpm(global_limit) {
             return Err(AppError::TooManyRequests {
                 message: format!("Global rate limit exceeded. Retry after {retry_after}s"),
@@ -89,7 +97,7 @@ async fn chat_completions(
     }
 
     // 3. 用户级别限流（优先使用用户自定义的rpm_limit，否则使用全局默认值）
-    let user_rpm_limit = user.rpm_limit.map(|v| v as u32).unwrap_or(config.default_user_rpm_limit);
+    let user_rpm_limit = user.rpm_limit.map(|v| v as u32).unwrap_or(default_user_rpm);
     if let Err(retry_after) = rate_limiter.check_user_rpm(user.id, user_rpm_limit) {
         return Err(AppError::TooManyRequests {
             message: format!("User rate limit exceeded. Retry after {retry_after}s"),

@@ -1,5 +1,6 @@
 mod auth;
 mod config;
+mod config_helper;
 mod db;
 mod error;
 mod middleware;

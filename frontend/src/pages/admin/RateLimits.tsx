@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Shield, Users, Zap, AlertTriangle, Search, Edit2, Save, X, TrendingUp, Settings, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { adminApi, type User } from '@/api/admin';
+import { adminApi, type User, type RateLimitConfig } from '@/api/admin';
 
 export default function RateLimits() {
   const { t } = useTranslation();
@@ -16,6 +16,9 @@ export default function RateLimits() {
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   const [batchValue, setBatchValue] = useState<string>('');
   const [showBatchModal, setShowBatchModal] = useState(false);
+  const [rateLimitConfig, setRateLimitConfig] = useState<RateLimitConfig | null>(null);
+  const [editingConfig, setEditingConfig] = useState(false);
+  const [configValues, setConfigValues] = useState({ defaultUserRpm: '', globalRpm: '' });
   const [stats, setStats] = useState({
     totalUsers: 0,
     withLimits: 0,
@@ -26,19 +29,24 @@ export default function RateLimits() {
   const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await adminApi.listUsers(1, 1000);
-      setUsers(data.data);
-      setFilteredUsers(data.data);
+      const [usersRes, configRes] = await Promise.all([
+        adminApi.listUsers(1, 1000),
+        adminApi.getRateLimits(),
+      ]);
+
+      setUsers(usersRes.data.data);
+      setFilteredUsers(usersRes.data.data);
+      setRateLimitConfig(configRes.data);
 
       // Calculate stats
-      const withLimits = data.data.filter(u => u.rpm_limit !== null).length;
-      const unlimited = data.data.filter(u => u.rpm_limit === null).length;
-      const avgLimit = data.data
+      const withLimits = usersRes.data.data.filter(u => u.rpm_limit !== null).length;
+      const unlimited = usersRes.data.data.filter(u => u.rpm_limit === null).length;
+      const avgLimit = usersRes.data.data
         .filter(u => u.rpm_limit !== null)
         .reduce((sum, u) => sum + (u.rpm_limit || 0), 0) / (withLimits || 1);
 
       setStats({
-        totalUsers: data.data.length,
+        totalUsers: usersRes.data.data.length,
         withLimits,
         unlimited,
         avgLimit: Math.round(avgLimit),
@@ -149,6 +157,52 @@ export default function RateLimits() {
     }
   };
 
+  const startEditConfig = () => {
+    if (rateLimitConfig) {
+      setConfigValues({
+        defaultUserRpm: rateLimitConfig.default_user_rpm_limit.toString(),
+        globalRpm: rateLimitConfig.global_rpm_limit?.toString() || '',
+      });
+      setEditingConfig(true);
+    }
+  };
+
+  const cancelEditConfig = () => {
+    setEditingConfig(false);
+    setConfigValues({ defaultUserRpm: '', globalRpm: '' });
+  };
+
+  const saveConfig = async () => {
+    setSaving(true);
+    try {
+      const defaultUserRpm = parseInt(configValues.defaultUserRpm, 10);
+      const globalRpm = configValues.globalRpm.trim() === '' ? null : parseInt(configValues.globalRpm, 10);
+
+      if (isNaN(defaultUserRpm) || defaultUserRpm < 1) {
+        alert(t('admin.rateLimits.invalidDefaultUserRpm'));
+        return;
+      }
+
+      if (globalRpm !== null && (isNaN(globalRpm) || globalRpm < 1)) {
+        alert(t('admin.rateLimits.invalidGlobalRpm'));
+        return;
+      }
+
+      await adminApi.updateSettings({
+        default_user_rpm_limit: defaultUserRpm,
+        global_rpm_limit: globalRpm,
+      });
+
+      await loadUsers();
+      setEditingConfig(false);
+    } catch (err) {
+      console.error('Failed to update config:', err);
+      alert(t('admin.rateLimits.configUpdateFailed'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const statCards = [
     {
       key: 'totalUsers',
@@ -200,22 +254,94 @@ export default function RateLimits() {
         <div className="flex items-start gap-3">
           <Settings className="w-5 h-5 text-accent shrink-0 mt-0.5" />
           <div className="flex-1">
-            <p className="font-display font-semibold text-text-primary text-sm mb-2">{t('admin.rateLimits.globalConfig')}</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-              <div className="flex items-center gap-2">
-                <span className="text-text-secondary">{t('admin.rateLimits.defaultUserLimit')}:</span>
-                <span className="font-code font-semibold text-accent">60 RPM</span>
-                <span className="text-text-secondary text-[10px]">({t('admin.rateLimits.envConfig')})</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-text-secondary">{t('admin.rateLimits.globalLimit')}:</span>
-                <span className="font-code font-semibold text-accent">{t('admin.rateLimits.notSet')}</span>
-                <span className="text-text-secondary text-[10px]">({t('admin.rateLimits.envConfig')})</span>
-              </div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="font-display font-semibold text-text-primary text-sm">{t('admin.rateLimits.globalConfig')}</p>
+              {!editingConfig && (
+                <button
+                  onClick={startEditConfig}
+                  className="px-2 py-1 text-xs font-display bg-accent/10 text-accent rounded-lg hover:bg-accent/20 transition-colors flex items-center gap-1"
+                >
+                  <Edit2 className="w-3 h-3" />
+                  {t('admin.rateLimits.edit')}
+                </button>
+              )}
             </div>
-            <p className="text-text-secondary text-[11px] mt-2">
-              {t('admin.rateLimits.configNote')}
-            </p>
+            {editingConfig ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-text-secondary mb-1">
+                      {t('admin.rateLimits.defaultUserLimit')}
+                    </label>
+                    <input
+                      type="text"
+                      value={configValues.defaultUserRpm}
+                      onChange={e => setConfigValues({ ...configValues, defaultUserRpm: e.target.value })}
+                      className="w-full bg-bg-primary border border-border rounded px-2 py-1 text-xs font-code focus:outline-none focus:border-accent/40"
+                      placeholder="60"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-text-secondary mb-1">
+                      {t('admin.rateLimits.globalLimit')}
+                    </label>
+                    <input
+                      type="text"
+                      value={configValues.globalRpm}
+                      onChange={e => setConfigValues({ ...configValues, globalRpm: e.target.value })}
+                      className="w-full bg-bg-primary border border-border rounded px-2 py-1 text-xs font-code focus:outline-none focus:border-accent/40"
+                      placeholder={t('admin.rateLimits.optional')}
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={cancelEditConfig}
+                    disabled={saving}
+                    className="px-3 py-1.5 text-xs font-display bg-bg-primary text-text-secondary rounded-lg hover:bg-bg-secondary transition-colors disabled:opacity-50"
+                  >
+                    {t('admin.rateLimits.cancel')}
+                  </button>
+                  <button
+                    onClick={saveConfig}
+                    disabled={saving}
+                    className="px-3 py-1.5 text-xs font-display bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors disabled:opacity-50 flex items-center gap-1"
+                  >
+                    {saving ? (
+                      <>
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                        {t('admin.rateLimits.saving')}
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-3 h-3" />
+                        {t('admin.rateLimits.save')}
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="text-text-secondary">{t('admin.rateLimits.defaultUserLimit')}:</span>
+                    <span className="font-code font-semibold text-accent">
+                      {rateLimitConfig?.default_user_rpm_limit || 60} RPM
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-text-secondary">{t('admin.rateLimits.globalLimit')}:</span>
+                    <span className="font-code font-semibold text-accent">
+                      {rateLimitConfig?.global_rpm_limit ? `${rateLimitConfig.global_rpm_limit} RPM` : t('admin.rateLimits.notSet')}
+                    </span>
+                  </div>
+                </div>
+                <p className="text-text-secondary text-[11px] mt-2">
+                  {t('admin.rateLimits.configEditNote')}
+                </p>
+              </>
+            )}
           </div>
         </div>
       </motion.div>

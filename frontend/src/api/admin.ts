@@ -110,6 +110,11 @@ export interface CacheHitRate {
   cache_hit_rate: number;
 }
 
+export interface RateLimitConfig {
+  default_user_rpm_limit: number;
+  global_rpm_limit: number | null;
+}
+
 export const adminApi = {
   // Users
   listUsers: (page = 1, per_page = 20) =>
@@ -153,6 +158,7 @@ export const adminApi = {
   getSettings: () => api.get<[string, unknown][]>('/admin/settings'),
   updateSettings: (data: Record<string, unknown>) => api.patch('/admin/settings', data),
   getModels: () => api.get('/admin/settings/models'),
+  getRateLimits: () => api.get<RateLimitConfig>('/admin/settings/rate-limits'),
 
   // Groups
   listGroups: () => api.get<PricingGroupWithChannels[]>('/admin/groups'),
