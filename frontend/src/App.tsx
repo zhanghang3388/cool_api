@@ -13,21 +13,13 @@ import SettingsPage from '@/pages/admin/Settings';
 import LogsPage from '@/pages/admin/Logs';
 import PricingPage from '@/pages/admin/Pricing';
 import AdminTokensPage from '@/pages/admin/Tokens';
+import RateLimitsPage from '@/pages/admin/RateLimits';
 import ClientDashboard from '@/pages/client/Dashboard';
 import ApiKeysPage from '@/pages/client/ApiKeys';
 import UsagePage from '@/pages/client/Usage';
 import ClientBilling from '@/pages/client/Billing';
 import DocsPage from '@/pages/client/Docs';
 import PlaygroundPage from '@/pages/client/Playground';
-
-function Placeholder({ title }: { title: string }) {
-  return (
-    <div className="card">
-      <h1 className="text-lg font-display">{title}</h1>
-      <p className="text-text-secondary text-sm mt-2">Coming soon...</p>
-    </div>
-  );
-}
 
 export default function App() {
   return (
@@ -44,7 +36,7 @@ export default function App() {
           <Route path="users" element={<UsersPage />} />
           <Route path="channels" element={<ChannelsPage />} />
           <Route path="tokens" element={<AdminTokensPage />} />
-          <Route path="rate-limits" element={<Placeholder title="Rate Limits" />} />
+          <Route path="rate-limits" element={<RateLimitsPage />} />
           <Route path="logs" element={<LogsPage />} />
           <Route path="billing" element={<AdminBillingPage />} />
           <Route path="pricing" element={<PricingPage />} />

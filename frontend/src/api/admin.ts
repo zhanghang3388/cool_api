@@ -8,6 +8,7 @@ export interface User {
   is_active: boolean;
   balance: number;
   quota_limit: number | null;
+  rpm_limit: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -114,7 +115,7 @@ export const adminApi = {
   listUsers: (page = 1, per_page = 20) =>
     api.get<PaginatedUsers>('/admin/users', { params: { page, per_page } }),
   getUser: (id: string) => api.get<User>(`/admin/users/${id}`),
-  updateUser: (id: string, data: Partial<Pick<User, 'is_active' | 'role' | 'quota_limit'>>) =>
+  updateUser: (id: string, data: Partial<Pick<User, 'is_active' | 'role' | 'quota_limit' | 'rpm_limit'>>) =>
     api.patch<User>(`/admin/users/${id}`, data),
 
   // Provider Keys
