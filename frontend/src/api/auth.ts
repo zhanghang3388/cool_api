@@ -10,6 +10,7 @@ export interface UserInfo {
   id: string;
   username: string;
   email: string;
+  display_name?: string | null;
   role: string;
   balance: number;
 }

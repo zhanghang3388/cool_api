@@ -5,13 +5,14 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   LayoutDashboard, Key, BarChart3, CreditCard, BookOpen,
-  Terminal, ChevronLeft, ChevronRight, LogOut, Zap, ShieldCheck
+  Terminal, ChevronLeft, ChevronRight, LogOut, Zap, ShieldCheck, UserRound
 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import LangSwitch from '@/components/ui/LangSwitch';
 
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, key: 'nav.dashboard' },
+  { to: '/profile', icon: UserRound, label: '个人中心' },
   { to: '/keys', icon: Key, key: 'nav.apiKeys' },
   { to: '/usage', icon: BarChart3, key: 'nav.usage' },
   { to: '/billing', icon: CreditCard, key: 'nav.billing' },
@@ -50,7 +51,7 @@ export default function ClientLayout() {
         </div>
 
         <nav className="flex-1 py-3 space-y-1 px-2 overflow-y-auto">
-          {navItems.map(({ to, icon: Icon, key }) => (
+          {navItems.map(({ to, icon: Icon, key, label }) => (
             <NavLink
               key={to}
               to={to}
@@ -69,9 +70,9 @@ export default function ClientLayout() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="whitespace-nowrap overflow-hidden"
-                  >
-                    {t(key)}
+                  className="whitespace-nowrap overflow-hidden"
+                >
+                    {label ?? t(key)}
                   </motion.span>
                 )}
               </AnimatePresence>
@@ -115,7 +116,7 @@ export default function ClientLayout() {
             <span className="text-xs font-code text-accent-amber">
               {t('client.dashboard.balance')}: ${((user?.balance ?? 0) / 1_000_000).toFixed(4)}
             </span>
-            <span className="text-xs text-text-secondary font-code">{user?.username}</span>
+            <span className="text-xs text-text-secondary font-code">{user?.display_name || user?.username}</span>
           </div>
         </header>
         <div className="p-6">

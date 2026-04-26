@@ -20,6 +20,7 @@ import UsagePage from '@/pages/client/Usage';
 import ClientBilling from '@/pages/client/Billing';
 import DocsPage from '@/pages/client/Docs';
 import PlaygroundPage from '@/pages/client/Playground';
+import ProfilePage from '@/pages/client/Profile';
 
 export default function App() {
   return (
@@ -46,6 +47,7 @@ export default function App() {
         {/* Client routes */}
         <Route element={<ClientLayout />}>
           <Route path="/dashboard" element={<ClientDashboard />} />
+          <Route path="/profile" element={<ProfilePage />} />
           <Route path="/keys" element={<ApiKeysPage />} />
           <Route path="/usage" element={<UsagePage />} />
           <Route path="/billing" element={<ClientBilling />} />

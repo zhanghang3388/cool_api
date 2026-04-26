@@ -37,6 +37,7 @@ pub struct UserInfo {
     pub id: uuid::Uuid,
     pub username: String,
     pub email: String,
+    pub display_name: Option<String>,
     pub role: String,
     pub balance: i64,
 }
@@ -47,6 +48,7 @@ impl From<&User> for UserInfo {
             id: u.id,
             username: u.username.clone(),
             email: u.email.clone(),
+            display_name: u.display_name.clone(),
             role: u.role.clone(),
             balance: u.balance,
         }

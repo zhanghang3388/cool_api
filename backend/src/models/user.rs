@@ -8,6 +8,7 @@ pub struct User {
     pub id: Uuid,
     pub username: String,
     pub email: String,
+    pub display_name: Option<String>,
     #[serde(skip_serializing)]
     pub password_hash: String,
     pub role: String,
@@ -116,6 +117,34 @@ impl User {
             "UPDATE users SET rpm_limit = $1, updated_at = now() WHERE id = $2 RETURNING *",
         )
         .bind(rpm_limit)
+        .bind(id)
+        .fetch_one(pool)
+        .await
+    }
+
+    pub async fn update_profile(
+        pool: &PgPool,
+        id: Uuid,
+        display_name: Option<&str>,
+    ) -> Result<Self, sqlx::Error> {
+        sqlx::query_as(
+            "UPDATE users SET display_name = $1, updated_at = now() WHERE id = $2 RETURNING *",
+        )
+        .bind(display_name)
+        .bind(id)
+        .fetch_one(pool)
+        .await
+    }
+
+    pub async fn update_password_hash(
+        pool: &PgPool,
+        id: Uuid,
+        password_hash: &str,
+    ) -> Result<Self, sqlx::Error> {
+        sqlx::query_as(
+            "UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2 RETURNING *",
+        )
+        .bind(password_hash)
         .bind(id)
         .fetch_one(pool)
         .await
