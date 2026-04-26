@@ -331,10 +331,13 @@ export default function ProfilePage() {
       </div>
 
       <SectionCard title="邀请好友" icon={UserRound}>
-        <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
-          <div>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+          <div className="min-w-0">
             <FieldLabel>专属邀请链接</FieldLabel>
-            <div className="rounded-lg border border-[#2b3240] bg-[#151922] px-3 py-3 font-code text-xs text-text-primary break-all">
+            <div
+              className="h-10 overflow-hidden truncate whitespace-nowrap rounded-lg border border-[#2b3240] bg-[#151922] px-3 py-2.5 font-code text-xs text-text-primary"
+              title={inviteLink || '正在生成邀请链接...'}
+            >
               {inviteLink || '正在生成邀请链接...'}
             </div>
             <p className="mt-2 text-xs text-text-secondary">
@@ -345,7 +348,7 @@ export default function ProfilePage() {
             type="button"
             onClick={copyInviteLink}
             disabled={!inviteLink}
-            className="btn-primary bg-accent-amber shadow-[0_8px_22px_rgba(255,184,0,0.22)] disabled:cursor-not-allowed disabled:opacity-60"
+            className="btn-primary h-10 whitespace-nowrap bg-accent-amber shadow-[0_8px_22px_rgba(255,184,0,0.22)] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {copiedInvite ? <Check className="mr-2 inline h-4 w-4" /> : <Copy className="mr-2 inline h-4 w-4" />}
             {copiedInvite ? '已复制' : '复制链接'}
