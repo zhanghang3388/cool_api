@@ -5,13 +5,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import {
   LayoutDashboard, Users, GitBranch, Shield, FileText,
-  CreditCard, Settings, ChevronLeft, ChevronRight, LogOut, Zap, DollarSign, KeyRound
+  CreditCard, Settings, ChevronLeft, ChevronRight, LogOut, Zap, DollarSign, KeyRound, UserRound
 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import LangSwitch from '@/components/ui/LangSwitch';
 
 const navItems = [
   { to: '/admin', icon: LayoutDashboard, key: 'nav.dashboard' },
+  { to: '/profile', icon: UserRound, label: '个人中心' },
   { to: '/admin/users', icon: Users, key: 'nav.users' },
   { to: '/admin/tokens', icon: KeyRound, key: 'nav.tokens' },
   { to: '/admin/channels', icon: GitBranch, key: 'nav.channels' },
@@ -53,7 +54,7 @@ export default function AdminLayout() {
         </div>
 
         <nav className="flex-1 py-3 space-y-1 px-2 overflow-y-auto">
-          {navItems.map(({ to, icon: Icon, key }) => (
+          {navItems.map(({ to, icon: Icon, key, label }) => (
             <NavLink
               key={to}
               to={to}
@@ -75,7 +76,7 @@ export default function AdminLayout() {
                     exit={{ opacity: 0 }}
                     className="whitespace-nowrap overflow-hidden"
                   >
-                    {t(key)}
+                    {label ?? t(key)}
                   </motion.span>
                 )}
               </AnimatePresence>
