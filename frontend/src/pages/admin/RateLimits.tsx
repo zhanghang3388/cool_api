@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Shield, Users, Zap, AlertTriangle, Search, Edit2, Save, X, TrendingUp } from 'lucide-react';
+import { Shield, Users, Zap, AlertTriangle, Search, Edit2, Save, X, TrendingUp, Settings, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { adminApi, type User } from '@/api/admin';
 
@@ -13,6 +13,9 @@ export default function RateLimits() {
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<string>('');
   const [saving, setSaving] = useState(false);
+  const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
+  const [batchValue, setBatchValue] = useState<string>('');
+  const [showBatchModal, setShowBatchModal] = useState(false);
   const [stats, setStats] = useState({
     totalUsers: 0,
     withLimits: 0,
@@ -96,6 +99,56 @@ export default function RateLimits() {
     }
   };
 
+  const toggleUserSelection = (userId: string) => {
+    const newSelection = new Set(selectedUsers);
+    if (newSelection.has(userId)) {
+      newSelection.delete(userId);
+    } else {
+      newSelection.add(userId);
+    }
+    setSelectedUsers(newSelection);
+  };
+
+  const toggleAllSelection = () => {
+    if (selectedUsers.size === filteredUsers.length) {
+      setSelectedUsers(new Set());
+    } else {
+      setSelectedUsers(new Set(filteredUsers.map(u => u.id)));
+    }
+  };
+
+  const batchUpdateLimits = async () => {
+    if (selectedUsers.size === 0) {
+      alert(t('admin.rateLimits.noUsersSelected'));
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const value = batchValue.trim() === '' ? null : parseInt(batchValue, 10);
+      if (value !== null && (isNaN(value) || value < 0)) {
+        alert(t('admin.rateLimits.invalidNumber'));
+        return;
+      }
+
+      await Promise.all(
+        Array.from(selectedUsers).map(userId =>
+          adminApi.updateUser(userId, { rpm_limit: value })
+        )
+      );
+
+      await loadUsers();
+      setSelectedUsers(new Set());
+      setBatchValue('');
+      setShowBatchModal(false);
+    } catch (err) {
+      console.error('Failed to batch update:', err);
+      alert(t('admin.rateLimits.batchUpdateFailed'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const statCards = [
     {
       key: 'totalUsers',
@@ -138,10 +191,40 @@ export default function RateLimits() {
         <h1 className="text-2xl font-display font-bold">{t('admin.rateLimits.title')}</h1>
       </div>
 
+      {/* Global Config Info */}
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="card bg-gradient-to-br from-accent/5 to-accent/10 border border-accent/20"
+      >
+        <div className="flex items-start gap-3">
+          <Settings className="w-5 h-5 text-accent shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="font-display font-semibold text-text-primary text-sm mb-2">{t('admin.rateLimits.globalConfig')}</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-text-secondary">{t('admin.rateLimits.defaultUserLimit')}:</span>
+                <span className="font-code font-semibold text-accent">60 RPM</span>
+                <span className="text-text-secondary text-[10px]">({t('admin.rateLimits.envConfig')})</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-text-secondary">{t('admin.rateLimits.globalLimit')}:</span>
+                <span className="font-code font-semibold text-accent">{t('admin.rateLimits.notSet')}</span>
+                <span className="text-text-secondary text-[10px]">({t('admin.rateLimits.envConfig')})</span>
+              </div>
+            </div>
+            <p className="text-text-secondary text-[11px] mt-2">
+              {t('admin.rateLimits.configNote')}
+            </p>
+          </div>
+        </div>
+      </motion.div>
+
       {/* Info banner */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
         className="card bg-accent/5 border border-accent/20"
       >
         <div className="flex items-start gap-3">
@@ -190,16 +273,34 @@ export default function RateLimits() {
         className="card"
       >
         <div className="flex items-center justify-between mb-5">
-          <h3 className="font-display text-sm font-semibold">{t('admin.rateLimits.userRateLimits')}</h3>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary" />
-            <input
-              type="text"
-              placeholder={t('admin.rateLimits.searchPlaceholder')}
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              className="bg-bg-primary/60 border border-border rounded-lg pl-9 pr-3 py-1.5 text-xs font-display text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-accent/40 w-64"
-            />
+          <div className="flex items-center gap-3">
+            <h3 className="font-display text-sm font-semibold">{t('admin.rateLimits.userRateLimits')}</h3>
+            {selectedUsers.size > 0 && (
+              <span className="text-xs text-accent font-code">
+                {t('admin.rateLimits.selectedCount', { count: selectedUsers.size })}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {selectedUsers.size > 0 && (
+              <button
+                onClick={() => setShowBatchModal(true)}
+                className="px-3 py-1.5 text-xs font-display bg-accent/10 text-accent rounded-lg hover:bg-accent/20 transition-colors flex items-center gap-1.5"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+                {t('admin.rateLimits.batchUpdate')}
+              </button>
+            )}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary" />
+              <input
+                type="text"
+                placeholder={t('admin.rateLimits.searchPlaceholder')}
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="bg-bg-primary/60 border border-border rounded-lg pl-9 pr-3 py-1.5 text-xs font-display text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-accent/40 w-64"
+              />
+            </div>
           </div>
         </div>
 
@@ -216,6 +317,14 @@ export default function RateLimits() {
             <table className="w-full text-xs">
               <thead>
                 <tr className="text-text-secondary text-left border-b border-border/50">
+                  <th className="pb-3 px-1.5 font-display font-medium text-[10px] uppercase tracking-wider w-8">
+                    <input
+                      type="checkbox"
+                      checked={selectedUsers.size === filteredUsers.length && filteredUsers.length > 0}
+                      onChange={toggleAllSelection}
+                      className="w-3.5 h-3.5 rounded border-border bg-bg-primary checked:bg-accent checked:border-accent cursor-pointer"
+                    />
+                  </th>
                   <th className="pb-3 px-1.5 font-display font-medium text-[10px] uppercase tracking-wider">
                     {t('admin.rateLimits.username')}
                   </th>
@@ -245,6 +354,14 @@ export default function RateLimits() {
                     transition={{ delay: 0.35 + i * 0.02 }}
                     className="glass-row border-b border-border/30 last:border-0"
                   >
+                    <td className="py-3 px-1.5">
+                      <input
+                        type="checkbox"
+                        checked={selectedUsers.has(user.id)}
+                        onChange={() => toggleUserSelection(user.id)}
+                        className="w-3.5 h-3.5 rounded border-border bg-bg-primary checked:bg-accent checked:border-accent cursor-pointer"
+                      />
+                    </td>
                     <td className="py-3 px-1.5 font-code">{user.username}</td>
                     <td className="py-3 px-1.5 text-text-secondary truncate max-w-[200px]">
                       {user.email}
@@ -330,6 +447,74 @@ export default function RateLimits() {
           </div>
         )}
       </motion.div>
+
+      {/* Batch Update Modal */}
+      {showBatchModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="card max-w-md w-full mx-4"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-display font-semibold text-sm">{t('admin.rateLimits.batchUpdate')}</h3>
+              <button
+                onClick={() => setShowBatchModal(false)}
+                className="p-1 rounded-lg hover:bg-bg-primary transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-text-secondary mb-4">
+              {t('admin.rateLimits.batchUpdateDesc', { count: selectedUsers.size })}
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-display text-text-secondary mb-1.5">
+                  {t('admin.rateLimits.newRpmLimit')}
+                </label>
+                <input
+                  type="text"
+                  value={batchValue}
+                  onChange={e => setBatchValue(e.target.value)}
+                  placeholder={t('admin.rateLimits.defaultPlaceholder')}
+                  className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm font-code focus:outline-none focus:border-accent/40"
+                  autoFocus
+                />
+                <p className="text-[10px] text-text-secondary mt-1">
+                  {t('admin.rateLimits.batchUpdateHint')}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowBatchModal(false)}
+                  disabled={saving}
+                  className="flex-1 px-3 py-2 text-xs font-display bg-bg-primary text-text-secondary rounded-lg hover:bg-bg-secondary transition-colors disabled:opacity-50"
+                >
+                  {t('admin.rateLimits.cancel')}
+                </button>
+                <button
+                  onClick={batchUpdateLimits}
+                  disabled={saving}
+                  className="flex-1 px-3 py-2 text-xs font-display bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+                >
+                  {saving ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      {t('admin.rateLimits.updating')}
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      {t('admin.rateLimits.update')}
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
