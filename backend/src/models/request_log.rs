@@ -1,5 +1,6 @@
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, Utc};
+use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -16,6 +17,7 @@ pub enum RequestStatus {
 pub struct RequestLog {
     pub id: i64,
     pub user_id: i64,
+    pub api_key_id: Option<i64>,
     pub channel_id: Option<i64>,
     pub group_id: i64,
     pub model_name: String,
@@ -30,5 +32,6 @@ pub struct RequestLog {
     pub latency_ms: i32,
     pub status: RequestStatus,
     pub error_message: Option<String>,
+    pub client_ip: Option<IpNetwork>,
     pub created_at: DateTime<Utc>,
 }

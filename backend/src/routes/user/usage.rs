@@ -29,22 +29,8 @@ struct LogsQuery {
 }
 
 #[derive(Debug, Serialize)]
-struct LogRow {
-    id: i64,
-    model_name: String,
-    prompt_tokens: i32,
-    completion_tokens: i32,
-    cached_tokens: i32,
-    total_cost_cents: i64,
-    latency_ms: i32,
-    status: RequestStatus,
-    error_message: Option<String>,
-    created_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Serialize)]
 struct LogsResponse {
-    items: Vec<LogRow>,
+    items: Vec<repo::request_logs::UserLogRow>,
     total: i64,
     page: i64,
     page_size: i64,
@@ -67,24 +53,8 @@ async fn logs(
         to: q.to,
     };
     let page_data = repo::request_logs::list(&state.db, filter, page_size, offset).await?;
-
     Ok(Json(LogsResponse {
-        items: page_data
-            .items
-            .into_iter()
-            .map(|r| LogRow {
-                id: r.id,
-                model_name: r.model_name,
-                prompt_tokens: r.prompt_tokens,
-                completion_tokens: r.completion_tokens,
-                cached_tokens: r.cached_tokens,
-                total_cost_cents: r.total_cost_cents,
-                latency_ms: r.latency_ms,
-                status: r.status,
-                error_message: r.error_message,
-                created_at: r.created_at,
-            })
-            .collect(),
+        items: page_data.items,
         total: page_data.total,
         page,
         page_size,

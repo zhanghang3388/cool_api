@@ -22,6 +22,7 @@ use crate::upstream::Usage;
 /// once they know which channel + model was used and the usage counts.
 pub struct ChargeInput<'a> {
     pub user_id: i64,
+    pub api_key_id: Option<i64>,
     pub group_id: i64,
     pub group_multiplier: &'a BigDecimal,
     pub model: &'a Model,
@@ -30,6 +31,7 @@ pub struct ChargeInput<'a> {
     pub latency_ms: i32,
     pub status: RequestStatus,
     pub error_message: Option<&'a str>,
+    pub client_ip: Option<ipnetwork::IpNetwork>,
 }
 
 pub struct ChargeResult {
@@ -158,13 +160,14 @@ pub async fn charge(pool: &PgPool, input: ChargeInput<'_>) -> AppResult<ChargeRe
 
     sqlx::query(
         "INSERT INTO request_logs (
-            user_id, channel_id, group_id, model_name,
+            user_id, api_key_id, channel_id, group_id, model_name,
             prompt_tokens, completion_tokens, cached_tokens, cache_creation_tokens,
             input_cost_cents, output_cost_cents, total_cost_cents,
-            multiplier_applied, latency_ms, status, error_message
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+            multiplier_applied, latency_ms, status, error_message, client_ip
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
     )
     .bind(input.user_id)
+    .bind(input.api_key_id)
     .bind(input.channel_id)
     .bind(input.group_id)
     .bind(&input.model.name)
@@ -179,6 +182,7 @@ pub async fn charge(pool: &PgPool, input: ChargeInput<'_>) -> AppResult<ChargeRe
     .bind(input.latency_ms)
     .bind(input.status)
     .bind(input.error_message)
+    .bind(input.client_ip)
     .execute(&mut *tx)
     .await?;
 
@@ -240,6 +244,7 @@ mod tests {
         let model = mk_model(1500, 7500, Some(150));
         let input = ChargeInput {
             user_id: 1,
+            api_key_id: None,
             group_id: 1,
             group_multiplier: &BigDecimal::from(1),
             model: &model,
@@ -253,6 +258,7 @@ mod tests {
             latency_ms: 0,
             status: RequestStatus::Success,
             error_message: None,
+            client_ip: None,
         };
         let (i, o, t) = compute_cost(&input);
         assert_eq!(i, 1500); // 1500 cents for 1M input tokens
@@ -266,6 +272,7 @@ mod tests {
         let mult = BigDecimal::from_str("0.4").unwrap();
         let input = ChargeInput {
             user_id: 1,
+            api_key_id: None,
             group_id: 1,
             group_multiplier: &mult,
             model: &model,
@@ -279,6 +286,7 @@ mod tests {
             latency_ms: 0,
             status: RequestStatus::Success,
             error_message: None,
+            client_ip: None,
         };
         let (_, _, t) = compute_cost(&input);
         // (1500 + 7500) * 0.4 = 3600
@@ -290,6 +298,7 @@ mod tests {
         let model = mk_model(100, 100, None);
         let input = ChargeInput {
             user_id: 1,
+            api_key_id: None,
             group_id: 1,
             group_multiplier: &BigDecimal::from(1),
             model: &model,
@@ -304,6 +313,7 @@ mod tests {
             latency_ms: 0,
             status: RequestStatus::Success,
             error_message: None,
+            client_ip: None,
         };
         let (i, o, t) = compute_cost(&input);
         assert_eq!(i, 1);
@@ -317,6 +327,7 @@ mod tests {
         let model = mk_model(1000, 1000, Some(100));
         let input = ChargeInput {
             user_id: 1,
+            api_key_id: None,
             group_id: 1,
             group_multiplier: &BigDecimal::from(1),
             model: &model,
@@ -330,6 +341,7 @@ mod tests {
             latency_ms: 0,
             status: RequestStatus::Success,
             error_message: None,
+            client_ip: None,
         };
         let (i, _, t) = compute_cost(&input);
         assert_eq!(i, 100); // all 1M tokens charged at cache price 100 cents/1M
@@ -343,6 +355,7 @@ mod tests {
         let model = mk_model_full(1000, 1000, Some(100), Some(1250));
         let input = ChargeInput {
             user_id: 1,
+            api_key_id: None,
             group_id: 1,
             group_multiplier: &BigDecimal::from(1),
             model: &model,
@@ -356,6 +369,7 @@ mod tests {
             latency_ms: 0,
             status: RequestStatus::Success,
             error_message: None,
+            client_ip: None,
         };
         let (i, _, t) = compute_cost(&input);
         assert_eq!(i, 1250);
@@ -370,6 +384,7 @@ mod tests {
         let model = mk_model_full(1000, 1000, Some(100), Some(1250));
         let input = ChargeInput {
             user_id: 1,
+            api_key_id: None,
             group_id: 1,
             group_multiplier: &BigDecimal::from(1),
             model: &model,
@@ -384,6 +399,7 @@ mod tests {
             latency_ms: 0,
             status: RequestStatus::Success,
             error_message: None,
+            client_ip: None,
         };
         let (i, _, t) = compute_cost(&input);
         assert_eq!(i, 500 + 40 + 125);
@@ -395,6 +411,7 @@ mod tests {
         let model = mk_model(1500, 7500, None);
         let input = ChargeInput {
             user_id: 1,
+            api_key_id: None,
             group_id: 1,
             group_multiplier: &BigDecimal::from(1),
             model: &model,
@@ -403,6 +420,7 @@ mod tests {
             latency_ms: 0,
             status: RequestStatus::Error,
             error_message: None,
+            client_ip: None,
         };
         let (_, _, t) = compute_cost(&input);
         assert_eq!(t, 0);

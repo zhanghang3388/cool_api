@@ -1,14 +1,10 @@
 use chrono::{DateTime, Utc};
+use ipnetwork::IpNetwork;
 use serde::Serialize;
 use sqlx::PgPool;
 
 use crate::error::AppResult;
-use crate::models::{RequestLog, RequestStatus};
-
-const COLUMNS: &str = "id, user_id, channel_id, group_id, model_name, \
-    prompt_tokens, completion_tokens, cached_tokens, \
-    input_cost_cents, output_cost_cents, total_cost_cents, \
-    multiplier_applied, latency_ms, status, error_message, created_at";
+use crate::models::RequestStatus;
 
 #[derive(Default)]
 pub struct LogFilter<'a> {
@@ -24,34 +20,77 @@ pub struct Page<T> {
     pub total: i64,
 }
 
+/// Row the user-facing usage page renders. Joins groups + api_keys + models
+/// so the UI can show the friendly names and the model's official prices
+/// alongside each log entry without the frontend having to cross-reference.
+#[derive(Debug, Serialize)]
+pub struct UserLogRow {
+    pub id: i64,
+    pub created_at: DateTime<Utc>,
+    pub model_name: String,
+
+    // Group context
+    pub group_id: i64,
+    pub group_name: Option<String>,
+    pub group_label: Option<String>,
+
+    // Token identity
+    pub api_key_id: Option<i64>,
+    pub api_key_name: Option<String>,
+    pub api_key_prefix: Option<String>,
+
+    // Token usage breakdown
+    pub prompt_tokens: i32,
+    pub completion_tokens: i32,
+    pub cached_tokens: i32,
+    pub cache_creation_tokens: i32,
+
+    // Costs (already billed amounts, in cents)
+    pub input_cost_cents: i64,
+    pub output_cost_cents: i64,
+    pub total_cost_cents: i64,
+
+    // Model official prices (cents / 1M tokens) for the detail view. NULL
+    // when the model row has since been deleted.
+    pub model_input_price_cents: Option<i64>,
+    pub model_output_price_cents: Option<i64>,
+    pub model_cache_read_price_cents: Option<i64>,
+    pub model_cache_write_price_cents: Option<i64>,
+
+    pub latency_ms: i32,
+    pub status: RequestStatus,
+    pub error_message: Option<String>,
+    pub client_ip: Option<IpNetwork>,
+}
+
 pub async fn list(
     pool: &PgPool,
     filter: LogFilter<'_>,
     limit: i64,
     offset: i64,
-) -> AppResult<Page<RequestLog>> {
-    // Build dynamic WHERE. sqlx supports named-positional binding via query builder;
-    // here the filter set is small so we inline the pattern.
+) -> AppResult<Page<UserLogRow>> {
+    // Build dynamic WHERE. Filter fields reference the request_logs table
+    // directly (aliased `r` below).
     let mut clauses: Vec<String> = Vec::new();
     let mut idx = 1;
     if filter.user_id.is_some() {
-        clauses.push(format!("user_id = ${idx}"));
+        clauses.push(format!("r.user_id = ${idx}"));
         idx += 1;
     }
     if filter.model.is_some() {
-        clauses.push(format!("model_name = ${idx}"));
+        clauses.push(format!("r.model_name = ${idx}"));
         idx += 1;
     }
     if filter.status.is_some() {
-        clauses.push(format!("status = ${idx}"));
+        clauses.push(format!("r.status = ${idx}"));
         idx += 1;
     }
     if filter.from.is_some() {
-        clauses.push(format!("created_at >= ${idx}"));
+        clauses.push(format!("r.created_at >= ${idx}"));
         idx += 1;
     }
     if filter.to.is_some() {
-        clauses.push(format!("created_at < ${idx}"));
+        clauses.push(format!("r.created_at < ${idx}"));
         idx += 1;
     }
     let where_sql = if clauses.is_empty() {
@@ -60,15 +99,37 @@ pub async fn list(
         format!("WHERE {}", clauses.join(" AND "))
     };
 
+    // `models` joined by name (the request log stores a snapshot name, not a
+    // foreign key) so renames break gracefully with NULL prices.
     let list_sql = format!(
-        "SELECT {COLUMNS} FROM request_logs {where_sql} \
-         ORDER BY created_at DESC, id DESC LIMIT ${limit_idx} OFFSET ${offset_idx}",
+        "SELECT \
+            r.id, r.created_at, r.model_name, \
+            r.group_id, g.name AS group_name, g.label AS group_label, \
+            r.api_key_id, ak.name AS api_key_name, ak.key_prefix AS api_key_prefix, \
+            r.prompt_tokens, r.completion_tokens, r.cached_tokens, r.cache_creation_tokens, \
+            r.input_cost_cents, r.output_cost_cents, r.total_cost_cents, \
+            m.input_price_cents AS model_input_price_cents, \
+            m.output_price_cents AS model_output_price_cents, \
+            m.cache_read_price_cents AS model_cache_read_price_cents, \
+            m.cache_write_price_cents AS model_cache_write_price_cents, \
+            r.latency_ms, r.status, r.error_message, r.client_ip \
+         FROM request_logs r \
+         LEFT JOIN groups g ON g.id = r.group_id \
+         LEFT JOIN api_keys ak ON ak.id = r.api_key_id \
+         LEFT JOIN models m ON m.name = r.model_name \
+         {where_sql} \
+         ORDER BY r.created_at DESC, r.id DESC \
+         LIMIT ${limit_idx} OFFSET ${offset_idx}",
         limit_idx = idx,
         offset_idx = idx + 1,
     );
-    let count_sql = format!("SELECT COUNT(*) FROM request_logs {where_sql}");
+    let count_sql = format!("SELECT COUNT(*) FROM request_logs r {where_sql}");
 
-    let mut list_q = sqlx::query_as::<_, RequestLog>(&list_sql);
+    // The SELECT list is 24 wide — past sqlx's auto-FromRow tuple ceiling (16).
+    // Use the untyped `query` path and pull each column out by index, which
+    // also keeps the type list readable.
+    use sqlx::Row;
+    let mut list_q = sqlx::query(&list_sql);
     let mut count_q = sqlx::query_scalar::<_, i64>(&count_sql);
     if let Some(v) = filter.user_id {
         list_q = list_q.bind(v);
@@ -92,8 +153,38 @@ pub async fn list(
     }
     list_q = list_q.bind(limit).bind(offset);
 
-    let items = list_q.fetch_all(pool).await?;
+    let rows = list_q.fetch_all(pool).await?;
     let total = count_q.fetch_one(pool).await?;
+
+    let items: Vec<UserLogRow> = rows
+        .into_iter()
+        .map(|r| UserLogRow {
+            id: r.get("id"),
+            created_at: r.get("created_at"),
+            model_name: r.get("model_name"),
+            group_id: r.get("group_id"),
+            group_name: r.try_get("group_name").ok(),
+            group_label: r.try_get("group_label").ok(),
+            api_key_id: r.try_get("api_key_id").ok(),
+            api_key_name: r.try_get("api_key_name").ok(),
+            api_key_prefix: r.try_get("api_key_prefix").ok(),
+            prompt_tokens: r.get("prompt_tokens"),
+            completion_tokens: r.get("completion_tokens"),
+            cached_tokens: r.get("cached_tokens"),
+            cache_creation_tokens: r.get("cache_creation_tokens"),
+            input_cost_cents: r.get("input_cost_cents"),
+            output_cost_cents: r.get("output_cost_cents"),
+            total_cost_cents: r.get("total_cost_cents"),
+            model_input_price_cents: r.try_get("model_input_price_cents").ok(),
+            model_output_price_cents: r.try_get("model_output_price_cents").ok(),
+            model_cache_read_price_cents: r.try_get("model_cache_read_price_cents").ok(),
+            model_cache_write_price_cents: r.try_get("model_cache_write_price_cents").ok(),
+            latency_ms: r.get("latency_ms"),
+            status: r.get("status"),
+            error_message: r.try_get("error_message").ok(),
+            client_ip: r.try_get("client_ip").ok(),
+        })
+        .collect();
     Ok(Page { items, total })
 }
 

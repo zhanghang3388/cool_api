@@ -5,15 +5,38 @@ export type RequestStatus = 'success' | 'error' | 'cached';
 
 export interface UsageLogRow {
   id: number;
+  created_at: string;
   model_name: string;
+
+  group_id: number;
+  group_name: string | null;
+  group_label: string | null;
+
+  api_key_id: number | null;
+  api_key_name: string | null;
+  api_key_prefix: string | null;
+
   prompt_tokens: number;
   completion_tokens: number;
   cached_tokens: number;
+  cache_creation_tokens: number;
+
+  input_cost_cents: number;
+  output_cost_cents: number;
   total_cost_cents: number;
+
+  /** Model prices at the time of querying (NOT when the request ran). NULL
+   * if the model was since deleted. */
+  model_input_price_cents: number | null;
+  model_output_price_cents: number | null;
+  model_cache_read_price_cents: number | null;
+  model_cache_write_price_cents: number | null;
+
   latency_ms: number;
   status: RequestStatus;
   error_message: string | null;
-  created_at: string;
+  /** Postgres INET — single hosts serialize as "1.2.3.4/32" or "::1/128". */
+  client_ip: string | null;
 }
 
 export interface UsageLogsResponse {

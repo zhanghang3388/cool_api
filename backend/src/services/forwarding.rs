@@ -8,6 +8,8 @@ use axum::response::{IntoResponse, Response};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use futures::StreamExt;
+use ipnetwork::IpNetwork;
+use std::net::IpAddr;
 use std::time::Instant;
 
 use crate::auth::ApiUser;
@@ -34,6 +36,30 @@ pub struct ForwardInput {
     pub headers: HeaderMap,
 }
 
+/// Best-effort client IP resolution.
+///
+/// In production we sit behind host nginx, so `X-Forwarded-For` is the source
+/// of truth. We trust only the first element (the left-most entry is set by
+/// the closest proxy that nginx spoke to). `X-Real-IP` is a fallback for
+/// setups that don't forward XFF. Returns `None` when neither is present,
+/// rather than guessing — billing rows simply omit `client_ip`.
+fn resolve_client_ip(headers: &HeaderMap) -> Option<IpNetwork> {
+    let from_header = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .and_then(|s| s.trim().parse::<IpAddr>().ok())
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.trim().parse::<IpAddr>().ok())
+        })?;
+    // IpNetwork::from wraps a bare IP as a /32 or /128 network — exactly what
+    // Postgres INET stores for single-host addresses.
+    Some(IpNetwork::from(from_header))
+}
+
 pub async fn forward(
     state: AppState,
     api: ApiUser,
@@ -46,6 +72,8 @@ pub async fn forward(
     if !billing::has_balance(&state.db, api.user.id, MIN_BALANCE_TO_START).await? {
         return Err(AppError::InsufficientBalance);
     }
+
+    let client_ip = resolve_client_ip(&input.headers);
 
     let model_row: Model = repo::models::get_by_name(&state.db, &input.model_name)
         .await?
@@ -80,6 +108,7 @@ pub async fn forward(
             // billing for the stats panel.
             let charge_input = billing::ChargeInput {
                 user_id: api.user.id,
+                api_key_id: Some(api.api_key_id),
                 group_id: api.group_id,
                 group_multiplier: &api.group_multiplier,
                 model: &model_row,
@@ -88,6 +117,7 @@ pub async fn forward(
                 latency_ms: 0,
                 status: RequestStatus::Cached,
                 error_message: None,
+                client_ip,
             };
             let (_, _, full_cost) = billing::compute_cost(&charge_input);
             let (_, _, cached_cost) = billing::compute_cached_cost(&charge_input);
@@ -135,6 +165,7 @@ pub async fn forward(
                     .min(i32::MAX as u128) as i32;
                 let charge_input = billing::ChargeInput {
                     user_id: api.user.id,
+                    api_key_id: Some(api.api_key_id),
                     group_id: api.group_id,
                     group_multiplier: &api.group_multiplier,
                     model: &model_row,
@@ -143,6 +174,7 @@ pub async fn forward(
                     latency_ms,
                     status: RequestStatus::Success,
                     error_message: None,
+                    client_ip,
                 };
                 if let Err(e) = billing::charge(&state.db, charge_input).await {
                     tracing::error!(error = ?e, "charge failed after json response");
@@ -181,12 +213,14 @@ pub async fn forward(
             Ok(ChatResponse::Stream(stream_resp)) => {
                 let state_clone = state.clone();
                 let user_id = api.user.id;
+                let api_key_id = api.api_key_id;
                 let group_id = api.group_id;
                 let group_mult = api.group_multiplier.clone();
                 let model_clone = model_row.clone();
                 let channel_id = channel.id;
                 let final_usage_rx = stream_resp.final_usage;
                 let events = stream_resp.events;
+                let ip_for_task = client_ip;
 
                 tokio::spawn(async move {
                     let latency_ms = started
@@ -197,6 +231,7 @@ pub async fn forward(
                         Ok(usage) => {
                             let charge_input = billing::ChargeInput {
                                 user_id,
+                                api_key_id: Some(api_key_id),
                                 group_id,
                                 group_multiplier: &group_mult,
                                 model: &model_clone,
@@ -205,6 +240,7 @@ pub async fn forward(
                                 latency_ms,
                                 status: RequestStatus::Success,
                                 error_message: None,
+                                client_ip: ip_for_task,
                             };
                             if let Err(e) =
                                 billing::charge(&state_clone.db, charge_input).await
@@ -215,6 +251,7 @@ pub async fn forward(
                         Err(_) => {
                             let charge_input = billing::ChargeInput {
                                 user_id,
+                                api_key_id: Some(api_key_id),
                                 group_id,
                                 group_multiplier: &group_mult,
                                 model: &model_clone,
@@ -223,6 +260,7 @@ pub async fn forward(
                                 latency_ms,
                                 status: RequestStatus::Error,
                                 error_message: Some("stream aborted by client"),
+                                client_ip: ip_for_task,
                             };
                             let _ = billing::charge(&state_clone.db, charge_input).await;
                         }
@@ -255,6 +293,7 @@ pub async fn forward(
         &state.db,
         billing::ChargeInput {
             user_id: api.user.id,
+            api_key_id: Some(api.api_key_id),
             group_id: api.group_id,
             group_multiplier: &api.group_multiplier,
             model: &model_row,
@@ -263,6 +302,7 @@ pub async fn forward(
             latency_ms: 0,
             status: RequestStatus::Error,
             error_message: Some(&error_msg),
+            client_ip,
         },
     )
     .await;
