@@ -35,6 +35,7 @@ async fn get_site(
 struct PatchSite {
     site_name: Option<String>,
     announcement: Option<String>,
+    logo_url: Option<String>,
 }
 
 async fn patch_site(
@@ -51,6 +52,9 @@ async fn patch_site(
     }
     if let Some(a) = body.announcement {
         cfg.announcement = a;
+    }
+    if let Some(url) = body.logo_url {
+        cfg.logo_url = url.trim().to_string();
     }
     repo::system_settings::update_site_config(&state.db, &cfg).await?;
     Ok(Json(cfg))

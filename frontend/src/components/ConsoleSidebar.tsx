@@ -13,6 +13,7 @@ import {
 import { cn } from '@/lib/utils';
 import { logout, type UserInfo } from '@/lib/auth';
 import { CURRENT_USER_KEY } from '@/hooks/useCurrentUser';
+import SiteLogo from './SiteLogo';
 
 interface NavItem {
   to: string;
@@ -44,15 +45,7 @@ export default function ConsoleSidebar({ user }: { user: UserInfo }) {
   return (
     <aside className="fixed left-0 top-0 bottom-0 w-60 bg-base-100 border-r border-base-300 flex flex-col z-40">
       <div className="p-5 border-b border-base-300">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-cyan-600 flex items-center justify-center">
-            <span className="text-black font-bold text-sm">AG</span>
-          </div>
-          <div>
-            <h1 className="font-semibold text-sm tracking-wide">AetherGate</h1>
-            <p className="text-[10px] text-gray-500 font-mono">USER CONSOLE</p>
-          </div>
-        </div>
+        <SiteLogo subtitle="USER CONSOLE" />
       </div>
 
       <div className="px-5 py-4 border-b border-base-300">

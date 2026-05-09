@@ -4,7 +4,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import { login, landingPath } from '@/lib/auth';
 import { ApiError } from '@/lib/api';
 import { CURRENT_USER_KEY, useCurrentUser } from '@/hooks/useCurrentUser';
+import { usePublicSiteConfig } from '@/hooks/useAdminSettings';
 import Spinner from '@/components/ui/Spinner';
+import SiteLogo from '@/components/SiteLogo';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
@@ -16,6 +18,7 @@ export default function LoginPage() {
   const queryClient = useQueryClient();
   const location = useLocation();
   const { data: current, isLoading } = useCurrentUser();
+  const { data: siteCfg } = usePublicSiteConfig();
 
   if (isLoading) return null;
   if (current) return <Navigate to={landingPath(current.role)} replace />;
@@ -47,15 +50,21 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-dots flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
-        <div className="flex items-center gap-3 mb-8 justify-center">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center">
-            <span className="text-black font-bold">AG</span>
-          </div>
-          <div>
-            <h1 className="text-lg font-semibold">AetherGate</h1>
-            <p className="text-xs text-gray-500 font-mono">AI GATEWAY</p>
-          </div>
+        <div className="mb-8 flex justify-center">
+          <SiteLogo
+            subtitle="AI GATEWAY"
+            size="w-10 h-10"
+            nameClass="text-lg font-semibold"
+          />
         </div>
+
+        {siteCfg?.announcement && (
+          <div className="stat-card rounded-xl p-3 mb-4 border-amber-500/20">
+            <p className="text-xs text-amber-400/90 leading-relaxed whitespace-pre-wrap">
+              {siteCfg.announcement}
+            </p>
+          </div>
+        )}
 
         <form
           onSubmit={onSubmit}

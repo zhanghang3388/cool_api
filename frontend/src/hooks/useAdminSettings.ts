@@ -4,6 +4,7 @@ import { api } from '@/lib/api';
 export interface SiteConfig {
   site_name: string;
   announcement: string;
+  logo_url: string;
 }
 
 export interface PaymentConfigView {
@@ -19,6 +20,7 @@ export interface PaymentConfigView {
 export interface PatchSite {
   site_name?: string;
   announcement?: string;
+  logo_url?: string;
 }
 
 export interface PatchPayment {
@@ -46,7 +48,13 @@ export function useUpdateSiteConfig() {
   return useMutation({
     mutationFn: (patch: PatchSite) =>
       api.patch<SiteConfig>('/admin/settings/site', patch),
-    onSuccess: (data) => qc.setQueryData(SITE_KEY, data),
+    onSuccess: (data) => {
+      qc.setQueryData(SITE_KEY, data);
+      // Public site config is rendered by login page / sidebar logo etc.;
+      // keep it in sync so the admin sees their changes everywhere without
+      // a full page reload.
+      qc.setQueryData(['public-site'], data);
+    },
   });
 }
 

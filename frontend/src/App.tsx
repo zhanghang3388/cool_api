@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect } from 'react';
 import AuthGuard, { RequireRole } from './components/AuthGuard';
 import AdminLayout from './components/AdminLayout';
 import ConsoleLayout from './components/ConsoleLayout';
@@ -19,8 +20,18 @@ import UsagePage from './pages/console/UsagePage';
 import ModelsPricingPage from './pages/console/ModelsPricingPage';
 import TopUpPage from './pages/console/TopUpPage';
 import RoleRedirect from './components/RoleRedirect';
+import { usePublicSiteConfig } from './hooks/useAdminSettings';
 
 export default function App() {
+  const { data: site } = usePublicSiteConfig();
+
+  // Keep the browser tab title in sync with the configured site name so
+  // the admin's rebrand shows up even before they navigate anywhere.
+  useEffect(() => {
+    const name = site?.site_name?.trim();
+    if (name) document.title = name;
+  }, [site?.site_name]);
+
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />

@@ -30,6 +30,8 @@ impl Default for CacheConfig {
 pub struct SiteConfig {
     pub site_name: String,
     pub announcement: String,
+    #[serde(default)]
+    pub logo_url: String,
 }
 
 impl Default for SiteConfig {
@@ -37,6 +39,7 @@ impl Default for SiteConfig {
         Self {
             site_name: "AetherGate".into(),
             announcement: String::new(),
+            logo_url: String::new(),
         }
     }
 }
