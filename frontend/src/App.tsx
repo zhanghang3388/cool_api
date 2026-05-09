@@ -32,6 +32,17 @@ export default function App() {
     if (name) document.title = name;
   }, [site?.site_name]);
 
+  // Mirror the logo into the tab favicon. `logo_url` is already either an
+  // https:// URL or a data:image/...;base64,... string — both render fine
+  // as a favicon. If it's blank we leave the last value in place rather
+  // than thrashing back to a broken href.
+  useEffect(() => {
+    const logo = site?.logo_url?.trim();
+    if (!logo) return;
+    const link = document.getElementById('site-favicon') as HTMLLinkElement | null;
+    if (link) link.href = logo;
+  }, [site?.logo_url]);
+
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
