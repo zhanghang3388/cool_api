@@ -31,7 +31,7 @@ export default function ModelsPricingPage() {
       <div className="stat-card rounded-xl p-4">
         <p className="text-xs text-gray-500 leading-relaxed">
           <span className="text-amber-400">说明：</span>
-          每个令牌绑定一个分组，实际计费 = 官方价格 × 分组倍率。下表展示官方价格及所选分组的实际价格。
+          每个令牌绑定一个分组，实际计费 = 官方价格 × 分组倍率。官方价以 $ 标价，分组价以 ￥ 标价，本站 1 ￥ = 1 $ 等值计费。
         </p>
       </div>
 
@@ -106,10 +106,10 @@ export default function ModelsPricingPage() {
               {selectedGroup && selectedMultiplier != null && (
                 <>
                   <th className="text-right p-4 font-medium">
-                    <span className="text-amber-400">{selectedGroup.label}</span> 输入
+                    <span className="text-amber-400">{selectedGroup.label}</span> 输入 (￥/1M)
                   </th>
                   <th className="text-right p-4 font-medium">
-                    <span className="text-amber-400">{selectedGroup.label}</span> 输出
+                    <span className="text-amber-400">{selectedGroup.label}</span> 输出 (￥/1M)
                   </th>
                 </>
               )}
@@ -156,10 +156,10 @@ export default function ModelsPricingPage() {
                 {selectedGroup && selectedMultiplier != null && (
                   <>
                     <td className="p-4 text-right font-mono text-emerald-400">
-                      ${formatPrice(Math.round(m.input_price_cents * selectedMultiplier))}
+                      ￥{formatPrice(Math.round(m.input_price_cents * selectedMultiplier))}
                     </td>
                     <td className="p-4 text-right font-mono text-emerald-400">
-                      ${formatPrice(Math.round(m.output_price_cents * selectedMultiplier))}
+                      ￥{formatPrice(Math.round(m.output_price_cents * selectedMultiplier))}
                     </td>
                   </>
                 )}

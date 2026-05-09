@@ -235,6 +235,8 @@ export default function TopUpPage() {
           </button>
           <p className="text-[10px] text-gray-600 text-center">
             点击支付后将跳转到第三方支付页面。支付完成后返回本页面即可看到余额更新。
+            <br />
+            本站按 1 ￥ = 1 $ 等值计费，充值 10 元即可消费 10 美元官方额度。
           </p>
         </div>
       )}

@@ -236,14 +236,14 @@ export default function ModelsPage() {
               <th className="text-right p-4 font-medium">官方输出 ($/1M)</th>
               <th className="text-right p-4 font-medium">
                 {selectedGroup ? (
-                  <span className="text-amber-400">{selectedGroup.label} 输入</span>
+                  <span className="text-amber-400">{selectedGroup.label} 输入 (￥/1M)</span>
                 ) : (
                   '实际输入'
                 )}
               </th>
               <th className="text-right p-4 font-medium">
                 {selectedGroup ? (
-                  <span className="text-amber-400">{selectedGroup.label} 输出</span>
+                  <span className="text-amber-400">{selectedGroup.label} 输出 (￥/1M)</span>
                 ) : (
                   '实际输出'
                 )}
@@ -281,10 +281,10 @@ export default function ModelsPage() {
                   ${formatPrice(m.output_price_cents)}
                 </td>
                 <td className="p-4 text-right font-mono text-emerald-400">
-                  ${formatPrice(Math.round(m.input_price_cents * multiplier))}
+                  ￥{formatPrice(Math.round(m.input_price_cents * multiplier))}
                 </td>
                 <td className="p-4 text-right font-mono text-emerald-400">
-                  ${formatPrice(Math.round(m.output_price_cents * multiplier))}
+                  ￥{formatPrice(Math.round(m.output_price_cents * multiplier))}
                 </td>
                 <td className="p-4 text-center">
                   <div className="inline-block">

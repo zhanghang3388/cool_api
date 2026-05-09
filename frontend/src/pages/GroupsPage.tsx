@@ -130,7 +130,7 @@ export default function GroupsPage() {
           {' '}<span className="font-mono">$15.00 / $75.00</span>，
           <span className="font-mono text-gray-300">aws</span> 分组倍率
           {' '}<span className="font-mono">0.4</span>，则实际价格为
-          {' '}<span className="font-mono text-emerald-400">$6.00 / $30.00</span>。
+          {' '}<span className="font-mono text-emerald-400">￥6.00 / ￥30.00</span>。
         </p>
       </div>
 
@@ -245,10 +245,10 @@ export default function GroupsPage() {
                       <span className="font-mono">×{formatMultiplier(g.multiplier)}</span>
                     </p>
                     <p className="font-mono text-sm text-emerald-400">
-                      输入 ${formatPrice(Math.round(previewModel.input_price_cents * mult))}
+                      输入 ￥{formatPrice(Math.round(previewModel.input_price_cents * mult))}
                     </p>
                     <p className="font-mono text-sm text-emerald-400">
-                      输出 ${formatPrice(Math.round(previewModel.output_price_cents * mult))}
+                      输出 ￥{formatPrice(Math.round(previewModel.output_price_cents * mult))}
                     </p>
                   </div>
                 );
