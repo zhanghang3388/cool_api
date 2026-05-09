@@ -1,21 +1,15 @@
-# Production stack.
+# Production stack — data + backend only.
 #
-# Topology:
-#   nginx        — TLS termination + reverse proxy. Publishes :80, :443.
-#   certbot      — renews Let's Encrypt certs every 12h, reloads nginx on success.
-#   frontend     — static Vite bundle served by an internal nginx on :80.
-#   backend      — Rust API on :3000 (not published; goes through nginx).
-#   postgres     — data. Volume-backed.
-#   redis        — cache + rate limiter. Volume-backed.
+# nginx + TLS (certbot) live on the HOST, not in compose. That keeps the
+# familiar `nginx -t` / `systemctl reload nginx` workflow and makes TLS
+# troubleshooting the same as every other host-managed site.
 #
-# First-time setup: run `./init-letsencrypt.sh` BEFORE `docker compose up -d`
-# so cert files exist before nginx tries to load them. Renewals after that
-# are automatic.
+# All published ports bind to 127.0.0.1 so nothing is ever reachable from
+# the public internet directly — host nginx is the only ingress.
 #
-# Scaling note: to add more backend nodes, set `BACKEND_REPLICAS=3` (or any
-# number) in `.env` and re-up. They all share the same postgres + redis.
-# The `nginx` reverse-proxy resolves `backend` to all replica IPs and picks
-# round-robin across them.
+# First-time setup: fill in `.env`, run `docker compose up -d --build`, then
+# configure host nginx per `deploy/README.md` (copy nginx-aethergate.conf +
+# run certbot --nginx).
 
 name: aethergate
 
@@ -29,6 +23,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"     # host-only, for psql debugging
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -41,6 +37,8 @@ services:
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redisdata:/data
+    ports:
+      - "127.0.0.1:6379:6379"     # host-only, for redis-cli debugging
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -68,78 +66,14 @@ services:
       ADMIN_INITIAL_USERNAME: ${ADMIN_INITIAL_USERNAME:-admin}
       ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD}
       RUST_LOG: ${RUST_LOG:-info,aethergate=info}
+    ports:
+      - "127.0.0.1:3000:3000"     # host nginx proxies here
     deploy:
       replicas: ${BACKEND_REPLICAS:-1}
 
-  frontend:
-    build:
-      context: ../frontend
-      dockerfile: Dockerfile
-      args:
-        # Build-time: baked into the JS bundle. Use an absolute URL so the SPA
-        # (served at WEB_DOMAIN) talks to the separate API domain.
-        VITE_API_BASE: https://${API_DOMAIN}
-    image: aethergate-frontend:latest
-    restart: unless-stopped
-
-  nginx:
-    image: nginx:1.27-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    # nginx:alpine's entrypoint runs envsubst over /etc/nginx/templates/*.template
-    # on start. We point the output at /etc/nginx/nginx.conf so the top-level
-    # server blocks (not the default conf.d/) get produced.
-    environment:
-      WEB_DOMAIN: ${WEB_DOMAIN}
-      API_DOMAIN: ${API_DOMAIN}
-      NGINX_ENVSUBST_TEMPLATE_DIR: /etc/nginx/templates
-      NGINX_ENVSUBST_OUTPUT_DIR: /etc/nginx
-      NGINX_ENVSUBST_TEMPLATE_SUFFIX: .template
-    volumes:
-      - ./nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
-      - letsencrypt:/etc/letsencrypt:ro
-      - certbot_webroot:/var/www/certbot:ro
-    # Reload nginx every 6h so renewed certs (updated by the certbot container)
-    # are picked up without human intervention. `nginx -s reload` is a no-op
-    # when config hasn't changed, so the cost is negligible.
-    # We launch the official entrypoint in the foreground and run the reload
-    # loop as a background sibling, then `wait` on the nginx PID so the
-    # container exits when nginx exits (and docker can restart it).
-    command:
-      - /bin/sh
-      - -c
-      - |
-        /docker-entrypoint.sh nginx -g 'daemon off;' &
-        nginx_pid=$!
-        (while :; do sleep 21600; nginx -s reload 2>/dev/null || true; done) &
-        wait $$nginx_pid
-    depends_on:
-      - backend
-      - frontend
-
-  certbot:
-    image: certbot/certbot:latest
-    restart: unless-stopped
-    volumes:
-      - letsencrypt:/etc/letsencrypt
-      - certbot_webroot:/var/www/certbot
-    # Try to renew every 12h. Certbot is a no-op if the cert is still >30d away
-    # from expiry, so this is cheap. On success, post-hook signals nginx to
-    # reload via the docker socket.
-    entrypoint: /bin/sh
-    command:
-      - -c
-      - |
-        trap exit TERM
-        while :; do
-          certbot renew --webroot -w /var/www/certbot --quiet
-          sleep 12h & wait $${!}
-        done
+# frontend is built separately by `build-frontend.sh` and served as plain
+# static files by host nginx — no container needed.
 
 volumes:
   pgdata:
   redisdata:
-  letsencrypt:
-  certbot_webroot:

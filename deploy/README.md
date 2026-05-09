@@ -1,34 +1,25 @@
-# 部署指南（Ubuntu + Docker Compose + nginx + Let's Encrypt）
-
-本目录一键部署整套后端 + 前端 + Postgres + Redis + nginx + certbot。
+# 部署指南（Ubuntu + 宿主机 nginx + Docker Compose）
 
 ## 架构
 
 ```
-                  443 (HTTPS)
-           ┌──────────┴──────────┐
-           │       nginx         │ ← TLS 终止 + 反代
-           │ WEB_DOMAIN / API_DOMAIN │
-           └────┬────────────┬───┘
-                │            │        ┌──────────┐
-                │            │        │ certbot  │ ← 每 12h 续期
-                │            │        └────┬─────┘
-                │            │             │
-                │            │         /etc/letsencrypt (共享卷)
-                │            │
-           ┌────▼─────┐  ┌───▼──────┐
-           │ frontend │  │ backend  │ ← 可横向扩展 (BACKEND_REPLICAS)
-           │ (静态)   │  │ :3000    │
-           └──────────┘  └──┬───────┘
-                            │
-                     ┌──────┴──────┐
-                     │             │
-                ┌────▼────┐   ┌────▼────┐
-                │ Postgres│   │  Redis  │
-                └─────────┘   └─────────┘
+           ┌─────────────────────────┐
+           │    宿主机 nginx + certbot │  ← apt 装，systemctl 管
+           │    (/etc/nginx)          │
+           └─┬─────────────┬─────────┘
+             │             │
+             │ 静态文件      │ proxy_pass 127.0.0.1:3000
+             ▼             ▼
+      /var/www/aethergate  ┌───────── docker compose ─────────┐
+                            │  backend (127.0.0.1:3000)        │
+                            │  postgres (127.0.0.1:5432)       │
+                            │  redis    (127.0.0.1:6379)       │
+                            └───────────────────────────────────┘
 ```
 
-所有后端节点**共用同一套** Postgres + Redis，用户数据/缓存/统计在任意节点一致。
+- nginx/TLS 在宿主机 — `nginx -t` / `systemctl reload nginx` / `certbot renew` 都是标准操作
+- 应用层容器化，端口全部绑 127.0.0.1，唯一入口是宿主 nginx
+- 前端 Vite build 产物直接 rsync 到 `/var/www/aethergate`，nginx 静态 root
 
 ---
 
@@ -36,31 +27,38 @@
 
 ### 1.1 DNS 解析
 
-在你的域名服务商那里加两条 A 记录指向服务器公网 IP：
-
 | Host | Type | Value |
 |---|---|---|
-| `app.example.com` (前端) | A | 你的服务器 IP |
-| `api.example.com` (后端) | A | 你的服务器 IP |
+| `app.example.com` (前端) | A | 服务器公网 IP |
+| `api.example.com` (后端) | A | 服务器公网 IP |
 
-> certbot 会通过 Let's Encrypt 的 HTTP-01 挑战申请证书，**DNS 必须先生效**才能通过验证。用 `dig app.example.com +short` 返回服务器 IP 再继续。
+`dig app.example.com +short` 能返回对的 IP 再继续。
 
-### 1.2 服务器安装 Docker
+### 1.2 服务器安装基础软件
 
 ```bash
+# Docker
 curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER   # 退出重登让 docker 组生效
+sudo usermod -aG docker $USER          # 退出重登生效
+
+# nginx + certbot + rsync
+sudo apt update
+sudo apt install -y nginx python3-certbot-nginx rsync
+
+# Node.js 20 + pnpm（用来 build 前端）
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+sudo corepack enable
 ```
 
 ### 1.3 防火墙
 
 ```bash
-sudo ufw allow 80
-sudo ufw allow 443
+sudo ufw allow 'Nginx Full'    # 80 + 443
 sudo ufw enable
 ```
 
-云厂商的**安全组/防火墙**也要放行 80/443，否则 Let's Encrypt 挑战过不来。
+云厂商安全组同样放行 80、443。
 
 ---
 
@@ -76,42 +74,72 @@ vi .env     # 至少改：域名、ACME_EMAIL、POSTGRES_PASSWORD、
             # JWT_SECRET、ENCRYPTION_KEY、ADMIN_INITIAL_PASSWORD
 ```
 
-⚠️ **`JWT_SECRET` 和 `ENCRYPTION_KEY` 一经设置，不要再改**：
-- 改 `JWT_SECRET` → 所有用户登录状态失效
-- 改 `ENCRYPTION_KEY` → 存储的渠道 API Key 和支付密钥无法解密
+⚠️ **`JWT_SECRET` 和 `ENCRYPTION_KEY` 一经设置不要再改**：
+- 改 `JWT_SECRET` → 所有登录失效
+- 改 `ENCRYPTION_KEY` → 存储的渠道 API Key / 支付密钥无法解密
 
-妥善备份这两个值。
-
-### 2.2 先申请 TLS 证书（只跑一次）
+### 2.2 起后端栈
 
 ```bash
-chmod +x init-letsencrypt.sh
-./init-letsencrypt.sh
+cd cool_api/deploy
+docker compose up -d --build        # 首次 build 5-8 分钟
+docker compose logs -f backend
 ```
 
-脚本会：
-1. 临时起一个 HTTP-only nginx 监听 :80
-2. 调 certbot 为 `WEB_DOMAIN` 和 `API_DOMAIN` 各申请一张证书
-3. 证书存到 docker 卷 `aethergate_letsencrypt`
-4. 关闭临时 nginx
-
-输出以 `[done] Certificates issued.` 结束就成功了。失败排查：
-- `dig ... +short` DNS 是否生效
-- 80 端口是否真能从外网访问（云安全组/防火墙）
-- Let's Encrypt 频控：一周对同一域名失败超过 5 次会锁 1h，等等再重试
-
-### 2.3 起栈
+验证后端可达：
 
 ```bash
-docker compose up -d --build        # 首次 build 约 5-8 分钟（Rust 编译）
-docker compose logs -f              # 看启动日志
+curl http://127.0.0.1:3000/healthz    # -> {"status":"ok"}
 ```
 
-### 2.4 访问
+### 2.3 构建前端并部署
+
+```bash
+cd cool_api
+chmod +x deploy/build-frontend.sh
+./deploy/build-frontend.sh
+```
+
+构建产物会落到 `/var/www/aethergate`。
+
+### 2.4 配置宿主机 nginx
+
+```bash
+cd cool_api/deploy
+sudo cp nginx-aethergate.conf /etc/nginx/sites-available/aethergate.conf
+
+# 替换模板里的域名占位符
+sudo sed -i \
+    -e "s/app\.example\.com/$(grep WEB_DOMAIN .env | cut -d= -f2)/g" \
+    -e "s/api\.example\.com/$(grep API_DOMAIN .env | cut -d= -f2)/g" \
+    /etc/nginx/sites-available/aethergate.conf
+
+sudo ln -sf /etc/nginx/sites-available/aethergate.conf /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### 2.5 申请 TLS 证书
+
+```bash
+sudo certbot --nginx \
+    -d app.example.com \
+    -d api.example.com \
+    --email you@example.com \
+    --agree-tos --no-eff-email \
+    --redirect
+```
+
+certbot 会：
+1. 通过 :80 的 HTTP-01 挑战拿到证书
+2. 自动改写 `/etc/nginx/sites-available/aethergate.conf` 加上 :443 ssl 段
+3. 加 80→443 跳转
+4. 安装 systemd timer 每天 2 次自动续期
+
+### 2.6 访问
 
 - 前端：`https://app.example.com`
 - API 健康：`https://api.example.com/healthz` → `{"status":"ok"}`
-- 用 `.env` 里的 `ADMIN_INITIAL_USERNAME / PASSWORD` 登录后端管理后台
+- 用 `.env` 里的 `ADMIN_INITIAL_USERNAME / PASSWORD` 登录管理后台
 
 ---
 
@@ -120,9 +148,10 @@ docker compose logs -f              # 看启动日志
 ### 3.1 查看日志
 
 ```bash
-docker compose logs -f backend
-docker compose logs -f nginx
-docker compose logs -f certbot      # 看证书续期
+docker compose logs -f backend          # 应用日志
+sudo tail -f /var/log/nginx/access.log  # 访问日志
+sudo tail -f /var/log/nginx/error.log   # nginx 错误
+sudo journalctl -u certbot.timer        # 证书续期
 ```
 
 ### 3.2 更新代码
@@ -130,9 +159,19 @@ docker compose logs -f certbot      # 看证书续期
 ```bash
 cd cool_api
 git pull
+
+# 后端
 cd deploy
-docker compose build backend frontend
-docker compose up -d                # 滚动替换
+docker compose build backend
+docker compose up -d backend
+
+# 前端（如果有改动）
+cd ..
+./deploy/build-frontend.sh
+
+# 若改了 nginx 配置
+sudo cp deploy/nginx-aethergate.conf /etc/nginx/sites-available/aethergate.conf
+sudo nginx -t && sudo systemctl reload nginx
 ```
 
 后端有新 migration 启动时自动跑。
@@ -141,18 +180,18 @@ docker compose up -d                # 滚动替换
 
 ```bash
 docker compose exec -T postgres \
-    pg_dump -U $(grep POSTGRES_USER .env | cut -d= -f2) \
-            $(grep POSTGRES_DB .env | cut -d= -f2) \
+    pg_dump -U $(grep POSTGRES_USER deploy/.env | cut -d= -f2) \
+            $(grep POSTGRES_DB deploy/.env | cut -d= -f2) \
   | gzip > backup-$(date +%Y%m%d).sql.gz
 ```
 
 ### 3.4 证书续期
 
-**全自动**：`certbot` 服务每 12h 跑 `certbot renew`，不到 30 天内到期不动；到期自动换新。`nginx` 容器每 6h `reload` 一次拾取新证书。手动触发：
+certbot 自带 systemd timer，**全自动**。手动触发：
 
 ```bash
-docker compose exec certbot certbot renew --force-renewal
-docker compose exec nginx nginx -s reload
+sudo certbot renew --dry-run      # 验证流程
+sudo certbot renew                # 实际续期（到期 <30d 才动）
 ```
 
 ### 3.5 进 DB / Redis 调试
@@ -162,60 +201,70 @@ docker compose exec postgres psql -U aethergate -d aethergate
 docker compose exec redis redis-cli
 ```
 
----
-
-## 4. 扩展到多节点（横向扩容）
-
-**所有后端节点共享同一套 Postgres + Redis**，加节点只是多起几个 backend 容器：
+也可以从宿主机直接连（端口已绑 127.0.0.1）：
 
 ```bash
-echo "BACKEND_REPLICAS=3" >> .env
-docker compose up -d
+psql -h 127.0.0.1 -U aethergate -d aethergate
+redis-cli -h 127.0.0.1
 ```
 
-nginx 的 `proxy_pass http://backend:3000` 被 docker DNS 解析成 3 个容器 IP，round-robin 分发。**不需要改代码**。
+---
 
-把数据库/Redis 独立到专用机器的改造（未来）：
-1. `.env` 里加 `DATABASE_URL` / `REDIS_URL` 远程连接串
-2. `docker-compose.yml` 删除 `postgres` / `redis` 两个 service
-3. 每个应用节点只起 `backend + frontend + nginx + certbot`
+## 4. 扩展到多节点
+
+**所有后端节点共享同一套 Postgres + Redis**。
+
+### 单机内多副本（水平扩展同一台机）
+
+默认 `docker-compose.yml` 里 backend 映射了 `127.0.0.1:3000`，`BACKEND_REPLICAS>1` 时端口冲突。改造：
+
+1. `docker-compose.yml` 里给 backend 改成 `expose` 而不是 `ports`，让容器彼此可达但不绑宿主
+2. 新增一个 haproxy / 轻量 nginx 容器监听 `127.0.0.1:3000`，upstream 写 docker DNS `backend:3000`（会 round-robin）
+3. 宿主 nginx 不变
+
+### 多服务器节点
+
+每台应用节点起自己的 docker compose（只含 backend），`.env` 里：
+
+```
+DATABASE_URL=postgres://...@<中央 DB 地址>:5432/aethergate
+REDIS_URL=redis://<中央 Redis 地址>:6379
+```
+
+把 `docker-compose.yml` 里的 `postgres` 和 `redis` 两个 service 删掉。宿主 nginx 的 upstream 添加多台机器的 IP 做负载均衡。
 
 ---
 
 ## 5. 常见问题
 
-**证书申请失败？**
-1. `dig app.example.com +short` 看 DNS 指向
-2. `curl -I http://app.example.com/.well-known/acme-challenge/test` 看 80 可达性
-3. `docker compose logs certbot` 看具体错误
-4. 频控：等 1h 再试
+**certbot 申请失败？**
+1. `dig app.example.com +short` 看 DNS
+2. `curl -I http://app.example.com` 看 80 外网可达
+3. `sudo tail -50 /var/log/letsencrypt/letsencrypt.log`
+4. 频控：一周同一域名失败超 5 次锁 1h
 
 **前端能打开但 API 调用失败？**
-1. DevTools Network 看请求 URL 是不是 `https://api.example.com`
-2. 若不是，`API_DOMAIN` 变过但 bundle 没重 build：
-   ```bash
-   docker compose build frontend && docker compose up -d frontend
-   ```
+1. DevTools Network 看请求目标是不是 `https://api.example.com`
+2. 若不对：`.env` 里的 `API_DOMAIN` 改过之后要**重 build 前端**：`./deploy/build-frontend.sh`
 3. 直接 curl：`curl https://api.example.com/healthz`
 
-**nginx 报 "cannot load certificate"？**
-说明 `init-letsencrypt.sh` 没跑或跑失败。先看卷：
-```bash
-docker volume ls | grep letsencrypt
-docker run --rm -v aethergate_letsencrypt:/etc/letsencrypt alpine \
-    ls -la /etc/letsencrypt/live/
-```
-没有对应域名目录就重跑 `./init-letsencrypt.sh`。
+**nginx 报 502 Bad Gateway？**
+1. `docker compose ps` 看 backend 是否 up
+2. `curl http://127.0.0.1:3000/healthz` 从宿主机直连
+3. `docker compose logs --tail=100 backend` 看错误
 
 **忘记管理员密码？**
 ```bash
 docker compose exec postgres psql -U aethergate -d aethergate -c \
   "DELETE FROM users WHERE role = 'admin';"
-# 改 .env 里 ADMIN_INITIAL_PASSWORD，重启 backend
+# .env 里改 ADMIN_INITIAL_PASSWORD，重启 backend 会重建 admin
 docker compose up -d backend
 ```
 
 **完全清空重来**：
 ```bash
-docker compose down -v     # 同时删 pgdata / redisdata / letsencrypt
+docker compose down -v                   # 删 pgdata + redisdata
+sudo rm -rf /var/www/aethergate          # 删静态文件
+sudo rm /etc/nginx/sites-enabled/aethergate.conf
+sudo systemctl reload nginx
 ```
