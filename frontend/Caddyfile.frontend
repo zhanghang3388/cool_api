@@ -1,0 +1,20 @@
+# Internal Caddy config for the frontend container. The SPA bundle lives at
+# /usr/share/caddy; this listens on :80 inside the container and is fronted
+# by the top-level Caddy reverse proxy that terminates TLS.
+
+:80 {
+    root * /usr/share/caddy
+    encode zstd gzip
+
+    # Fingerprinted Vite assets — cache them hard.
+    @assets path /assets/*
+    header @assets Cache-Control "public, max-age=31536000, immutable"
+
+    # HTML / JSON must never be cached or users will load stale bundles after a deploy.
+    header /*.html Cache-Control "no-cache"
+    header /index.html Cache-Control "no-cache"
+
+    # Fallback to index.html so React Router routes resolve on hard reload.
+    try_files {path} /index.html
+    file_server
+}

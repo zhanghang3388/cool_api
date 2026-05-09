@@ -1,6 +1,5 @@
 # Rust / backend
 backend/target/
-backend/Cargo.lock
 backend/.env
 backend/config.toml
 

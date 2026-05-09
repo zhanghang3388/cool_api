@@ -1,0 +1,7 @@
+target/
+.env
+.env.*
+!.env.example
+config.toml
+*.log
+.DS_Store

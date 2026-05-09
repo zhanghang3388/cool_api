@@ -1,0 +1,103 @@
+# Production stack.
+#
+# Topology:
+#   caddy        — TLS termination + reverse proxy. Publishes :80, :443.
+#   frontend     — static Vite bundle served by an internal Caddy on :80.
+#   backend      — Rust API on :3000 (not published; goes through caddy).
+#   postgres     — data. Volume-backed.
+#   redis        — cache + rate limiter. Volume-backed.
+#
+# Scaling note: to add more backend nodes, set `BACKEND_REPLICAS=3` (or any
+# number) in `.env` and re-up. They all share the same postgres + redis.
+# The `caddy` reverse-proxy will load-balance across all replicas because
+# `backend` resolves to all container IPs in the docker network.
+
+name: aethergate
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    image: aethergate-backend:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      BIND: 0.0.0.0:3000
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_TTL_HOURS: ${JWT_TTL_HOURS:-24}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      ADMIN_INITIAL_USERNAME: ${ADMIN_INITIAL_USERNAME:-admin}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD}
+      RUST_LOG: ${RUST_LOG:-info,aethergate=info}
+    deploy:
+      replicas: ${BACKEND_REPLICAS:-1}
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        # Build-time: baked into the JS bundle. Use an absolute URL so the SPA
+        # (served at WEB_DOMAIN) talks to the separate API domain.
+        VITE_API_BASE: https://${API_DOMAIN}
+    image: aethergate-frontend:latest
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3
+    environment:
+      WEB_DOMAIN: ${WEB_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  pgdata:
+  redisdata:
+  caddy_data:
+  caddy_config:

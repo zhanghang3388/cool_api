@@ -1,0 +1,36 @@
+# Global options.
+{
+    email {$ACME_EMAIL}
+}
+
+# Backend API. Caddy terminates TLS, Let's Encrypt cert is auto-issued + renewed.
+{$API_DOMAIN} {
+    encode zstd gzip
+
+    # Forwarding endpoints stream — never buffer SSE.
+    @stream path /v1/* /anthropic/*
+    reverse_proxy @stream backend:3000 {
+        flush_interval -1
+        transport http {
+            read_timeout 10m
+        }
+    }
+
+    reverse_proxy backend:3000
+
+    log {
+        output stdout
+        format console
+    }
+}
+
+# Static frontend (SPA). Served from the `frontend` container on :80.
+{$WEB_DOMAIN} {
+    encode zstd gzip
+    reverse_proxy frontend:80
+
+    log {
+        output stdout
+        format console
+    }
+}
