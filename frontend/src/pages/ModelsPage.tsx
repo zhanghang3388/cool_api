@@ -25,6 +25,7 @@ interface FormState {
   inputPriceDollars: string;
   outputPriceDollars: string;
   cacheReadPriceDollars: string;
+  cacheWritePriceDollars: string;
   description: string;
   enabled: boolean;
 }
@@ -35,6 +36,7 @@ const BLANK: FormState = {
   inputPriceDollars: '',
   outputPriceDollars: '',
   cacheReadPriceDollars: '',
+  cacheWritePriceDollars: '',
   description: '',
   enabled: true,
 };
@@ -82,6 +84,8 @@ export default function ModelsPage() {
       outputPriceDollars: formatPrice(m.output_price_cents),
       cacheReadPriceDollars:
         m.cache_read_price_cents != null ? formatPrice(m.cache_read_price_cents) : '',
+      cacheWritePriceDollars:
+        m.cache_write_price_cents != null ? formatPrice(m.cache_write_price_cents) : '',
       description: m.description,
       enabled: m.enabled,
     });
@@ -98,12 +102,20 @@ export default function ModelsPage() {
     if (!Number.isFinite(input) || input < 0) return setFormError('输入价格需为 >= 0');
     if (!Number.isFinite(output) || output < 0) return setFormError('输出价格需为 >= 0');
 
-    const cacheTrim = form.cacheReadPriceDollars.trim();
+    const readTrim = form.cacheReadPriceDollars.trim();
     let cache_read_price_cents: number | null = null;
-    if (cacheTrim !== '') {
-      const c = parseFloat(cacheTrim);
+    if (readTrim !== '') {
+      const c = parseFloat(readTrim);
       if (!Number.isFinite(c) || c < 0) return setFormError('缓存读价格需为 >= 0');
       cache_read_price_cents = dollarsToCents(c);
+    }
+
+    const writeTrim = form.cacheWritePriceDollars.trim();
+    let cache_write_price_cents: number | null = null;
+    if (writeTrim !== '') {
+      const w = parseFloat(writeTrim);
+      if (!Number.isFinite(w) || w < 0) return setFormError('缓存写价格需为 >= 0');
+      cache_write_price_cents = dollarsToCents(w);
     }
 
     try {
@@ -115,6 +127,7 @@ export default function ModelsPage() {
             input_price_cents: dollarsToCents(input),
             output_price_cents: dollarsToCents(output),
             cache_read_price_cents,
+            cache_write_price_cents,
             description: form.description,
             enabled: form.enabled,
           },
@@ -126,6 +139,7 @@ export default function ModelsPage() {
           input_price_cents: dollarsToCents(input),
           output_price_cents: dollarsToCents(output),
           cache_read_price_cents,
+          cache_write_price_cents,
           description: form.description,
           enabled: form.enabled,
         });
@@ -364,17 +378,31 @@ export default function ModelsPage() {
               />
             </div>
           </div>
-          <div>
-            <label className="text-xs text-gray-400 block mb-1">缓存读价格 ($/1M, 可选)</label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={form.cacheReadPriceDollars}
-              onChange={(e) => setForm({ ...form, cacheReadPriceDollars: e.target.value })}
-              className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-amber-500"
-              placeholder="留空表示不支持缓存"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-gray-400 block mb-1">缓存读价格 ($/1M, 可选)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={form.cacheReadPriceDollars}
+                onChange={(e) => setForm({ ...form, cacheReadPriceDollars: e.target.value })}
+                className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-amber-500"
+                placeholder="留空则按输入价"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 block mb-1">缓存写价格 ($/1M, 可选)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={form.cacheWritePriceDollars}
+                onChange={(e) => setForm({ ...form, cacheWritePriceDollars: e.target.value })}
+                className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-amber-500"
+                placeholder="Anthropic 约 ×1.25"
+              />
+            </div>
           </div>
           <div>
             <label className="text-xs text-gray-400 block mb-1">描述</label>

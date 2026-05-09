@@ -206,6 +206,9 @@ fn extract_usage_json(body: &[u8]) -> Usage {
                     .prompt_tokens_details
                     .and_then(|d| d.cached_tokens)
                     .unwrap_or(0),
+                // OpenAI's prompt caching doesn't bill creation separately,
+                // so nothing to attribute here.
+                cache_creation_tokens: 0,
             })
             .unwrap_or_default(),
         Err(_) => Usage::default(),

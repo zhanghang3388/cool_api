@@ -29,6 +29,7 @@ struct CreateModelRequest {
     input_price_cents: i64,
     output_price_cents: i64,
     cache_read_price_cents: Option<i64>,
+    cache_write_price_cents: Option<i64>,
     #[serde(default)]
     description: String,
     #[serde(default = "default_true")]
@@ -60,6 +61,13 @@ async fn create(
             ));
         }
     }
+    if let Some(c) = body.cache_write_price_cents {
+        if c < 0 {
+            return Err(AppError::BadRequest(
+                "cache_write_price_cents must be >= 0".into(),
+            ));
+        }
+    }
 
     let m = repo::models::create(
         &state.db,
@@ -69,6 +77,7 @@ async fn create(
             input_price_cents: body.input_price_cents,
             output_price_cents: body.output_price_cents,
             cache_read_price_cents: body.cache_read_price_cents,
+            cache_write_price_cents: body.cache_write_price_cents,
             enabled: body.enabled,
             description: &body.description,
         },
@@ -85,6 +94,8 @@ struct UpdateModelRequest {
     /// Use `Some(None)` to clear, `Some(Some(v))` to set, omit field to keep.
     #[serde(default, deserialize_with = "deserialize_optional_field")]
     cache_read_price_cents: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "deserialize_optional_field")]
+    cache_write_price_cents: Option<Option<i64>>,
     enabled: Option<bool>,
     description: Option<String>,
 }
@@ -120,6 +131,13 @@ async fn update(
             ));
         }
     }
+    if let Some(Some(v)) = body.cache_write_price_cents {
+        if v < 0 {
+            return Err(AppError::BadRequest(
+                "cache_write_price_cents must be >= 0".into(),
+            ));
+        }
+    }
 
     let m = repo::models::update(
         &state.db,
@@ -129,6 +147,7 @@ async fn update(
             input_price_cents: body.input_price_cents,
             output_price_cents: body.output_price_cents,
             cache_read_price_cents: body.cache_read_price_cents,
+            cache_write_price_cents: body.cache_write_price_cents,
             enabled: body.enabled,
             description: body.description.as_deref(),
         },

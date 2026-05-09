@@ -22,6 +22,7 @@ pub struct RequestLog {
     pub prompt_tokens: i32,
     pub completion_tokens: i32,
     pub cached_tokens: i32,
+    pub cache_creation_tokens: i32,
     pub input_cost_cents: i64,
     pub output_cost_cents: i64,
     pub total_cost_cents: i64,

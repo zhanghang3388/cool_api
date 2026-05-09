@@ -181,6 +181,9 @@ impl UpstreamAdapter for AnthropicAdapter {
                                 final_usage.cached_tokens = u
                                     .cache_read_input_tokens
                                     .unwrap_or(0);
+                                final_usage.cache_creation_tokens = u
+                                    .cache_creation_input_tokens
+                                    .unwrap_or(0);
                             }
                         }
                     }
@@ -229,6 +232,7 @@ fn extract_usage_json(body: &[u8]) -> Usage {
                 prompt_tokens: u.input_tokens.unwrap_or(0),
                 completion_tokens: u.output_tokens.unwrap_or(0),
                 cached_tokens: u.cache_read_input_tokens.unwrap_or(0),
+                cache_creation_tokens: u.cache_creation_input_tokens.unwrap_or(0),
             })
             .unwrap_or_default(),
         Err(_) => Usage::default(),
@@ -243,6 +247,8 @@ struct UsageRaw {
     output_tokens: Option<i32>,
     #[serde(default)]
     cache_read_input_tokens: Option<i32>,
+    #[serde(default)]
+    cache_creation_input_tokens: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]

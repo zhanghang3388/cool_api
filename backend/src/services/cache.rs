@@ -50,6 +50,9 @@ impl CachedEntry {
             prompt_tokens: self.prompt_tokens,
             completion_tokens: self.completion_tokens,
             cached_tokens: self.cached_tokens,
+            // Serving from the local response cache never creates a new
+            // upstream prompt-cache entry.
+            cache_creation_tokens: 0,
         }
     }
 }

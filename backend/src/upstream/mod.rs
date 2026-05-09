@@ -28,7 +28,14 @@ pub struct ModelEntry {
 pub struct Usage {
     pub prompt_tokens: i32,
     pub completion_tokens: i32,
+    /// Tokens served from the upstream's prompt cache. Billed at the model's
+    /// `cache_read_price_cents` (falling back to `input_price_cents`).
     pub cached_tokens: i32,
+    /// Tokens written into the upstream's prompt cache on this request.
+    /// Billed at `cache_write_price_cents` (falling back to `input_price_cents`).
+    /// Anthropic exposes this as `cache_creation_input_tokens`; OpenAI
+    /// currently doesn't bill creation separately, so we leave it 0.
+    pub cache_creation_tokens: i32,
 }
 
 /// Raw chat-completion request bytes plus parsed flags we need for routing.

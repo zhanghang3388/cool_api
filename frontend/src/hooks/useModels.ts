@@ -8,6 +8,7 @@ export interface Model {
   input_price_cents: number;
   output_price_cents: number;
   cache_read_price_cents: number | null;
+  cache_write_price_cents: number | null;
   enabled: boolean;
   description: string;
   created_at: string;
@@ -20,6 +21,7 @@ export interface CreateModelPayload {
   input_price_cents: number;
   output_price_cents: number;
   cache_read_price_cents?: number | null;
+  cache_write_price_cents?: number | null;
   description?: string;
   enabled?: boolean;
 }
@@ -29,6 +31,7 @@ export interface UpdateModelPayload {
   input_price_cents?: number;
   output_price_cents?: number;
   cache_read_price_cents?: number | null;
+  cache_write_price_cents?: number | null;
   description?: string;
   enabled?: boolean;
 }

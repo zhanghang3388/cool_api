@@ -103,6 +103,7 @@ export default function ModelsPricingPage() {
               <th className="text-right p-4 font-medium">官方输入 ($/1M)</th>
               <th className="text-right p-4 font-medium">官方输出 ($/1M)</th>
               <th className="text-right p-4 font-medium">缓存读 ($/1M)</th>
+              <th className="text-right p-4 font-medium">缓存写 ($/1M)</th>
               {selectedGroup && selectedMultiplier != null && (
                 <>
                   <th className="text-right p-4 font-medium">
@@ -118,14 +119,14 @@ export default function ModelsPricingPage() {
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={selectedGroup ? 7 : 5} className="p-8 text-center text-gray-500 text-xs">
+                <td colSpan={selectedGroup ? 8 : 6} className="p-8 text-center text-gray-500 text-xs">
                   <Spinner className="mr-2" /> 加载中...
                 </td>
               </tr>
             )}
             {!isLoading && filtered.length === 0 && (
               <tr>
-                <td colSpan={selectedGroup ? 7 : 5} className="p-8 text-center text-gray-500 text-xs">
+                <td colSpan={selectedGroup ? 8 : 6} className="p-8 text-center text-gray-500 text-xs">
                   暂无可用模型
                 </td>
               </tr>
@@ -151,6 +152,11 @@ export default function ModelsPricingPage() {
                 <td className="p-4 text-right font-mono text-gray-500">
                   {m.cache_read_price_cents != null
                     ? `$${formatPrice(m.cache_read_price_cents)}`
+                    : '—'}
+                </td>
+                <td className="p-4 text-right font-mono text-gray-500">
+                  {m.cache_write_price_cents != null
+                    ? `$${formatPrice(m.cache_write_price_cents)}`
                     : '—'}
                 </td>
                 {selectedGroup && selectedMultiplier != null && (

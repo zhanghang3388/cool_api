@@ -10,6 +10,11 @@ pub struct Model {
     pub input_price_cents: i64,
     pub output_price_cents: i64,
     pub cache_read_price_cents: Option<i64>,
+    /// Surcharge for writing a prompt-cache entry. Anthropic charges ~1.25×
+    /// input; OpenAI currently doesn't bill creation separately (NULL). When
+    /// NULL we fall back to `input_price_cents` so writes stay billable but
+    /// at the base rate.
+    pub cache_write_price_cents: Option<i64>,
     pub enabled: bool,
     pub description: String,
     pub created_at: DateTime<Utc>,

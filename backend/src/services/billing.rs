@@ -43,7 +43,13 @@ pub struct ChargeResult {
 /// Run pricing math (no DB write). Useful for pre-flight checks.
 pub fn compute_cost(input: &ChargeInput<'_>) -> (i64, i64, i64) {
     let mult = input.group_multiplier;
-    let mut non_cached_prompt = input.usage.prompt_tokens - input.usage.cached_tokens;
+    // prompt_tokens on the upstream usage is the TOTAL prompt work. Subtract
+    // anything attributed to cache read or cache write to get tokens billed
+    // at the full input rate. Guard against negative values in case the
+    // upstream reports cache_{read,write} larger than the prompt total.
+    let mut non_cached_prompt = input.usage.prompt_tokens
+        - input.usage.cached_tokens
+        - input.usage.cache_creation_tokens;
     if non_cached_prompt < 0 {
         non_cached_prompt = 0;
     }
@@ -52,20 +58,31 @@ pub fn compute_cost(input: &ChargeInput<'_>) -> (i64, i64, i64) {
 
     let input_price = BigDecimal::from(input.model.input_price_cents);
     let output_price = BigDecimal::from(input.model.output_price_cents);
-    let cache_price = input
+    let cache_read_price = input
         .model
         .cache_read_price_cents
+        .map(BigDecimal::from)
+        .unwrap_or_else(|| input_price.clone());
+    let cache_write_price = input
+        .model
+        .cache_write_price_cents
         .map(BigDecimal::from)
         .unwrap_or_else(|| input_price.clone());
 
     let non_cached_cost =
         &input_price * BigDecimal::from(non_cached_prompt) * mult / &one_mil;
-    let cached_cost =
-        &cache_price * BigDecimal::from(input.usage.cached_tokens) * mult / &one_mil;
+    let cached_read_cost =
+        &cache_read_price * BigDecimal::from(input.usage.cached_tokens) * mult / &one_mil;
+    let cached_write_cost = &cache_write_price
+        * BigDecimal::from(input.usage.cache_creation_tokens)
+        * mult
+        / &one_mil;
     let output_cost =
         &output_price * BigDecimal::from(input.usage.completion_tokens) * mult / &one_mil;
 
-    let input_total = ceil_to_cents(&(non_cached_cost + cached_cost));
+    // Everything prompt-side rolls into "input" for reporting; completion is
+    // its own bucket. Rounding happens once per bucket so we never under-bill.
+    let input_total = ceil_to_cents(&(non_cached_cost + cached_read_cost + cached_write_cost));
     let output_total = ceil_to_cents(&output_cost);
     (input_total, output_total, input_total + output_total)
 }
@@ -142,10 +159,10 @@ pub async fn charge(pool: &PgPool, input: ChargeInput<'_>) -> AppResult<ChargeRe
     sqlx::query(
         "INSERT INTO request_logs (
             user_id, channel_id, group_id, model_name,
-            prompt_tokens, completion_tokens, cached_tokens,
+            prompt_tokens, completion_tokens, cached_tokens, cache_creation_tokens,
             input_cost_cents, output_cost_cents, total_cost_cents,
             multiplier_applied, latency_ms, status, error_message
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
     )
     .bind(input.user_id)
     .bind(input.channel_id)
@@ -154,6 +171,7 @@ pub async fn charge(pool: &PgPool, input: ChargeInput<'_>) -> AppResult<ChargeRe
     .bind(input.usage.prompt_tokens)
     .bind(input.usage.completion_tokens)
     .bind(input.usage.cached_tokens)
+    .bind(input.usage.cache_creation_tokens)
     .bind(input_cost_cents)
     .bind(output_cost_cents)
     .bind(total_cost_cents)
@@ -191,14 +209,24 @@ mod tests {
     use crate::models::Model;
     use chrono::Utc;
 
-    fn mk_model(input_p: i64, output_p: i64, cache_p: Option<i64>) -> Model {
+    fn mk_model(input_p: i64, output_p: i64, cache_read: Option<i64>) -> Model {
+        mk_model_full(input_p, output_p, cache_read, None)
+    }
+
+    fn mk_model_full(
+        input_p: i64,
+        output_p: i64,
+        cache_read: Option<i64>,
+        cache_write: Option<i64>,
+    ) -> Model {
         Model {
             id: 1,
             name: "test".into(),
             provider: "Test".into(),
             input_price_cents: input_p,
             output_price_cents: output_p,
-            cache_read_price_cents: cache_p,
+            cache_read_price_cents: cache_read,
+            cache_write_price_cents: cache_write,
             enabled: true,
             description: String::new(),
             created_at: Utc::now(),
@@ -220,6 +248,7 @@ mod tests {
                 prompt_tokens: 1_000_000,
                 completion_tokens: 500_000,
                 cached_tokens: 0,
+                cache_creation_tokens: 0,
             },
             latency_ms: 0,
             status: RequestStatus::Success,
@@ -245,6 +274,7 @@ mod tests {
                 prompt_tokens: 1_000_000,
                 completion_tokens: 1_000_000,
                 cached_tokens: 0,
+                cache_creation_tokens: 0,
             },
             latency_ms: 0,
             status: RequestStatus::Success,
@@ -269,6 +299,7 @@ mod tests {
                 prompt_tokens: 1,
                 completion_tokens: 0,
                 cached_tokens: 0,
+                cache_creation_tokens: 0,
             },
             latency_ms: 0,
             status: RequestStatus::Success,
@@ -294,6 +325,7 @@ mod tests {
                 prompt_tokens: 1_000_000,
                 completion_tokens: 0,
                 cached_tokens: 1_000_000,
+                cache_creation_tokens: 0,
             },
             latency_ms: 0,
             status: RequestStatus::Success,
@@ -302,6 +334,60 @@ mod tests {
         let (i, _, t) = compute_cost(&input);
         assert_eq!(i, 100); // all 1M tokens charged at cache price 100 cents/1M
         assert_eq!(t, 100);
+    }
+
+    #[test]
+    fn cache_creation_uses_write_price() {
+        // Input $10/1M, write $12.5/1M (Anthropic 1.25x). 1M tokens, all
+        // being written into the cache = 12.5 cents, rounded up to 13.
+        let model = mk_model_full(1000, 1000, Some(100), Some(1250));
+        let input = ChargeInput {
+            user_id: 1,
+            group_id: 1,
+            group_multiplier: &BigDecimal::from(1),
+            model: &model,
+            channel_id: None,
+            usage: Usage {
+                prompt_tokens: 1_000_000,
+                completion_tokens: 0,
+                cached_tokens: 0,
+                cache_creation_tokens: 1_000_000,
+            },
+            latency_ms: 0,
+            status: RequestStatus::Success,
+            error_message: None,
+        };
+        let (i, _, t) = compute_cost(&input);
+        assert_eq!(i, 1250);
+        assert_eq!(t, 1250);
+    }
+
+    #[test]
+    fn mixed_prompt_buckets() {
+        // Splits a 1M-token prompt across normal / read / write buckets and
+        // verifies each bucket is priced with its own rate, not just the
+        // base input rate.
+        let model = mk_model_full(1000, 1000, Some(100), Some(1250));
+        let input = ChargeInput {
+            user_id: 1,
+            group_id: 1,
+            group_multiplier: &BigDecimal::from(1),
+            model: &model,
+            channel_id: None,
+            usage: Usage {
+                prompt_tokens: 1_000_000,
+                completion_tokens: 0,
+                cached_tokens: 400_000,     // 40 cents @ 100/M
+                cache_creation_tokens: 100_000, // 125 cents @ 1250/M
+                // remaining 500_000 non-cached @ 1000/M = 500 cents
+            },
+            latency_ms: 0,
+            status: RequestStatus::Success,
+            error_message: None,
+        };
+        let (i, _, t) = compute_cost(&input);
+        assert_eq!(i, 500 + 40 + 125);
+        assert_eq!(t, 665);
     }
 
     #[test]
