@@ -1,0 +1,40 @@
+# Local development dependencies.
+# Only needed if you don't have Postgres/Redis installed natively.
+# Usage: docker compose -f docker-compose.dev.yml up -d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aethergate-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: aethergate
+    ports:
+      - "5432:5432"
+    volumes:
+      - aethergate_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d aethergate"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: aethergate-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - aethergate_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  aethergate_pgdata:
+  aethergate_redisdata:

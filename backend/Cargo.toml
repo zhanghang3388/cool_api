@@ -1,0 +1,68 @@
+[package]
+name = "aethergate"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Web framework
+axum = { version = "0.7", features = ["macros", "multipart"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip", "fs"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+futures = "0.3"
+async-trait = "0.1"
+async-stream = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "chrono", "uuid", "bigdecimal", "macros", "migrate"] }
+bigdecimal = { version = "0.4", features = ["serde"] }
+
+# Cache / KV
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+
+# HTTP client (upstream forwarding)
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], default-features = false }
+reqwest-eventsource = "0.6"
+eventsource-stream = "0.2"
+
+# Auth
+jsonwebtoken = "9"
+argon2 = "0.5"
+rand = "0.8"
+
+# Crypto (channel api key encryption)
+aes-gcm = "0.10"
+base64 = "0.22"
+sha2 = "0.10"
+md-5 = "0.10"
+hex = "0.4"
+
+# Config
+figment = { version = "0.10", features = ["env", "toml"] }
+dotenvy = "0.15"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+bytes = "1"
+http = "1"
+urlencoding = "2"
+
+[dev-dependencies]
+wiremock = "0.6"
+tokio-test = "0.4"

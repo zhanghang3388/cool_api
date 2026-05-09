@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  body {
+    background: #0a0a0f;
+    color: #e2e8f0;
+    font-family: 'Sora', sans-serif;
+  }
+
+  input,
+  select,
+  textarea {
+    font-family: 'Sora', sans-serif;
+  }
+
+  input[type='number'],
+  .mono-data {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+@layer components {
+  .bg-dots {
+    background-image: radial-gradient(circle, #ffffff08 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  .pulse-dot {
+    @apply animate-pulse-glow;
+  }
+
+  .fade-in {
+    @apply animate-fade-in;
+  }
+
+  .slide-up {
+    @apply animate-slide-up;
+  }
+
+  .card-glow:hover {
+    border-color: #f59e0b30;
+    box-shadow: 0 0 20px #f59e0b10, inset 0 1px 0 #f59e0b15;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 4px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: #2e2e40;
+    border-radius: 2px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: #3e3e50;
+  }
+
+  .modal-backdrop {
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+  }
+
+  .nav-item-active {
+    background: linear-gradient(90deg, #f59e0b15, transparent);
+    border-left: 2px solid #f59e0b;
+  }
+
+  .stat-card {
+    background: linear-gradient(135deg, #111118, #1a1a24);
+    border: 1px solid #242432;
+    transition: all 0.3s ease;
+  }
+  .stat-card:hover {
+    border-color: #f59e0b30;
+    box-shadow: 0 4px 20px #f59e0b08;
+  }
+
+  .toggle-switch {
+    width: 44px;
+    height: 24px;
+    background: #242432;
+    border-radius: 12px;
+    position: relative;
+    cursor: pointer;
+    transition: background 0.3s;
+  }
+  .toggle-switch.active {
+    background: #f59e0b;
+  }
+  .toggle-switch::after {
+    content: '';
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    background: white;
+    border-radius: 50%;
+    top: 3px;
+    left: 3px;
+    transition: transform 0.3s;
+  }
+  .toggle-switch.active::after {
+    transform: translateX(20px);
+  }
+}

@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AetherGate - AI 中转站</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        base: { 50: '#0a0a0f', 100: '#111118', 200: '#1a1a24', 300: '#242432', 400: '#2e2e40' },
+                        amber: { 400: '#fbbf24', 500: '#f59e0b', 600: '#d97706' },
+                        cyan: { 400: '#22d3ee', 500: '#06b6d4' },
+                        emerald: { 400: '#34d399', 500: '#10b981' },
+                        rose: { 400: '#fb7185', 500: '#ef4444' }
+                    },
+                    fontFamily: {
+                        mono: ['JetBrains Mono', 'monospace'],
+                        sans: ['Sora', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a0f; color: #e2e8f0; font-family: 'Sora', sans-serif; overflow: hidden; }
+
+        .bg-dots {
+            background-image: radial-gradient(circle, #ffffff08 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% { opacity: 1; box-shadow: 0 0 4px currentColor; }
+            50% { opacity: 0.5; box-shadow: 0 0 8px currentColor; }
+        }
+        .pulse-dot { animation: pulse-glow 2s ease-in-out infinite; }
+
+        @keyframes fade-in {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in { animation: fade-in 0.3s ease-out forwards; }
+
+        @keyframes slide-up {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .slide-up { animation: slide-up 0.4s ease-out forwards; }
+
+        @keyframes count-pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+            100% { transform: scale(1); }
+        }
+
+        .card-glow:hover {
+            border-color: #f59e0b30;
+            box-shadow: 0 0 20px #f59e0b10, inset 0 1px 0 #f59e0b15;
+        }
+
+        .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+        .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+        .scrollbar-thin::-webkit-scrollbar-thumb { background: #2e2e40; border-radius: 2px; }
+        .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #3e3e50; }
+
+        .modal-backdrop {
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+        }
+
+        .nav-item-active {
+            background: linear-gradient(90deg, #f59e0b15, transparent);
+            border-left: 2px solid #f59e0b;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #111118, #1a1a24);
+            border: 1px solid #242432;
+            transition: all 0.3s ease;
+        }
+        .stat-card:hover {
+            border-color: #f59e0b30;
+            box-shadow: 0 4px 20px #f59e0b08;
+        }
+
+        input, select, textarea {
+            font-family: 'Sora', sans-serif;
+        }
+        input[type="number"], .mono-data {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .toggle-switch {
+            width: 44px; height: 24px;
+            background: #242432; border-radius: 12px;
+            position: relative; cursor: pointer;
+            transition: background 0.3s;
+        }
+        .toggle-switch.active { background: #f59e0b; }
+        .toggle-switch::after {
+            content: ''; position: absolute;
+            width: 18px; height: 18px;
+            background: white; border-radius: 50%;
+            top: 3px; left: 3px;
+            transition: transform 0.3s;
+        }
+        .toggle-switch.active::after { transform: translateX(20px); }
+
+        .bar-chart-bar {
+            transition: height 0.6s ease-out;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .animate-spin { animation: spin 1s linear infinite; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+// ============ MOCK DATA ============
+const mockStats = {
+    todayRequests: 128456,
+    todayTokens: 45230000,
+    todayRevenue: 2847.5,
+    activeUsers: 342
+};
+
+const mockChannels = [
+    { id: 1, name: 'OpenAI 主力', type: 'OpenAI', status: 'active', priority: 1, todayCalls: 45230, balance: '$128.45', key: 'sk-...Xk3m' },
+    { id: 2, name: 'Claude Sonnet', type: 'Claude', status: 'active', priority: 2, todayCalls: 32100, balance: '$256.80', key: 'sk-ant-...9f2a' },
+    { id: 3, name: 'Azure GPT-4o', type: 'Azure', status: 'warning', priority: 3, todayCalls: 18900, balance: '$45.20', key: 'az-...7b1c' },
+    { id: 4, name: 'Claude Opus 备用', type: 'Claude', status: 'active', priority: 4, todayCalls: 8700, balance: '$189.30', key: 'sk-ant-...3d8e' },
+    { id: 5, name: 'DeepSeek', type: 'OpenAI', status: 'error', priority: 5, todayCalls: 0, balance: '¥52.10', key: 'sk-...2f4a' },
+];
+
+const mockModels = [
+    { name: 'gpt-4o', provider: 'OpenAI', inputPrice: 2.50, outputPrice: 10.00, multiplier: 1.5 },
+    { name: 'gpt-4o-mini', provider: 'OpenAI', inputPrice: 0.15, outputPrice: 0.60, multiplier: 2.0 },
+    { name: 'gpt-4-turbo', provider: 'OpenAI', inputPrice: 10.00, outputPrice: 30.00, multiplier: 1.3 },
+    { name: 'claude-sonnet-4-6', provider: 'Anthropic', inputPrice: 3.00, outputPrice: 15.00, multiplier: 1.4 },
+    { name: 'claude-opus-4-7', provider: 'Anthropic', inputPrice: 15.00, outputPrice: 75.00, multiplier: 1.2 },
+    { name: 'claude-haiku-4-5', provider: 'Anthropic', inputPrice: 0.80, outputPrice: 4.00, multiplier: 2.0 },
+    { name: 'gemini-2.5-pro', provider: 'Google', inputPrice: 1.25, outputPrice: 10.00, multiplier: 1.5 },
+    { name: 'deepseek-v3', provider: 'DeepSeek', inputPrice: 0.27, outputPrice: 1.10, multiplier: 3.0 },
+];
+
+const mockUsers = [
+    { id: 1, name: '张三', email: 'zhangsan@example.com', balance: 156.80, todayUsage: 23.50, totalUsage: 1280.00, regDate: '2024-08-15', status: 'active' },
+    { id: 2, name: '李四', email: 'lisi@corp.cn', balance: 520.00, todayUsage: 45.20, totalUsage: 3450.00, regDate: '2024-06-20', status: 'active' },
+    { id: 3, name: '王五', email: 'wangwu@dev.io', balance: 0.50, todayUsage: 0, totalUsage: 890.00, regDate: '2024-10-01', status: 'warning' },
+    { id: 4, name: '赵六', email: 'zhaoliu@ai.tech', balance: 88.88, todayUsage: 12.30, totalUsage: 560.00, regDate: '2025-01-10', status: 'active' },
+    { id: 5, name: '孙七', email: 'sunqi@test.com', balance: 0, todayUsage: 0, totalUsage: 45.00, regDate: '2025-03-22', status: 'disabled' },
+];
+
+const mockRecentRequests = [
+    { time: '14:32:05', user: '张三', model: 'gpt-4o', tokens: 2340, cost: 0.058, status: 'success' },
+    { time: '14:31:58', user: '李四', model: 'claude-sonnet-4-6', tokens: 5120, cost: 0.107, status: 'success' },
+    { time: '14:31:45', user: '王五', model: 'gpt-4o-mini', tokens: 890, cost: 0.003, status: 'cached' },
+    { time: '14:31:30', user: '赵六', model: 'claude-opus-4-7', tokens: 12000, cost: 1.080, status: 'success' },
+    { time: '14:31:12', user: '张三', model: 'deepseek-v3', tokens: 3400, cost: 0.011, status: 'error' },
+    { time: '14:30:55', user: '李四', model: 'gpt-4o', tokens: 1560, cost: 0.039, status: 'success' },
+];
+
+const mockGroups = [
+    { id: 1, name: 'default', label: '默认分组', multiplier: 1.0, description: '默认用户分组', enabled: true },
+    { id: 2, name: 'aws', label: 'AWS 分组', multiplier: 0.4, description: 'AWS Bedrock 渠道', enabled: true },
+    { id: 3, name: 'gpt-plus', label: 'GPT Plus', multiplier: 1.5, description: 'GPT Plus 用户', enabled: true },
+    { id: 4, name: 'max', label: 'Max 分组', multiplier: 2.0, description: '高级用户分组', enabled: true },
+];
+
+const mockCacheEntries = [
+    { hash: 'a3f2c1...8b4d', model: 'gpt-4o', hits: 234, created: '2025-05-08 10:00', expires: '2025-05-08 22:00' },
+    { hash: 'b7e4d2...1c9a', model: 'claude-sonnet-4-6', hits: 156, created: '2025-05-08 09:30', expires: '2025-05-08 21:30' },
+    { hash: 'c1a8f3...5e2b', model: 'gpt-4o-mini', hits: 89, created: '2025-05-08 11:15', expires: '2025-05-08 23:15' },
+    { hash: 'd9b3e7...4f6c', model: 'gpt-4o', hits: 67, created: '2025-05-08 08:45', expires: '2025-05-08 20:45' },
+];
+
+const weeklyData = [65, 78, 92, 85, 110, 95, 128];
+const weekDays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+
+// ============ UTILITY COMPONENTS ============
+function AnimatedNumber({ value, prefix = '', suffix = '', duration = 1500 }) {
+    const [display, setDisplay] = React.useState(0);
+    React.useEffect(() => {
+        let start = 0;
+        const step = value / (duration / 16);
+        const timer = setInterval(() => {
+            start += step;
+            if (start >= value) { setDisplay(value); clearInterval(timer); }
+            else { setDisplay(Math.floor(start)); }
+        }, 16);
+        return () => clearInterval(timer);
+    }, [value]);
+    return <span className="font-mono font-semibold">{prefix}{display.toLocaleString()}{suffix}</span>;
+}
+
+function StatusDot({ status }) {
+    const colors = { active: 'bg-emerald-500 text-emerald-500', warning: 'bg-amber-500 text-amber-500', error: 'bg-rose-500 text-rose-500', disabled: 'bg-gray-500 text-gray-500', cached: 'bg-cyan-500 text-cyan-500', success: 'bg-emerald-500 text-emerald-500' };
+    return <span className={`inline-block w-2 h-2 rounded-full ${colors[status]?.split(' ')[0] || 'bg-gray-500'} pulse-dot`}></span>;
+}
+
+function Toggle({ active, onToggle }) {
+    return <div className={`toggle-switch ${active ? 'active' : ''}`} onClick={onToggle}></div>;
+}
+
+function Modal({ open, onClose, title, children }) {
+    if (!open) return null;
+    return (
+        <div className="fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4" onClick={onClose}>
+            <div className="bg-base-100 border border-base-300 rounded-xl w-full max-w-lg slide-up" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between p-5 border-b border-base-300">
+                    <h3 className="text-lg font-semibold">{title}</h3>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors text-xl leading-none">&times;</button>
+                </div>
+                <div className="p-5">{children}</div>
+            </div>
+        </div>
+    );
+}
+
+// ============ NAVIGATION ============
+const NAV_ITEMS = [
+    { id: 'dashboard', label: '仪表盘', icon: 'layout-dashboard' },
+    { id: 'channels', label: '渠道管理', icon: 'server' },
+    { id: 'groups', label: '分组管理', icon: 'layers' },
+    { id: 'models', label: '模型价格', icon: 'coins' },
+    { id: 'users', label: '用户管理', icon: 'users' },
+    { id: 'cache', label: '缓存管理', icon: 'database' },
+    { id: 'payment', label: '支付配置', icon: 'credit-card' },
+    { id: 'settings', label: '系统设置', icon: 'settings' },
+];
+
+// ============ SIDEBAR ============
+function Sidebar({ active, onNav }) {
+    return (
+        <aside className="fixed left-0 top-0 bottom-0 w-60 bg-base-100 border-r border-base-300 flex flex-col z-40">
+            <div className="p-5 border-b border-base-300">
+                <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center">
+                        <span className="text-black font-bold text-sm">AG</span>
+                    </div>
+                    <div>
+                        <h1 className="font-semibold text-sm tracking-wide">AetherGate</h1>
+                        <p className="text-[10px] text-gray-500 font-mono">AI GATEWAY v2.1</p>
+                    </div>
+                </div>
+            </div>
+            <nav className="flex-1 py-3 overflow-y-auto scrollbar-thin">
+                {NAV_ITEMS.map(item => (
+                    <button key={item.id} onClick={() => onNav(item.id)}
+                        className={`w-full flex items-center gap-3 px-5 py-2.5 text-sm transition-all ${active === item.id ? 'nav-item-active text-amber-400' : 'text-gray-400 hover:text-gray-200 hover:bg-base-200'}`}>
+                        <i data-lucide={item.icon} className="w-4 h-4"></i>
+                        <span>{item.label}</span>
+                    </button>
+                ))}
+            </nav>
+            <div className="p-4 border-t border-base-300">
+                <div className="flex items-center gap-2 text-xs text-gray-500">
+                    <StatusDot status="active" />
+                    <span>系统运行正常</span>
+                </div>
+                <div className="mt-2 flex items-center gap-2 text-xs text-gray-600 font-mono">
+                    <span>延迟 23ms</span>
+                    <span>·</span>
+                    <span>缓存 94%</span>
+                </div>
+            </div>
+        </aside>
+    );
+}
+
+// ============ DASHBOARD PAGE ============
+function DashboardPage() {
+    const maxVal = Math.max(...weeklyData);
+    return (
+        <div className="fade-in space-y-6">
+            {/* Stats Row */}
+            <div className="grid grid-cols-4 gap-4">
+                {[
+                    { label: '今日请求', value: mockStats.todayRequests, suffix: '', trend: '+12.5%', up: true },
+                    { label: '今日Token', value: mockStats.todayTokens, suffix: '', trend: '+8.3%', up: true },
+                    { label: '今日收入', value: mockStats.todayRevenue, prefix: '¥', trend: '+15.2%', up: true },
+                    { label: '活跃用户', value: mockStats.activeUsers, suffix: '', trend: '-2.1%', up: false },
+                ].map((stat, i) => (
+                    <div key={i} className="stat-card rounded-xl p-5" style={{animationDelay: `${i*100}ms`}}>
+                        <p className="text-xs text-gray-500 mb-2">{stat.label}</p>
+                        <p className="text-2xl font-mono font-bold text-white">
+                            <AnimatedNumber value={stat.value} prefix={stat.prefix || ''} suffix={stat.suffix} />
+                        </p>
+                        <p className={`text-xs mt-2 font-mono ${stat.up ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {stat.trend} <span className="text-gray-600">vs 昨日</span>
+                        </p>
+                    </div>
+                ))}
+            </div>
+
+            {/* Charts Row */}
+            <div className="grid grid-cols-3 gap-4">
+                <div className="col-span-2 stat-card rounded-xl p-5">
+                    <h3 className="text-sm font-medium text-gray-300 mb-4">请求趋势 (近7天)</h3>
+                    <div className="flex items-end gap-3 h-40">
+                        {weeklyData.map((val, i) => (
+                            <div key={i} className="flex-1 flex flex-col items-center gap-2">
+                                <div className="w-full bg-base-300 rounded-t relative overflow-hidden" style={{height: '140px'}}>
+                                    <div className="bar-chart-bar absolute bottom-0 w-full rounded-t bg-gradient-to-t from-amber-600 to-amber-400"
+                                         style={{height: `${(val/maxVal)*100}%`}}></div>
+                                </div>
+                                <span className="text-[10px] text-gray-500">{weekDays[i]}</span>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="flex justify-between mt-3 text-[10px] text-gray-600 font-mono">
+                        <span>单位: 千次</span>
+                        <span>峰值: {maxVal}K</span>
+                    </div>
+                </div>
+                <div className="stat-card rounded-xl p-5">
+                    <h3 className="text-sm font-medium text-gray-300 mb-4">协议分布</h3>
+                    <div className="space-y-4 mt-6">
+                        {[
+                            { label: 'OpenAI', pct: 58, color: 'bg-emerald-500' },
+                            { label: 'Claude', pct: 32, color: 'bg-amber-500' },
+                            { label: '其他', pct: 10, color: 'bg-cyan-500' },
+                        ].map((item, i) => (
+                            <div key={i}>
+                                <div className="flex justify-between text-xs mb-1">
+                                    <span className="text-gray-400">{item.label}</span>
+                                    <span className="font-mono text-gray-300">{item.pct}%</span>
+                                </div>
+                                <div className="h-2 bg-base-300 rounded-full overflow-hidden">
+                                    <div className={`h-full ${item.color} rounded-full transition-all duration-1000`} style={{width: `${item.pct}%`}}></div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="mt-6 pt-4 border-t border-base-300 space-y-2">
+                        <div className="flex justify-between text-xs"><span className="text-gray-500">缓存命中率</span><span className="font-mono text-cyan-400">94.2%</span></div>
+                        <div className="flex justify-between text-xs"><span className="text-gray-500">平均响应</span><span className="font-mono text-gray-300">230ms</span></div>
+                        <div className="flex justify-between text-xs"><span className="text-gray-500">错误率</span><span className="font-mono text-emerald-400">0.12%</span></div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Recent Requests */}
+            <div className="stat-card rounded-xl p-5">
+                <h3 className="text-sm font-medium text-gray-300 mb-4">最近请求</h3>
+                <table className="w-full text-xs">
+                    <thead><tr className="text-gray-500 border-b border-base-300">
+                        <th className="text-left py-2 font-medium">时间</th>
+                        <th className="text-left py-2 font-medium">用户</th>
+                        <th className="text-left py-2 font-medium">模型</th>
+                        <th className="text-right py-2 font-medium">Token</th>
+                        <th className="text-right py-2 font-medium">费用</th>
+                        <th className="text-center py-2 font-medium">状态</th>
+                    </tr></thead>
+                    <tbody>
+                        {mockRecentRequests.map((req, i) => (
+                            <tr key={i} className="border-b border-base-300/50 hover:bg-base-200/50 transition-colors">
+                                <td className="py-2.5 font-mono text-gray-400">{req.time}</td>
+                                <td className="py-2.5 text-gray-300">{req.user}</td>
+                                <td className="py-2.5 font-mono text-amber-400/80">{req.model}</td>
+                                <td className="py-2.5 text-right font-mono text-gray-300">{req.tokens.toLocaleString()}</td>
+                                <td className="py-2.5 text-right font-mono text-gray-300">¥{req.cost.toFixed(3)}</td>
+                                <td className="py-2.5 text-center"><StatusDot status={req.status} /></td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
+
+// ============ CHANNELS PAGE ============
+function ChannelsPage() {
+    const [showAdd, setShowAdd] = React.useState(false);
+    return (
+        <div className="fade-in space-y-4">
+            <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold">渠道管理</h2>
+                <button onClick={() => setShowAdd(true)} className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-black text-sm font-medium rounded-lg transition-colors">+ 添加渠道</button>
+            </div>
+            <div className="stat-card rounded-xl overflow-hidden">
+                <table className="w-full text-sm">
+                    <thead><tr className="text-gray-500 text-xs border-b border-base-300 bg-base-200/50">
+                        <th className="text-left p-4 font-medium">渠道名称</th>
+                        <th className="text-left p-4 font-medium">类型</th>
+                        <th className="text-center p-4 font-medium">状态</th>
+                        <th className="text-center p-4 font-medium">优先级</th>
+                        <th className="text-right p-4 font-medium">今日调用</th>
+                        <th className="text-right p-4 font-medium">余额</th>
+                        <th className="text-center p-4 font-medium">操作</th>
+                    </tr></thead>
+                    <tbody>
+                        {mockChannels.map(ch => (
+                            <tr key={ch.id} className="border-b border-base-300/50 hover:bg-base-200/30 transition-colors">
+                                <td className="p-4"><span className="text-gray-200">{ch.name}</span><br/><span className="text-[10px] font-mono text-gray-600">{ch.key}</span></td>
+                                <td className="p-4"><span className={`px-2 py-0.5 rounded text-xs font-mono ${ch.type === 'OpenAI' ? 'bg-emerald-500/10 text-emerald-400' : ch.type === 'Claude' ? 'bg-amber-500/10 text-amber-400' : 'bg-cyan-500/10 text-cyan-400'}`}>{ch.type}</span></td>
+                                <td className="p-4 text-center"><StatusDot status={ch.status} /></td>
+                                <td className="p-4 text-center font-mono text-gray-400">{ch.priority}</td>
+                                <td className="p-4 text-right font-mono text-gray-300">{ch.todayCalls.toLocaleString()}</td>
+                                <td className="p-4 text-right font-mono text-gray-300">{ch.balance}</td>
+                                <td className="p-4 text-center">
+                                    <button className="text-xs text-cyan-400 hover:text-cyan-300 mr-3">测试</button>
+                                    <button className="text-xs text-gray-400 hover:text-gray-200">编辑</button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            <Modal open={showAdd} onClose={() => setShowAdd(false)} title="添加渠道">
+                <div className="space-y-4">
+                    <div><label className="text-xs text-gray-400 block mb-1">渠道类型</label>
+                        <select className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-amber-500">
+                            <option>OpenAI</option><option>Claude</option><option>Azure OpenAI</option><option>Google Gemini</option><option>DeepSeek</option>
+                        </select></div>
+                    <div><label className="text-xs text-gray-400 block mb-1">渠道名称</label>
+                        <input className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-amber-500" placeholder="例: OpenAI 主力渠道"/></div>
+                    <div><label className="text-xs text-gray-400 block mb-1">API Key</label>
+                        <input className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-amber-500" placeholder="sk-..." type="password"/></div>
+                    <div><label className="text-xs text-gray-400 block mb-1">Base URL</label>
+                        <input className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-amber-500" placeholder="https://api.openai.com"/></div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div><label className="text-xs text-gray-400 block mb-1">权重</label>
+                            <input type="number" className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-amber-500" defaultValue="1"/></div>
+                        <div><label className="text-xs text-gray-400 block mb-1">限速 (次/分)</label>
+                            <input type="number" className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-amber-500" defaultValue="60"/></div>
+                    </div>
+                    <button className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-black font-medium rounded-lg transition-colors text-sm">确认添加</button>
+                </div>
+            </Modal>
+        </div>
+    );
+}
+
+// ============ MODELS PAGE ============
+function ModelsPage() {
+    const [loading, setLoading] = React.useState(false);
+    const [providerFilter, setProviderFilter] = React.useState('all');
+    const [selectedGroup, setSelectedGroup] = React.useState(mockGroups[0]);
+
+    const fetchPrices = () => {
+        setLoading(true);
+        setTimeout(() => { setLoading(false); }, 2000);
+    };
+
+    const filtered = providerFilter === 'all' ? mockModels : mockModels.filter(m => m.provider === providerFilter);
+
+    return (
+        <div className="fade-in space-y-4">
+            <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold">模型价格</h2>
+                <button onClick={fetchPrices} disabled={loading}
+                    className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2">
+                    {loading && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>}
+                    {loading ? '获取中...' : '获取最新价格'}
+                </button>
+            </div>
+
+            {/* Group selector */}
+            <div className="stat-card rounded-xl p-4 flex items-center gap-4">
+                <span className="text-xs text-gray-500 whitespace-nowrap">按分组查看价格：</span>
+                <div className="flex gap-2 flex-wrap">
+                    {mockGroups.filter(g => g.enabled).map(g => (
+                        <button key={g.id} onClick={() => setSelectedGroup(g)}
+                            className={`px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-1.5 ${selectedGroup.id === g.id ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-base-200 text-gray-400 border border-base-300 hover:text-gray-200'}`}>
+                            {g.label}
+                            <span className={`font-mono text-[10px] px-1 rounded ${selectedGroup.id === g.id ? 'bg-amber-500/20' : 'bg-base-300'}`}>×{g.multiplier}</span>
+                        </button>
+                    ))}
+                </div>
+                <div className="ml-auto text-xs text-gray-500">
+                    当前倍率：<span className="font-mono text-amber-400">×{selectedGroup.multiplier}</span>
+                    <span className="ml-2 text-gray-600">({selectedGroup.description})</span>
+                </div>
+            </div>
+
+            {/* Provider filter */}
+            <div className="flex gap-2">
+                {['all', 'OpenAI', 'Anthropic', 'Google', 'DeepSeek'].map(f => (
+                    <button key={f} onClick={() => setProviderFilter(f)}
+                        className={`px-3 py-1.5 rounded-lg text-xs transition-colors ${providerFilter === f ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-base-200 text-gray-400 border border-base-300 hover:text-gray-200'}`}>
+                        {f === 'all' ? '全部' : f}
+                    </button>
+                ))}
+            </div>
+
+            <div className="stat-card rounded-xl overflow-hidden">
+                <table className="w-full text-sm">
+                    <thead><tr className="text-gray-500 text-xs border-b border-base-300 bg-base-200/50">
+                        <th className="text-left p-4 font-medium">模型</th>
+                        <th className="text-left p-4 font-medium">供应商</th>
+                        <th className="text-right p-4 font-medium">官方输入 ($/1M)</th>
+                        <th className="text-right p-4 font-medium">官方输出 ($/1M)</th>
+                        <th className="text-right p-4 font-medium">
+                            <span className="text-amber-400">{selectedGroup.label}</span> 输入
+                        </th>
+                        <th className="text-right p-4 font-medium">
+                            <span className="text-amber-400">{selectedGroup.label}</span> 输出
+                        </th>
+                    </tr></thead>
+                    <tbody>
+                        {filtered.map((m) => (
+                            <tr key={m.name} className="border-b border-base-300/50 hover:bg-base-200/30 transition-colors">
+                                <td className="p-4 font-mono text-amber-400/90 text-xs">{m.name}</td>
+                                <td className="p-4 text-gray-400 text-xs">{m.provider}</td>
+                                <td className="p-4 text-right font-mono text-gray-400">${m.inputPrice.toFixed(2)}</td>
+                                <td className="p-4 text-right font-mono text-gray-400">${m.outputPrice.toFixed(2)}</td>
+                                <td className="p-4 text-right font-mono text-emerald-400">${(m.inputPrice * selectedGroup.multiplier).toFixed(2)}</td>
+                                <td className="p-4 text-right font-mono text-emerald-400">${(m.outputPrice * selectedGroup.multiplier).toFixed(2)}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
+
+// ============ GROUPS PAGE ============
+function GroupsPage() {
+    const [groups, setGroups] = React.useState(mockGroups);
+    const [showAdd, setShowAdd] = React.useState(false);
+    const [editingId, setEditingId] = React.useState(null);
+    const [form, setForm] = React.useState({ name: '', label: '', multiplier: 1.0, description: '' });
+    const [previewModel, setPreviewModel] = React.useState(mockModels[0]);
+
+    const resetForm = () => setForm({ name: '', label: '', multiplier: 1.0, description: '' });
+
+    const openAdd = () => { resetForm(); setEditingId(null); setShowAdd(true); };
+    const openEdit = (g) => { setForm({ name: g.name, label: g.label, multiplier: g.multiplier, description: g.description }); setEditingId(g.id); setShowAdd(true); };
+
+    const saveGroup = () => {
+        if (!form.name || !form.label) return;
+        const mult = parseFloat(form.multiplier) || 1.0;
+        if (editingId) {
+            setGroups(groups.map(g => g.id === editingId ? { ...g, ...form, multiplier: mult } : g));
+        } else {
+            const newId = Math.max(0, ...groups.map(g => g.id)) + 1;
+            setGroups([...groups, { id: newId, ...form, multiplier: mult, enabled: true }]);
+        }
+        setShowAdd(false);
+        resetForm();
+    };
+
+    const deleteGroup = (id) => {
+        if (groups.find(g => g.id === id)?.name === 'default') return;
+        setGroups(groups.filter(g => g.id !== id));
+    };
+
+    const toggleEnabled = (id) => {
+        setGroups(groups.map(g => g.id === id ? { ...g, enabled: !g.enabled } : g));
+    };
+
+    return (
+        <div className="fade-in space-y-4">
+            <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold">分组管理</h2>
+                <button onClick={openAdd} className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-black text-sm font-medium rounded-lg transition-colors">+ 添加分组</button>
+            </div>
+
+            <div className="stat-card rounded-xl p-4">
+                <p className="text-xs text-gray-500 leading-relaxed">
+                    <span className="text-amber-400">说明：</span>
+                    分组用于给不同来源或用户群体设置独立的价格倍率。模型价格无需单独设置费率，最终价格 = 模型官方价格 × 分组倍率。
+                    例如 <span className="font-mono text-gray-300">claude-opus-4-7</span> 官方价 <span className="font-mono">$15.00 / $75.00</span>，
+                    <span className="font-mono text-gray-300">aws</span> 分组倍率 <span className="font-mono">0.4</span>，则实际价格为 <span className="font-mono text-emerald-400">$6.00 / $30.00</span>。
+                </p>
+            </div>
+
+            <div className="stat-card rounded-xl overflow-hidden">
+                <table className="w-full text-sm">
+                    <thead><tr className="text-gray-500 text-xs border-b border-base-300 bg-base-200/50">
+                        <th className="text-left p-4 font-medium">分组标识</th>
+                        <th className="text-left p-4 font-medium">分组名称</th>
+                        <th className="text-center p-4 font-medium">倍率</th>
+                        <th className="text-left p-4 font-medium">描述</th>
+                        <th className="text-center p-4 font-medium">启用</th>
+                        <th className="text-center p-4 font-medium">操作</th>
+                    </tr></thead>
+                    <tbody>
+                        {groups.map(g => (
+                            <tr key={g.id} className="border-b border-base-300/50 hover:bg-base-200/30 transition-colors">
+                                <td className="p-4">
+                                    <span className="font-mono text-xs px-2 py-1 bg-base-200 rounded text-amber-400">{g.name}</span>
+                                </td>
+                                <td className="p-4 text-gray-200">{g.label}</td>
+                                <td className="p-4 text-center">
+                                    <span className="font-mono text-sm text-amber-400">×{g.multiplier}</span>
+                                </td>
+                                <td className="p-4 text-xs text-gray-500">{g.description}</td>
+                                <td className="p-4 text-center">
+                                    <div className="inline-block"><Toggle active={g.enabled} onToggle={() => toggleEnabled(g.id)} /></div>
+                                </td>
+                                <td className="p-4 text-center">
+                                    <button onClick={() => openEdit(g)} className="text-xs text-cyan-400 hover:text-cyan-300 mr-3">编辑</button>
+                                    {g.name !== 'default' && (
+                                        <button onClick={() => deleteGroup(g.id)} className="text-xs text-rose-400 hover:text-rose-300">删除</button>
+                                    )}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+
+            {/* Price preview */}
+            <div className="stat-card rounded-xl p-5">
+                <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-medium text-gray-300">价格预览</h3>
+                    <select value={previewModel.name} onChange={e => setPreviewModel(mockModels.find(m => m.name === e.target.value))}
+                        className="bg-base-200 border border-base-300 rounded-lg px-3 py-1.5 text-xs font-mono text-gray-200 focus:outline-none focus:border-amber-500">
+                        {mockModels.map(m => <option key={m.name} value={m.name}>{m.name}</option>)}
+                    </select>
+                </div>
+                <div className="grid grid-cols-4 gap-3">
+                    <div className="col-span-4 md:col-span-1 p-3 bg-base-200/50 rounded-lg border border-base-300/50">
+                        <p className="text-[10px] text-gray-500 mb-1">官方价格 ($/1M)</p>
+                        <p className="font-mono text-sm text-gray-300">输入 ${previewModel.inputPrice.toFixed(2)}</p>
+                        <p className="font-mono text-sm text-gray-300">输出 ${previewModel.outputPrice.toFixed(2)}</p>
+                    </div>
+                    {groups.filter(g => g.enabled).map(g => (
+                        <div key={g.id} className="p-3 bg-base-200/50 rounded-lg border border-base-300/50">
+                            <p className="text-[10px] text-gray-500 mb-1 flex justify-between">
+                                <span className="text-amber-400">{g.label}</span>
+                                <span className="font-mono">×{g.multiplier}</span>
+                            </p>
+                            <p className="font-mono text-sm text-emerald-400">输入 ${(previewModel.inputPrice * g.multiplier).toFixed(2)}</p>
+                            <p className="font-mono text-sm text-emerald-400">输出 ${(previewModel.outputPrice * g.multiplier).toFixed(2)}</p>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <Modal open={showAdd} onClose={() => setShowAdd(false)} title={editingId ? '编辑分组' : '添加分组'}>
+                <div className="space-y-4">
+                    <div><label className="text-xs text-gray-400 block mb-1">分组标识 (英文)</label>
+                        <input value={form.name} onChange={e => setForm({...form, name: e.target.value})}
+                            disabled={editingId && groups.find(g => g.id === editingId)?.name === 'default'}
+                            className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-amber-500 disabled:opacity-50" placeholder="aws"/></div>
+                    <div><label className="text-xs text-gray-400 block mb-1">分组名称</label>
+                        <input value={form.label} onChange={e => setForm({...form, label: e.target.value})}
+                            className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-amber-500" placeholder="AWS 分组"/></div>
+                    <div><label className="text-xs text-gray-400 block mb-1">倍率</label>
+                        <input type="number" step="0.01" min="0" value={form.multiplier} onChange={e => setForm({...form, multiplier: e.target.value})}
+                            className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-amber-400 focus:outline-none focus:border-amber-500" placeholder="0.4"/>
+                        <p className="text-[10px] text-gray-600 mt-1">最终价格 = 模型官方价格 × 倍率</p></div>
+                    <div><label className="text-xs text-gray-400 block mb-1">描述</label>
+                        <input value={form.description} onChange={e => setForm({...form, description: e.target.value})}
+                            className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-amber-500" placeholder="可选"/></div>
+                    <button onClick={saveGroup} className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-black font-medium rounded-lg transition-colors text-sm">
+                        {editingId ? '保存修改' : '确认添加'}
+                    </button>
+                </div>
+            </Modal>
+        </div>
+    );
+}
+
+// ============ USERS PAGE ============
+function UsersPage() {
+    const [showRecharge, setShowRecharge] = React.useState(false);
+    return (
+        <div className="fade-in space-y-4">
+            <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold">用户管理</h2>
+                <button onClick={() => setShowRecharge(true)} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors">手动充值</button>
+            </div>
+            <div className="stat-card rounded-xl overflow-hidden">
+                <table className="w-full text-sm">
+                    <thead><tr className="text-gray-500 text-xs border-b border-base-300 bg-base-200/50">
+                        <th className="text-left p-4 font-medium">用户</th>
+                        <th className="text-right p-4 font-medium">余额</th>
+                        <th className="text-right p-4 font-medium">今日消耗</th>
+                        <th className="text-right p-4 font-medium">总消耗</th>
+                        <th className="text-left p-4 font-medium">注册时间</th>
+                        <th className="text-center p-4 font-medium">状态</th>
+                        <th className="text-center p-4 font-medium">操作</th>
+                    </tr></thead>
+                    <tbody>
+                        {mockUsers.map(u => (
+                            <tr key={u.id} className="border-b border-base-300/50 hover:bg-base-200/30 transition-colors">
+                                <td className="p-4"><span className="text-gray-200">{u.name}</span><br/><span className="text-[10px] text-gray-600">{u.email}</span></td>
+                                <td className={`p-4 text-right font-mono ${u.balance < 10 ? 'text-rose-400' : 'text-gray-300'}`}>¥{u.balance.toFixed(2)}</td>
+                                <td className="p-4 text-right font-mono text-gray-400">¥{u.todayUsage.toFixed(2)}</td>
+                                <td className="p-4 text-right font-mono text-gray-400">¥{u.totalUsage.toFixed(2)}</td>
+                                <td className="p-4 font-mono text-xs text-gray-500">{u.regDate}</td>
+                                <td className="p-4 text-center"><StatusDot status={u.status} /></td>
+                                <td className="p-4 text-center">
+                                    <button className="text-xs text-cyan-400 hover:text-cyan-300 mr-2">详情</button>
+                                    <button className="text-xs text-amber-400 hover:text-amber-300">充值</button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            <Modal open={showRecharge} onClose={() => setShowRecharge(false)} title="手动充值">
+                <div className="space-y-4">
+                    <div><label className="text-xs text-gray-400 block mb-1">选择用户</label>
+                        <select className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-amber-500">
+                            {mockUsers.map(u => <option key={u.id}>{u.name} ({u.email})</option>)}
+                        </select></div>
+                    <div><label className="text-xs text-gray-400 block mb-1">充值金额 (元)</label>
+                        <input type="number" className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-amber-500" placeholder="100"/></div>
+                    <div><label className="text-xs text-gray-400 block mb-1">备注</label>
+                        <input className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-amber-500" placeholder="可选"/></div>
+                    <button className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors text-sm">确认充值</button>
+                </div>
+            </Modal>
+        </div>
+    );
+}
+
+// ============ CACHE PAGE ============
+function CachePage() {
+    const [cacheEnabled, setCacheEnabled] = React.useState(true);
+    return (
+        <div className="fade-in space-y-4">
+            <h2 className="text-lg font-semibold">缓存管理</h2>
+            <div className="grid grid-cols-4 gap-4">
+                {[
+                    { label: '总缓存数', value: '1,247', color: 'text-gray-200' },
+                    { label: '命中率', value: '94.2%', color: 'text-cyan-400' },
+                    { label: '节省Token', value: '12.8M', color: 'text-amber-400' },
+                    { label: '节省费用', value: '¥856', color: 'text-emerald-400' },
+                ].map((s, i) => (
+                    <div key={i} className="stat-card rounded-xl p-4">
+                        <p className="text-xs text-gray-500 mb-1">{s.label}</p>
+                        <p className={`text-xl font-mono font-bold ${s.color}`}>{s.value}</p>
+                    </div>
+                ))}
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+                <div className="stat-card rounded-xl p-5 space-y-4">
+                    <h3 className="text-sm font-medium text-gray-300">缓存配置</h3>
+                    <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-400">启用缓存</span>
+                        <Toggle active={cacheEnabled} onToggle={() => setCacheEnabled(!cacheEnabled)} />
+                    </div>
+                    <div><label className="text-xs text-gray-500 block mb-1">TTL (秒)</label>
+                        <input type="number" defaultValue="3600" className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-amber-500"/></div>
+                    <div><label className="text-xs text-gray-500 block mb-1">最大缓存大小 (MB)</label>
+                        <input type="number" defaultValue="512" className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-amber-500"/></div>
+                    <div><label className="text-xs text-gray-500 block mb-1">相似度阈值</label>
+                        <input type="number" step="0.01" defaultValue="0.95" className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-amber-500"/></div>
+                    <button className="w-full py-2 bg-base-300 hover:bg-base-400 text-gray-300 text-sm rounded-lg transition-colors">保存配置</button>
+                </div>
+                <div className="stat-card rounded-xl p-5">
+                    <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-sm font-medium text-gray-300">缓存条目</h3>
+                        <button className="text-xs text-rose-400 hover:text-rose-300">清空缓存</button>
+                    </div>
+                    <div className="space-y-2">
+                        {mockCacheEntries.map((entry, i) => (
+                            <div key={i} className="p-3 bg-base-200/50 rounded-lg border border-base-300/50">
+                                <div className="flex justify-between items-center">
+                                    <span className="font-mono text-xs text-gray-400">{entry.hash}</span>
+                                    <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 font-mono">{entry.hits} hits</span>
+                                </div>
+                                <div className="flex justify-between mt-1 text-[10px] text-gray-600">
+                                    <span>{entry.model}</span>
+                                    <span>过期: {entry.expires}</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ============ PAYMENT PAGE ============
+function PaymentPage() {
+    const [alipay, setAlipay] = React.useState(true);
+    const [wechat, setWechat] = React.useState(true);
+    const packages = [
+        { amount: 10, bonus: 0, enabled: true },
+        { amount: 50, bonus: 5, enabled: true },
+        { amount: 100, bonus: 15, enabled: true },
+        { amount: 500, bonus: 100, enabled: true },
+        { amount: 1000, bonus: 250, enabled: false },
+    ];
+    return (
+        <div className="fade-in space-y-4">
+            <h2 className="text-lg font-semibold">支付配置</h2>
+            <div className="grid grid-cols-2 gap-4">
+                <div className="stat-card rounded-xl p-5 space-y-4">
+                    <h3 className="text-sm font-medium text-gray-300">易支付配置</h3>
+                    <div><label className="text-xs text-gray-500 block mb-1">商户ID</label>
+                        <input className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-amber-500" defaultValue="10086"/></div>
+                    <div><label className="text-xs text-gray-500 block mb-1">商户密钥</label>
+                        <input type="password" className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-amber-500" defaultValue="••••••••••••"/></div>
+                    <div><label className="text-xs text-gray-500 block mb-1">支付接口地址</label>
+                        <input className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-amber-500" defaultValue="https://pay.example.com"/></div>
+                    <div><label className="text-xs text-gray-500 block mb-1">回调地址</label>
+                        <input className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-amber-500" defaultValue="https://api.mysite.com/pay/notify"/></div>
+                    <div className="flex items-center justify-between pt-2">
+                        <span className="text-sm text-gray-400">支付宝</span>
+                        <Toggle active={alipay} onToggle={() => setAlipay(!alipay)} />
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-400">微信支付</span>
+                        <Toggle active={wechat} onToggle={() => setWechat(!wechat)} />
+                    </div>
+                    <button className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-black font-medium text-sm rounded-lg transition-colors">保存配置</button>
+                </div>
+                <div className="space-y-4">
+                    <div className="stat-card rounded-xl p-5">
+                        <h3 className="text-sm font-medium text-gray-300 mb-4">充值套餐</h3>
+                        <div className="space-y-2">
+                            {packages.map((pkg, i) => (
+                                <div key={i} className="flex items-center justify-between p-3 bg-base-200/50 rounded-lg border border-base-300/50">
+                                    <div>
+                                        <span className="font-mono text-sm text-gray-200">¥{pkg.amount}</span>
+                                        {pkg.bonus > 0 && <span className="ml-2 text-xs text-emerald-400">+¥{pkg.bonus}</span>}
+                                    </div>
+                                    <Toggle active={pkg.enabled} onToggle={() => {}} />
+                                </div>
+                            ))}
+                        </div>
+                        <button className="w-full mt-3 py-2 bg-base-300 hover:bg-base-400 text-gray-300 text-sm rounded-lg transition-colors">+ 添加套餐</button>
+                    </div>
+                    <div className="stat-card rounded-xl p-5">
+                        <h3 className="text-sm font-medium text-gray-300 mb-3">最近充值记录</h3>
+                        <div className="space-y-2 text-xs">
+                            {[
+                                { user: '张三', amount: 100, bonus: 15, time: '14:20', method: '支付宝' },
+                                { user: '李四', amount: 500, bonus: 100, time: '13:45', method: '微信' },
+                                { user: '赵六', amount: 50, bonus: 5, time: '11:30', method: '支付宝' },
+                            ].map((r, i) => (
+                                <div key={i} className="flex items-center justify-between p-2 border-b border-base-300/30">
+                                    <span className="text-gray-400">{r.user}</span>
+                                    <span className="font-mono text-gray-300">¥{r.amount}{r.bonus > 0 && <span className="text-emerald-400">+{r.bonus}</span>}</span>
+                                    <span className="text-gray-600">{r.method}</span>
+                                    <span className="text-gray-600 font-mono">{r.time}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ============ SETTINGS PAGE ============
+function SettingsPage() {
+    return (
+        <div className="fade-in space-y-4">
+            <h2 className="text-lg font-semibold">系统设置</h2>
+            <div className="grid grid-cols-2 gap-4">
+                <div className="stat-card rounded-xl p-5 space-y-4">
+                    <h3 className="text-sm font-medium text-gray-300">基础配置</h3>
+                    <div><label className="text-xs text-gray-500 block mb-1">站点名称</label>
+                        <input className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-amber-500" defaultValue="AetherGate AI"/></div>
+                    <div><label className="text-xs text-gray-500 block mb-1">Logo URL</label>
+                        <input className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-amber-500" placeholder="https://..."/></div>
+                    <div><label className="text-xs text-gray-500 block mb-1">系统公告</label>
+                        <textarea rows="3" className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-amber-500 resize-none" defaultValue="系统运行正常，欢迎使用。"></textarea></div>
+                </div>
+                <div className="stat-card rounded-xl p-5 space-y-4">
+                    <h3 className="text-sm font-medium text-gray-300">API 配置</h3>
+                    <div><label className="text-xs text-gray-500 block mb-1">请求超时 (秒)</label>
+                        <input type="number" className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-amber-500" defaultValue="120"/></div>
+                    <div><label className="text-xs text-gray-500 block mb-1">重试次数</label>
+                        <input type="number" className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-amber-500" defaultValue="3"/></div>
+                    <div><label className="text-xs text-gray-500 block mb-1">负载均衡策略</label>
+                        <select className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-amber-500">
+                            <option>加权轮询</option><option>最少连接</option><option>随机</option><option>优先级</option>
+                        </select></div>
+                </div>
+                <div className="stat-card rounded-xl p-5 space-y-4">
+                    <h3 className="text-sm font-medium text-gray-300">安全配置</h3>
+                    <div><label className="text-xs text-gray-500 block mb-1">IP 白名单 (每行一个)</label>
+                        <textarea rows="3" className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-amber-500 resize-none" placeholder="192.168.1.0/24"></textarea></div>
+                    <div><label className="text-xs text-gray-500 block mb-1">全局速率限制 (次/分/用户)</label>
+                        <input type="number" className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-amber-500" defaultValue="60"/></div>
+                </div>
+                <div className="stat-card rounded-xl p-5 space-y-4">
+                    <h3 className="text-sm font-medium text-gray-300">协议支持</h3>
+                    <div className="space-y-3">
+                        <div className="flex items-center justify-between"><span className="text-sm text-gray-400">OpenAI 兼容协议</span><Toggle active={true} onToggle={() => {}} /></div>
+                        <div className="flex items-center justify-between"><span className="text-sm text-gray-400">Claude 原生协议</span><Toggle active={true} onToggle={() => {}} /></div>
+                        <div className="flex items-center justify-between"><span className="text-sm text-gray-400">流式响应 (SSE)</span><Toggle active={true} onToggle={() => {}} /></div>
+                        <div className="flex items-center justify-between"><span className="text-sm text-gray-400">请求日志记录</span><Toggle active={true} onToggle={() => {}} /></div>
+                    </div>
+                </div>
+            </div>
+            <button className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-black font-medium text-sm rounded-lg transition-colors">保存所有设置</button>
+        </div>
+    );
+}
+
+// ============ MAIN APP ============
+function App() {
+    const [page, setPage] = React.useState('dashboard');
+
+    React.useEffect(() => {
+        lucide.createIcons();
+    });
+
+    const renderPage = () => {
+        switch(page) {
+            case 'dashboard': return <DashboardPage />;
+            case 'channels': return <ChannelsPage />;
+            case 'groups': return <GroupsPage />;
+            case 'models': return <ModelsPage />;
+            case 'users': return <UsersPage />;
+            case 'cache': return <CachePage />;
+            case 'payment': return <PaymentPage />;
+            case 'settings': return <SettingsPage />;
+            default: return <DashboardPage />;
+        }
+    };
+
+    return (
+        <div className="flex h-screen bg-dots">
+            <Sidebar active={page} onNav={setPage} />
+            <main className="ml-60 flex-1 overflow-y-auto scrollbar-thin p-6">
+                <div className="max-w-[1400px] mx-auto">
+                    {renderPage()}
+                </div>
+            </main>
+        </div>
+    );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

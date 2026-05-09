@@ -1,0 +1,125 @@
+//! Upstream provider adapters.
+
+use async_trait::async_trait;
+use bytes::Bytes;
+use futures::stream::BoxStream;
+use std::time::Duration;
+
+use crate::error::AppResult;
+use crate::models::ChannelProvider;
+
+pub mod anthropic;
+pub mod openai;
+
+pub struct TestReport {
+    pub ok: bool,
+    pub latency_ms: i32,
+    pub detail: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ModelEntry {
+    pub id: String,
+    pub owner: Option<String>,
+    pub created: Option<i64>,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Usage {
+    pub prompt_tokens: i32,
+    pub completion_tokens: i32,
+    pub cached_tokens: i32,
+}
+
+/// Raw chat-completion request bytes plus parsed flags we need for routing.
+pub struct ChatRequest {
+    pub raw_body: Bytes,
+    pub model: String,
+    pub stream: bool,
+}
+
+/// Non-streaming response.
+pub struct ChatJsonResponse {
+    pub status: u16,
+    pub body: Bytes,
+    pub usage: Usage,
+}
+
+/// Streaming response. `events` yields raw SSE event bytes (one chunk per
+/// upstream event, already formatted like `data: {...}\n\n`). The caller is
+/// responsible for relaying them to the downstream client as-is.
+///
+/// `final_usage` is filled once the stream completes; the caller awaits it
+/// *after* the stream is exhausted to drive billing.
+pub struct ChatStreamResponse {
+    pub events: BoxStream<'static, Result<Bytes, String>>,
+    pub final_usage: tokio::sync::oneshot::Receiver<Usage>,
+}
+
+pub enum ChatResponse {
+    Json(ChatJsonResponse),
+    Stream(ChatStreamResponse),
+}
+
+#[async_trait]
+pub trait UpstreamAdapter: Send + Sync {
+    async fn test_connectivity(
+        &self,
+        http: &reqwest::Client,
+        base_url: &str,
+        api_key: &str,
+        probe_model_hint: Option<&str>,
+    ) -> AppResult<TestReport>;
+
+    async fn list_models(
+        &self,
+        http: &reqwest::Client,
+        base_url: &str,
+        api_key: &str,
+    ) -> AppResult<Vec<ModelEntry>>;
+
+    /// Forward a chat-completion request to the upstream.
+    ///
+    /// On streaming responses the adapter returns immediately with a stream of
+    /// SSE chunks and a oneshot that fires when the stream terminates with the
+    /// final token usage. The caller is expected to tee events to the client
+    /// and await the oneshot for billing.
+    async fn forward_chat(
+        &self,
+        http: &reqwest::Client,
+        base_url: &str,
+        api_key: &str,
+        req: ChatRequest,
+    ) -> AppResult<ChatResponse>;
+}
+
+pub fn adapter_for(provider: ChannelProvider) -> &'static dyn UpstreamAdapter {
+    match provider {
+        ChannelProvider::Openai => &openai::OpenAiAdapter,
+        ChannelProvider::Anthropic => &anthropic::AnthropicAdapter,
+    }
+}
+
+pub(crate) fn truncate(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        let mut cut = max;
+        while !s.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        format!("{}...", &s[..cut])
+    }
+}
+
+pub(crate) fn join_url(base: &str, path: &str) -> String {
+    let trimmed = base.trim_end_matches('/');
+    if trimmed.ends_with("/v1") && path.starts_with("/v1/") {
+        format!("{trimmed}{}", &path[3..])
+    } else {
+        format!("{trimmed}{path}")
+    }
+}
+
+pub(crate) const TEST_TIMEOUT: Duration = Duration::from_secs(15);
+pub(crate) const FORWARD_TIMEOUT: Duration = Duration::from_secs(300);
