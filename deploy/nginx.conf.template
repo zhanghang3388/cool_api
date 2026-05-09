@@ -1,0 +1,99 @@
+# nginx.conf.template — processed by `envsubst` on container start so we can
+# interpolate ${WEB_DOMAIN} / ${API_DOMAIN} from the .env file.
+#
+# Why two server blocks per domain? The :80 block handles ACME HTTP-01
+# challenges + redirects the rest to HTTPS; the :443 block does the real
+# reverse-proxy work.
+
+worker_processes auto;
+events { worker_connections 4096; }
+
+http {
+    # Reverse-proxy + static basics.
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    server_tokens off;
+
+    # Large enough for OpenAI/Anthropic request bodies with tool schemas.
+    client_max_body_size 10m;
+
+    # SSE-safe defaults: never buffer, never time out short.
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+
+    # ====== :80 — ACME challenge + HTTPS redirect ======
+    server {
+        listen 80;
+        listen [::]:80;
+        server_name ${WEB_DOMAIN} ${API_DOMAIN};
+
+        # Let's Encrypt webroot challenge files land here.
+        location /.well-known/acme-challenge/ {
+            root /var/www/certbot;
+        }
+
+        location / {
+            return 301 https://$host$request_uri;
+        }
+    }
+
+    # ====== :443 — frontend (WEB_DOMAIN) ======
+    server {
+        listen 443 ssl;
+        listen [::]:443 ssl;
+        http2 on;
+        server_name ${WEB_DOMAIN};
+
+        ssl_certificate     /etc/letsencrypt/live/${WEB_DOMAIN}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/${WEB_DOMAIN}/privkey.pem;
+        ssl_protocols       TLSv1.2 TLSv1.3;
+        ssl_prefer_server_ciphers off;
+        ssl_session_cache   shared:SSL:10m;
+
+        location / {
+            proxy_pass http://frontend:80;
+        }
+    }
+
+    # ====== :443 — backend API (API_DOMAIN) ======
+    server {
+        listen 443 ssl;
+        listen [::]:443 ssl;
+        http2 on;
+        server_name ${API_DOMAIN};
+
+        ssl_certificate     /etc/letsencrypt/live/${API_DOMAIN}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/${API_DOMAIN}/privkey.pem;
+        ssl_protocols       TLSv1.2 TLSv1.3;
+        ssl_prefer_server_ciphers off;
+        ssl_session_cache   shared:SSL:10m;
+
+        # Streaming endpoints — disable every buffer nginx has so SSE chunks
+        # hit the browser the instant the upstream flushes.
+        location ~ ^/(v1|anthropic)/ {
+            proxy_pass http://backend:3000;
+            proxy_buffering off;
+            proxy_cache off;
+            proxy_request_buffering off;
+            proxy_read_timeout 10m;
+            proxy_send_timeout 10m;
+            chunked_transfer_encoding on;
+        }
+
+        location / {
+            proxy_pass http://backend:3000;
+            proxy_read_timeout 5m;
+            proxy_send_timeout 5m;
+        }
+    }
+}

@@ -1,16 +1,21 @@
 # Production stack.
 #
 # Topology:
-#   caddy        — TLS termination + reverse proxy. Publishes :80, :443.
-#   frontend     — static Vite bundle served by an internal Caddy on :80.
-#   backend      — Rust API on :3000 (not published; goes through caddy).
+#   nginx        — TLS termination + reverse proxy. Publishes :80, :443.
+#   certbot      — renews Let's Encrypt certs every 12h, reloads nginx on success.
+#   frontend     — static Vite bundle served by an internal nginx on :80.
+#   backend      — Rust API on :3000 (not published; goes through nginx).
 #   postgres     — data. Volume-backed.
 #   redis        — cache + rate limiter. Volume-backed.
 #
+# First-time setup: run `./init-letsencrypt.sh` BEFORE `docker compose up -d`
+# so cert files exist before nginx tries to load them. Renewals after that
+# are automatic.
+#
 # Scaling note: to add more backend nodes, set `BACKEND_REPLICAS=3` (or any
 # number) in `.env` and re-up. They all share the same postgres + redis.
-# The `caddy` reverse-proxy will load-balance across all replicas because
-# `backend` resolves to all container IPs in the docker network.
+# The `nginx` reverse-proxy resolves `backend` to all replica IPs and picks
+# round-robin across them.
 
 name: aethergate
 
@@ -77,27 +82,64 @@ services:
     image: aethergate-frontend:latest
     restart: unless-stopped
 
-  caddy:
-    image: caddy:2.8-alpine
+  nginx:
+    image: nginx:1.27-alpine
     restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
-      - "443:443/udp"  # HTTP/3
+    # nginx:alpine's entrypoint runs envsubst over /etc/nginx/templates/*.template
+    # on start. We point the output at /etc/nginx/nginx.conf so the top-level
+    # server blocks (not the default conf.d/) get produced.
     environment:
       WEB_DOMAIN: ${WEB_DOMAIN}
       API_DOMAIN: ${API_DOMAIN}
-      ACME_EMAIL: ${ACME_EMAIL}
+      NGINX_ENVSUBST_TEMPLATE_DIR: /etc/nginx/templates
+      NGINX_ENVSUBST_OUTPUT_DIR: /etc/nginx
+      NGINX_ENVSUBST_TEMPLATE_SUFFIX: .template
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
+      - ./nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot_webroot:/var/www/certbot:ro
+    # Reload nginx every 6h so renewed certs (updated by the certbot container)
+    # are picked up without human intervention. `nginx -s reload` is a no-op
+    # when config hasn't changed, so the cost is negligible.
+    # We launch the official entrypoint in the foreground and run the reload
+    # loop as a background sibling, then `wait` on the nginx PID so the
+    # container exits when nginx exits (and docker can restart it).
+    command:
+      - /bin/sh
+      - -c
+      - |
+        /docker-entrypoint.sh nginx -g 'daemon off;' &
+        nginx_pid=$!
+        (while :; do sleep 21600; nginx -s reload 2>/dev/null || true; done) &
+        wait $$nginx_pid
     depends_on:
       - backend
       - frontend
 
+  certbot:
+    image: certbot/certbot:latest
+    restart: unless-stopped
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
+    # Try to renew every 12h. Certbot is a no-op if the cert is still >30d away
+    # from expiry, so this is cheap. On success, post-hook signals nginx to
+    # reload via the docker socket.
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        trap exit TERM
+        while :; do
+          certbot renew --webroot -w /var/www/certbot --quiet
+          sleep 12h & wait $${!}
+        done
+
 volumes:
   pgdata:
   redisdata:
-  caddy_data:
-  caddy_config:
+  letsencrypt:
+  certbot_webroot:

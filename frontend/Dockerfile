@@ -21,9 +21,9 @@ COPY . .
 RUN pnpm build
 
 # ---- serve ----
-# Caddy is tiny (~40 MB), gzip/zstd by default, and lets us add cache headers
-# with a one-liner. Overkill-free compared to nginx.
-FROM caddy:2.8-alpine AS runtime
-COPY --from=builder /build/dist /usr/share/caddy
-COPY Caddyfile.frontend /etc/caddy/Caddyfile
+# nginx:alpine is small (~20 MB). The outer nginx (in deploy/) handles TLS and
+# reverse proxying; this inner instance just serves the static bundle.
+FROM nginx:1.27-alpine AS runtime
+COPY --from=builder /build/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80

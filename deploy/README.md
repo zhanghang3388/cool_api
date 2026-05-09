@@ -1,15 +1,20 @@
-# 部署指南（Ubuntu + Docker Compose + Caddy）
+# 部署指南（Ubuntu + Docker Compose + nginx + Let's Encrypt）
 
-本目录一键部署整套后端 + 前端 + Postgres + Redis + Caddy。
+本目录一键部署整套后端 + 前端 + Postgres + Redis + nginx + certbot。
 
 ## 架构
 
 ```
                   443 (HTTPS)
            ┌──────────┴──────────┐
-           │       Caddy         │ ← Let's Encrypt 自动 HTTPS
+           │       nginx         │ ← TLS 终止 + 反代
            │ WEB_DOMAIN / API_DOMAIN │
            └────┬────────────┬───┘
+                │            │        ┌──────────┐
+                │            │        │ certbot  │ ← 每 12h 续期
+                │            │        └────┬─────┘
+                │            │             │
+                │            │         /etc/letsencrypt (共享卷)
                 │            │
            ┌────▼─────┐  ┌───▼──────┐
            │ frontend │  │ backend  │ ← 可横向扩展 (BACKEND_REPLICAS)
@@ -38,20 +43,16 @@
 | `app.example.com` (前端) | A | 你的服务器 IP |
 | `api.example.com` (后端) | A | 你的服务器 IP |
 
-> Caddy 会自动向 Let's Encrypt 申请证书，**必须先把 DNS 指过来**再启动，否则证书签不下来。
+> certbot 会通过 Let's Encrypt 的 HTTP-01 挑战申请证书，**DNS 必须先生效**才能通过验证。用 `dig app.example.com +short` 返回服务器 IP 再继续。
 
 ### 1.2 服务器安装 Docker
 
 ```bash
-# 以 root 或 sudo 用户运行
 curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER   # 把当前用户加入 docker 组
-# 退出重新登录让分组生效
+sudo usermod -aG docker $USER   # 退出重登让 docker 组生效
 ```
 
 ### 1.3 防火墙
-
-放通 80 / 443（Caddy 只需这两个端口）：
 
 ```bash
 sudo ufw allow 80
@@ -59,49 +60,58 @@ sudo ufw allow 443
 sudo ufw enable
 ```
 
+云厂商的**安全组/防火墙**也要放行 80/443，否则 Let's Encrypt 挑战过不来。
+
 ---
 
 ## 2. 首次部署
 
-### 2.1 拉代码
+### 2.1 拉代码 + 配置
 
 ```bash
 git clone https://github.com/zhanghang3388/cool_api.git
 cd cool_api/deploy
-```
-
-### 2.2 配置 `.env`
-
-```bash
 cp .env.example .env
-# 编辑 .env，至少改：
-#   WEB_DOMAIN / API_DOMAIN
-#   ACME_EMAIL
-#   POSTGRES_PASSWORD
-#   JWT_SECRET               openssl rand -hex 32
-#   ENCRYPTION_KEY           openssl rand -base64 32
-#   ADMIN_INITIAL_PASSWORD
-vi .env
+vi .env     # 至少改：域名、ACME_EMAIL、POSTGRES_PASSWORD、
+            # JWT_SECRET、ENCRYPTION_KEY、ADMIN_INITIAL_PASSWORD
 ```
 
-⚠️ **JWT_SECRET 和 ENCRYPTION_KEY 设置后不要再改** — 改 JWT_SECRET 会让所有登录失效，改 ENCRYPTION_KEY 会让渠道 API Key 和支付配置变成乱码无法使用。妥善备份。
+⚠️ **`JWT_SECRET` 和 `ENCRYPTION_KEY` 一经设置，不要再改**：
+- 改 `JWT_SECRET` → 所有用户登录状态失效
+- 改 `ENCRYPTION_KEY` → 存储的渠道 API Key 和支付密钥无法解密
 
-### 2.3 构建 + 启动
+妥善备份这两个值。
+
+### 2.2 先申请 TLS 证书（只跑一次）
 
 ```bash
-docker compose build        # 第一次要几分钟（Rust 编译）
-docker compose up -d
-docker compose logs -f      # 看启动日志
+chmod +x init-letsencrypt.sh
+./init-letsencrypt.sh
 ```
 
-启动顺序：Postgres/Redis → backend（自动跑 migration 创建表）→ frontend + caddy。
-Caddy 首次启动会现申请 Let's Encrypt 证书，日志里能看到。
+脚本会：
+1. 临时起一个 HTTP-only nginx 监听 :80
+2. 调 certbot 为 `WEB_DOMAIN` 和 `API_DOMAIN` 各申请一张证书
+3. 证书存到 docker 卷 `aethergate_letsencrypt`
+4. 关闭临时 nginx
+
+输出以 `[done] Certificates issued.` 结束就成功了。失败排查：
+- `dig ... +short` DNS 是否生效
+- 80 端口是否真能从外网访问（云安全组/防火墙）
+- Let's Encrypt 频控：一周对同一域名失败超过 5 次会锁 1h，等等再重试
+
+### 2.3 起栈
+
+```bash
+docker compose up -d --build        # 首次 build 约 5-8 分钟（Rust 编译）
+docker compose logs -f              # 看启动日志
+```
 
 ### 2.4 访问
 
 - 前端：`https://app.example.com`
-- API：`https://api.example.com/healthz` → `{"status":"ok"}`
-- 用 `.env` 里的 `ADMIN_INITIAL_USERNAME / PASSWORD` 登录后端管理后台。
+- API 健康：`https://api.example.com/healthz` → `{"status":"ok"}`
+- 用 `.env` 里的 `ADMIN_INITIAL_USERNAME / PASSWORD` 登录后端管理后台
 
 ---
 
@@ -110,9 +120,9 @@ Caddy 首次启动会现申请 Let's Encrypt 证书，日志里能看到。
 ### 3.1 查看日志
 
 ```bash
-docker compose logs -f backend       # 只看后端
-docker compose logs -f caddy         # TLS / 访问日志
-docker compose logs --tail=100
+docker compose logs -f backend
+docker compose logs -f nginx
+docker compose logs -f certbot      # 看证书续期
 ```
 
 ### 3.2 更新代码
@@ -122,22 +132,30 @@ cd cool_api
 git pull
 cd deploy
 docker compose build backend frontend
-docker compose up -d                 # 滚动替换
+docker compose up -d                # 滚动替换
 ```
 
-后端有新 migration 会在启动时自动跑，不需要手动操作。
+后端有新 migration 启动时自动跑。
 
 ### 3.3 数据库备份
 
 ```bash
-# 备份到宿主机
 docker compose exec -T postgres \
     pg_dump -U $(grep POSTGRES_USER .env | cut -d= -f2) \
             $(grep POSTGRES_DB .env | cut -d= -f2) \
   | gzip > backup-$(date +%Y%m%d).sql.gz
 ```
 
-### 3.4 进 DB / Redis 调试
+### 3.4 证书续期
+
+**全自动**：`certbot` 服务每 12h 跑 `certbot renew`，不到 30 天内到期不动；到期自动换新。`nginx` 容器每 6h `reload` 一次拾取新证书。手动触发：
+
+```bash
+docker compose exec certbot certbot renew --force-renewal
+docker compose exec nginx nginx -s reload
+```
+
+### 3.5 进 DB / Redis 调试
 
 ```bash
 docker compose exec postgres psql -U aethergate -d aethergate
@@ -148,48 +166,56 @@ docker compose exec redis redis-cli
 
 ## 4. 扩展到多节点（横向扩容）
 
-**所有后端节点共享同一份 Postgres + Redis**，所以加节点只是多起几个 backend 容器：
+**所有后端节点共享同一套 Postgres + Redis**，加节点只是多起几个 backend 容器：
 
 ```bash
-# .env 里加或改：
 echo "BACKEND_REPLICAS=3" >> .env
 docker compose up -d
 ```
 
-Caddy 会自动把请求在 3 个 backend 容器间做 DNS 负载均衡。**不需要改代码**。
+nginx 的 `proxy_pass http://backend:3000` 被 docker DNS 解析成 3 个容器 IP，round-robin 分发。**不需要改代码**。
 
-如果以后要把数据库/Redis 拉到单独服务器甚至云厂商托管：
-
-1. 把 `.env` 里的 `DATABASE_URL` / `REDIS_URL` 单独配好（注意：当前 compose 里这两项写死在 service env 里，需要改 compose 把 postgres/redis 服务删掉，然后在 backend service 的 environment 里直接写远程连接串）
-2. 每个应用服务器只起 `backend + frontend + caddy`，指向同一个中心 DB/Redis
-3. 前面再加一层负载均衡（云厂商的 SLB / Nginx）分发到不同节点
+把数据库/Redis 独立到专用机器的改造（未来）：
+1. `.env` 里加 `DATABASE_URL` / `REDIS_URL` 远程连接串
+2. `docker-compose.yml` 删除 `postgres` / `redis` 两个 service
+3. 每个应用节点只起 `backend + frontend + nginx + certbot`
 
 ---
 
 ## 5. 常见问题
 
 **证书申请失败？**
-1. 确认 DNS 已生效：`dig app.example.com +short` 应该返回服务器 IP
-2. 确认 80/443 从公网可达（云厂商安全组也要放行，不只是 ufw）
-3. `docker compose logs caddy` 看具体错误
-4. Let's Encrypt 有频率限制，失败别狂重启，等几分钟
+1. `dig app.example.com +short` 看 DNS 指向
+2. `curl -I http://app.example.com/.well-known/acme-challenge/test` 看 80 可达性
+3. `docker compose logs certbot` 看具体错误
+4. 频控：等 1h 再试
 
 **前端能打开但 API 调用失败？**
-1. 浏览器 DevTools 看 Network 里请求 URL 是不是 `https://api.example.com/...`
-2. 若不是，说明 `VITE_API_BASE` build 时没传对。改 `.env` 里 `API_DOMAIN` 后必须 `docker compose build frontend` 重新构建
+1. DevTools Network 看请求 URL 是不是 `https://api.example.com`
+2. 若不是，`API_DOMAIN` 变过但 bundle 没重 build：
+   ```bash
+   docker compose build frontend && docker compose up -d frontend
+   ```
 3. 直接 curl：`curl https://api.example.com/healthz`
 
-**忘记管理员密码？**
-进 DB 直接改（argon2 哈希用 `htpasswd` 或 backend 的 CLI）。临时方案：
+**nginx 报 "cannot load certificate"？**
+说明 `init-letsencrypt.sh` 没跑或跑失败。先看卷：
+```bash
+docker volume ls | grep letsencrypt
+docker run --rm -v aethergate_letsencrypt:/etc/letsencrypt alpine \
+    ls -la /etc/letsencrypt/live/
+```
+没有对应域名目录就重跑 `./init-letsencrypt.sh`。
 
+**忘记管理员密码？**
 ```bash
 docker compose exec postgres psql -U aethergate -d aethergate -c \
   "DELETE FROM users WHERE role = 'admin';"
-# 改 .env 里 ADMIN_INITIAL_PASSWORD，重启 backend，它会重建 admin
+# 改 .env 里 ADMIN_INITIAL_PASSWORD，重启 backend
 docker compose up -d backend
 ```
 
-**想完全清空数据重来？**
+**完全清空重来**：
 ```bash
-docker compose down -v        # 注意：-v 会删 postgres + redis 数据卷
+docker compose down -v     # 同时删 pgdata / redisdata / letsencrypt
 ```
