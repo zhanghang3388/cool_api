@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import AuthGuard, { RequireRole } from './components/AuthGuard';
 import AdminLayout from './components/AdminLayout';
 import ConsoleLayout from './components/ConsoleLayout';
+import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import GroupsPage from './pages/GroupsPage';
@@ -19,7 +20,6 @@ import KeysPage from './pages/console/KeysPage';
 import UsagePage from './pages/console/UsagePage';
 import ModelsPricingPage from './pages/console/ModelsPricingPage';
 import TopUpPage from './pages/console/TopUpPage';
-import RoleRedirect from './components/RoleRedirect';
 import { usePublicSiteConfig } from './hooks/useAdminSettings';
 
 export default function App() {
@@ -45,12 +45,12 @@ export default function App() {
 
   return (
     <Routes>
+      {/* Public landing — no auth gate. CTA branches based on login state. */}
+      <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
 
       <Route element={<AuthGuard />}>
-        <Route index element={<RoleRedirect />} />
-
         {/* Admin area */}
         <Route element={<RequireRole role="admin" />}>
           <Route path="admin" element={<AdminLayout />}>
