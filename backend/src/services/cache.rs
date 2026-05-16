@@ -157,6 +157,13 @@ pub async fn put(
     }
 }
 
+/// Drop a single entry from Redis. Used when a cached body is detected as
+/// corrupt — we'd rather remove it than keep serving bad data.
+pub async fn delete(redis: &mut ConnectionManager, hash: &str) -> redis::RedisResult<()> {
+    let _: () = redis.del(format!("{ENTRY_PREFIX}{hash}")).await?;
+    Ok(())
+}
+
 pub async fn record_hit(
     redis: &mut ConnectionManager,
     tokens: i64,

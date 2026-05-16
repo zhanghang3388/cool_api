@@ -165,6 +165,8 @@ impl UpstreamAdapter for AnthropicAdapter {
         // Streaming
         let byte_stream = resp.bytes_stream();
         let (usage_tx, usage_rx) = tokio::sync::oneshot::channel::<Usage>();
+        let partial = std::sync::Arc::new(std::sync::Mutex::new(Usage::default()));
+        let partial_for_stream = partial.clone();
 
         let events = async_stream::try_stream! {
             let mut sse = byte_stream.eventsource();
@@ -191,6 +193,9 @@ impl UpstreamAdapter for AnthropicAdapter {
                                 final_usage.completion_tokens = u.output_tokens.unwrap_or(0);
                                 final_usage.cached_tokens = cached;
                                 final_usage.cache_creation_tokens = written;
+                                if let Ok(mut g) = partial_for_stream.lock() {
+                                    *g = final_usage;
+                                }
                             }
                         }
                     }
@@ -199,6 +204,9 @@ impl UpstreamAdapter for AnthropicAdapter {
                             if let Some(u) = parsed.usage {
                                 // message_delta carries CUMULATIVE output_tokens in its usage
                                 final_usage.completion_tokens = u.output_tokens.unwrap_or(final_usage.completion_tokens);
+                                if let Ok(mut g) = partial_for_stream.lock() {
+                                    *g = final_usage;
+                                }
                             }
                         }
                     }
@@ -223,6 +231,7 @@ impl UpstreamAdapter for AnthropicAdapter {
         Ok(ChatResponse::Stream(ChatStreamResponse {
             events: boxed,
             final_usage: usage_rx,
+            partial_usage: partial,
         }))
     }
 }

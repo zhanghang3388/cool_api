@@ -99,37 +99,52 @@ pub async fn forward(
 
     if let (Some(ref hash), Some(mut redis)) = (cache_hash.as_ref(), state.redis.clone()) {
         if let Ok(Some(entry)) = cache::get(&mut redis, hash).await {
-            let cached_body = general_purpose::STANDARD
-                .decode(&entry.body_base64)
-                .unwrap_or_default();
-            let usage = entry.usage();
+            // If the cached body is corrupted (truncation, encoding bug, manual
+            // tampering) `decode` returns an Err. Falling back to an empty
+            // body would silently 200 the user with nothing while still
+            // billing them — fall through to a normal upstream call instead.
+            match general_purpose::STANDARD.decode(&entry.body_base64) {
+                Ok(cached_body) => {
+                    let usage = entry.usage();
 
-            // Charge at the cache-read rate and compute the saving vs. normal
-            // billing for the stats panel.
-            let charge_input = billing::ChargeInput {
-                user_id: api.user.id,
-                api_key_id: Some(api.api_key_id),
-                group_id: api.group_id,
-                group_multiplier: &api.group_multiplier,
-                model: &model_row,
-                channel_id: None,
-                usage,
-                latency_ms: 0,
-                status: RequestStatus::Cached,
-                error_message: None,
-                client_ip,
-            };
-            let (_, _, full_cost) = billing::compute_cost(&charge_input);
-            let (_, _, cached_cost) = billing::compute_cached_cost(&charge_input);
-            let saved_cents = (full_cost - cached_cost).max(0);
-            let tokens = (usage.prompt_tokens + usage.completion_tokens) as i64;
+                    // Charge at the cache-read rate and compute the saving vs. normal
+                    // billing for the stats panel.
+                    let charge_input = billing::ChargeInput {
+                        user_id: api.user.id,
+                        api_key_id: Some(api.api_key_id),
+                        group_id: api.group_id,
+                        group_multiplier: &api.group_multiplier,
+                        model: &model_row,
+                        channel_id: None,
+                        usage,
+                        latency_ms: 0,
+                        status: RequestStatus::Cached,
+                        error_message: None,
+                        client_ip,
+                    };
+                    let (_, _, full_cost) = billing::compute_cost(&charge_input);
+                    let (_, _, cached_cost) = billing::compute_cached_cost(&charge_input);
+                    let saved_cents = (full_cost - cached_cost).max(0);
+                    let tokens = (usage.prompt_tokens + usage.completion_tokens) as i64;
 
-            if let Err(e) = billing::charge(&state.db, charge_input).await {
-                tracing::error!(error = ?e, "charge failed on cache hit");
+                    if let Err(e) = billing::charge(&state.db, charge_input).await {
+                        tracing::error!(error = ?e, "charge failed on cache hit");
+                    }
+                    cache::record_hit(&mut redis, tokens, saved_cents).await;
+
+                    return Ok(build_json_response(entry.status, Bytes::from(cached_body)));
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        cache_hash = %hash,
+                        error = %e,
+                        "cache entry body_base64 corrupt; bypassing cache"
+                    );
+                    // Drop the bad entry so subsequent requests don't keep
+                    // hitting it. Best-effort — ignore failures.
+                    let _ = cache::delete(&mut redis, hash).await;
+                }
             }
-            cache::record_hit(&mut redis, tokens, saved_cents).await;
-
-            return Ok(build_json_response(entry.status, Bytes::from(cached_body)));
         }
     }
 
@@ -241,6 +256,7 @@ pub async fn forward(
                 let model_clone = model_row.clone();
                 let channel_id = channel.id;
                 let final_usage_rx = stream_resp.final_usage;
+                let partial_usage = stream_resp.partial_usage;
                 let events = stream_resp.events;
                 let ip_for_task = client_ip;
 
@@ -271,6 +287,23 @@ pub async fn forward(
                             }
                         }
                         Err(_) => {
+                            // The stream task ended without sending a final
+                            // usage — typically because the client disconnected
+                            // mid-stream and the SSE writer was dropped before
+                            // hitting `[DONE]` / `message_stop`. Fall back to
+                            // whatever the adapter managed to record into the
+                            // shared snapshot so we still bill for tokens the
+                            // upstream already counted. If the snapshot is
+                            // empty (disconnect happened before any chunk
+                            // arrived) the row is logged with cost 0.
+                            let usage = partial_usage
+                                .lock()
+                                .map(|g| *g)
+                                .unwrap_or_default();
+                            let has_usage = usage.prompt_tokens > 0
+                                || usage.completion_tokens > 0
+                                || usage.cached_tokens > 0
+                                || usage.cache_creation_tokens > 0;
                             let charge_input = billing::ChargeInput {
                                 user_id,
                                 api_key_id: Some(api_key_id),
@@ -278,10 +311,18 @@ pub async fn forward(
                                 group_multiplier: &group_mult,
                                 model: &model_clone,
                                 channel_id: Some(channel_id),
-                                usage: Usage::default(),
+                                usage,
                                 latency_ms,
-                                status: RequestStatus::Error,
-                                error_message: Some("stream aborted by client"),
+                                // Partial usage means the call did real work
+                                // upstream but didn't complete cleanly — treat
+                                // as Success for billing (we charge for what
+                                // was used) but flag the row so it's findable.
+                                status: if has_usage {
+                                    RequestStatus::Success
+                                } else {
+                                    RequestStatus::Error
+                                },
+                                error_message: Some("stream aborted before completion"),
                                 client_ip: ip_for_task,
                             };
                             let _ = billing::charge(&state_clone.db, charge_input).await;

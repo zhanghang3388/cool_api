@@ -129,8 +129,18 @@ fn ceil_to_cents(v: &BigDecimal) -> i64 {
     }
 }
 
-/// Deduct balance, insert a request_logs row, and update total_used_cents.
-/// Returns `InsufficientBalance` if deduction underflows (and nothing gets written).
+/// Deduct balance and insert a `request_logs` row.
+///
+/// We always write a log row, even if the deduction fails — by the time we get
+/// here the upstream response has typically already been delivered to the
+/// client, so dropping the row would create silent gaps in the audit trail
+/// and the user's usage page. When the user can't cover the cost (the
+/// `balance_non_negative` CHECK / `balance_cents >= $2` guard rejects the
+/// UPDATE) we record a zero-cost `Error` row tagged `insufficient_balance` so
+/// operators can spot the leakage and reconcile manually.
+///
+/// Returns `Err(InsufficientBalance)` so the caller can still signal the
+/// failure if it cares — but the log row is committed regardless.
 pub async fn charge(pool: &PgPool, input: ChargeInput<'_>) -> AppResult<ChargeResult> {
     let (input_cost_cents, output_cost_cents, total_cost_cents) = match input.status {
         RequestStatus::Cached => compute_cached_cost(&input),
@@ -141,22 +151,58 @@ pub async fn charge(pool: &PgPool, input: ChargeInput<'_>) -> AppResult<ChargeRe
 
     // Atomic deduction guarded by balance_non_negative CHECK: if we'd go
     // negative, the UPDATE ... RETURNING yields 0 rows.
-    let updated: Option<(i64,)> = sqlx::query_as(
-        "UPDATE users
-            SET balance_cents = balance_cents - $2,
-                total_used_cents = total_used_cents + $2
-          WHERE id = $1 AND balance_cents >= $2
-          RETURNING balance_cents",
-    )
-    .bind(input.user_id)
-    .bind(total_cost_cents)
-    .fetch_optional(&mut *tx)
-    .await?;
+    let deducted: bool = if total_cost_cents > 0 {
+        let row: Option<(i64,)> = sqlx::query_as(
+            "UPDATE users
+                SET balance_cents = balance_cents - $2,
+                    total_used_cents = total_used_cents + $2
+              WHERE id = $1 AND balance_cents >= $2
+              RETURNING balance_cents",
+        )
+        .bind(input.user_id)
+        .bind(total_cost_cents)
+        .fetch_optional(&mut *tx)
+        .await?;
+        row.is_some()
+    } else {
+        // Nothing to charge (e.g. error / zero-usage row). No-op success so
+        // we still write the log below.
+        true
+    };
 
-    if updated.is_none() && total_cost_cents > 0 {
-        tx.rollback().await.ok();
-        return Err(AppError::InsufficientBalance);
-    }
+    // If we couldn't deduct, downgrade the row we're about to write into a
+    // zero-cost Error so the audit trail still has a record. The original
+    // status / error_message / cost numbers are replaced.
+    let (
+        log_status,
+        log_error_msg,
+        log_input_cost,
+        log_output_cost,
+        log_total_cost,
+        log_error_owned,
+    ) = if deducted {
+        (
+            input.status,
+            input.error_message.map(|s| s.to_string()),
+            input_cost_cents,
+            output_cost_cents,
+            total_cost_cents,
+            None,
+        )
+    } else {
+        let owned = format!(
+            "insufficient_balance: would have charged {total_cost_cents} cents"
+        );
+        (
+            RequestStatus::Error,
+            Some(owned.clone()),
+            0,
+            0,
+            0,
+            Some(owned),
+        )
+    };
+    let _ = log_error_owned; // borrow extension only — kept alive by `log_error_msg`
 
     sqlx::query(
         "INSERT INTO request_logs (
@@ -175,18 +221,22 @@ pub async fn charge(pool: &PgPool, input: ChargeInput<'_>) -> AppResult<ChargeRe
     .bind(input.usage.completion_tokens)
     .bind(input.usage.cached_tokens)
     .bind(input.usage.cache_creation_tokens)
-    .bind(input_cost_cents)
-    .bind(output_cost_cents)
-    .bind(total_cost_cents)
+    .bind(log_input_cost)
+    .bind(log_output_cost)
+    .bind(log_total_cost)
     .bind(input.group_multiplier)
     .bind(input.latency_ms)
-    .bind(input.status)
-    .bind(input.error_message)
+    .bind(log_status)
+    .bind(log_error_msg.as_deref())
     .bind(input.client_ip)
     .execute(&mut *tx)
     .await?;
 
     tx.commit().await?;
+
+    if !deducted {
+        return Err(AppError::InsufficientBalance);
+    }
 
     Ok(ChargeResult {
         total_cost_cents,

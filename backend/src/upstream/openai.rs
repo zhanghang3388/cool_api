@@ -159,6 +159,8 @@ impl UpstreamAdapter for OpenAiAdapter {
         // Streaming path.
         let byte_stream = resp.bytes_stream();
         let (usage_tx, usage_rx) = tokio::sync::oneshot::channel::<Usage>();
+        let partial = std::sync::Arc::new(std::sync::Mutex::new(Usage::default()));
+        let partial_for_stream = partial.clone();
 
         let events = async_stream::try_stream! {
             let mut sse = byte_stream.eventsource();
@@ -186,6 +188,11 @@ impl UpstreamAdapter for OpenAiAdapter {
                             .prompt_tokens_details
                             .and_then(|d| d.cached_tokens)
                             .unwrap_or(0);
+                        // Mirror to the shared snapshot so caller can recover
+                        // billing data if the stream is later dropped.
+                        if let Ok(mut g) = partial_for_stream.lock() {
+                            *g = final_usage;
+                        }
                     }
                 }
 
@@ -201,6 +208,7 @@ impl UpstreamAdapter for OpenAiAdapter {
         Ok(ChatResponse::Stream(ChatStreamResponse {
             events: boxed,
             final_usage: usage_rx,
+            partial_usage: partial,
         }))
     }
 }

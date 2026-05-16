@@ -4,12 +4,41 @@ use axum::http::header;
 use axum::http::request::Parts;
 use bigdecimal::BigDecimal;
 use chrono::Utc;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use crate::auth::jwt::Claims;
 use crate::error::AppError;
 use crate::models::{User, UserRole, UserStatus};
 use crate::repo;
 use crate::AppState;
+
+/// Throttle for `last_used_at` writes. Bumping it on every API call would
+/// have us spawning a Postgres UPDATE per request — under bursty traffic
+/// that drains the pool. One bump per minute per key is enough for the UI.
+const TOUCH_INTERVAL: Duration = Duration::from_secs(60);
+
+fn touch_seen() -> &'static Mutex<HashMap<i64, Instant>> {
+    static SEEN: OnceLock<Mutex<HashMap<i64, Instant>>> = OnceLock::new();
+    SEEN.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Returns true if we should write `last_used_at` for this key now. Stamps
+/// the in-memory map either way so concurrent callers cooperate.
+fn should_touch(key_id: i64, now: Instant) -> bool {
+    let Ok(mut map) = touch_seen().lock() else {
+        // Lock poisoning — be conservative and let the caller write.
+        return true;
+    };
+    match map.get(&key_id).copied() {
+        Some(prev) if now.duration_since(prev) < TOUCH_INTERVAL => false,
+        _ => {
+            map.insert(key_id, now);
+            true
+        }
+    }
+}
 
 /// Authenticated user (any role). Extractor for routes that allow both
 /// normal users and admins.
@@ -148,12 +177,16 @@ where
             return Err(AppError::Forbidden);
         }
 
-        // Fire-and-forget: bump last_used_at. Don't fail the request on error.
-        let pool = app_state.db.clone();
-        let key_id = key.id;
-        tokio::spawn(async move {
-            let _ = repo::api_keys::touch_last_used(&pool, key_id, Utc::now()).await;
-        });
+        // Fire-and-forget: bump last_used_at. Throttled so we don't spawn
+        // a DB write on every single request — the UI only needs minute
+        // resolution.
+        if should_touch(key.id, Instant::now()) {
+            let pool = app_state.db.clone();
+            let key_id = key.id;
+            tokio::spawn(async move {
+                let _ = repo::api_keys::touch_last_used(&pool, key_id, Utc::now()).await;
+            });
+        }
 
         Ok(ApiUser {
             user,
@@ -162,5 +195,35 @@ where
             group_name,
             api_key_id: key.id,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_touch;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn first_call_writes_then_throttles() {
+        // Use unlikely IDs so we don't collide with anything else in the
+        // process-wide map (the function intentionally shares state).
+        let key_id = i64::MAX - 7;
+        let t0 = Instant::now();
+        assert!(should_touch(key_id, t0));
+        // Same instant — within the throttle window, must NOT write again.
+        assert!(!should_touch(key_id, t0));
+        // Still inside the window.
+        assert!(!should_touch(key_id, t0 + Duration::from_secs(30)));
+        // Past the window — write again.
+        assert!(should_touch(key_id, t0 + Duration::from_secs(120)));
+    }
+
+    #[test]
+    fn different_keys_dont_block_each_other() {
+        let a = i64::MAX - 11;
+        let b = i64::MAX - 12;
+        let t0 = Instant::now();
+        assert!(should_touch(a, t0));
+        assert!(should_touch(b, t0));
     }
 }

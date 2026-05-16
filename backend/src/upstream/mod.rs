@@ -57,10 +57,15 @@ pub struct ChatJsonResponse {
 /// responsible for relaying them to the downstream client as-is.
 ///
 /// `final_usage` is filled once the stream completes; the caller awaits it
-/// *after* the stream is exhausted to drive billing.
+/// *after* the stream is exhausted to drive billing. `partial_usage` is a
+/// shared accumulator the adapter updates as each chunk arrives — if the
+/// stream is dropped before completion (client disconnect, upstream hiccup),
+/// the caller can still bill against the most recent snapshot rather than
+/// recording zero tokens.
 pub struct ChatStreamResponse {
     pub events: BoxStream<'static, Result<Bytes, String>>,
     pub final_usage: tokio::sync::oneshot::Receiver<Usage>,
+    pub partial_usage: std::sync::Arc<std::sync::Mutex<Usage>>,
 }
 
 pub enum ChatResponse {
