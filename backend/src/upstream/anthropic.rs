@@ -180,14 +180,17 @@ impl UpstreamAdapter for AnthropicAdapter {
                     "message_start" => {
                         if let Ok(parsed) = serde_json::from_str::<MessageStart>(&ev.data) {
                             if let Some(u) = parsed.message.usage {
-                                final_usage.prompt_tokens = u.input_tokens.unwrap_or(0);
+                                let cached = u.cache_read_input_tokens.unwrap_or(0);
+                                let written = u.cache_creation_input_tokens.unwrap_or(0);
+                                let new_input = u.input_tokens.unwrap_or(0);
+                                // Anthropic reports input_tokens / cache_read / cache_creation
+                                // as DISJOINT counts. The billing layer expects the
+                                // OpenAI-style invariant "prompt_tokens is the TOTAL
+                                // input including cached", so sum them up here.
+                                final_usage.prompt_tokens = new_input + cached + written;
                                 final_usage.completion_tokens = u.output_tokens.unwrap_or(0);
-                                final_usage.cached_tokens = u
-                                    .cache_read_input_tokens
-                                    .unwrap_or(0);
-                                final_usage.cache_creation_tokens = u
-                                    .cache_creation_input_tokens
-                                    .unwrap_or(0);
+                                final_usage.cached_tokens = cached;
+                                final_usage.cache_creation_tokens = written;
                             }
                         }
                     }
@@ -232,11 +235,19 @@ fn extract_usage_json(body: &[u8]) -> Usage {
     match serde_json::from_slice::<Env>(body) {
         Ok(env) => env
             .usage
-            .map(|u| Usage {
-                prompt_tokens: u.input_tokens.unwrap_or(0),
-                completion_tokens: u.output_tokens.unwrap_or(0),
-                cached_tokens: u.cache_read_input_tokens.unwrap_or(0),
-                cache_creation_tokens: u.cache_creation_input_tokens.unwrap_or(0),
+            .map(|u| {
+                let cached = u.cache_read_input_tokens.unwrap_or(0);
+                let written = u.cache_creation_input_tokens.unwrap_or(0);
+                let new_input = u.input_tokens.unwrap_or(0);
+                Usage {
+                    // Aggregate to "total prompt" (OpenAI semantics) so the
+                    // billing layer can subtract cached/written and bill the
+                    // remainder at the new-input rate.
+                    prompt_tokens: new_input + cached + written,
+                    completion_tokens: u.output_tokens.unwrap_or(0),
+                    cached_tokens: cached,
+                    cache_creation_tokens: written,
+                }
             })
             .unwrap_or_default(),
         Err(_) => Usage::default(),
@@ -297,8 +308,29 @@ mod tests {
             "usage":{"input_tokens":12,"output_tokens":5,"cache_read_input_tokens":3}
         }"#;
         let u = extract_usage_json(body);
-        assert_eq!(u.prompt_tokens, 12);
+        // Anthropic reports input_tokens (=new input) and cache_read_input_tokens
+        // as disjoint counts; we aggregate them to "total prompt" so billing
+        // can split buckets the same way it does for OpenAI.
+        assert_eq!(u.prompt_tokens, 15);
         assert_eq!(u.completion_tokens, 5);
         assert_eq!(u.cached_tokens, 3);
+        assert_eq!(u.cache_creation_tokens, 0);
+    }
+
+    #[test]
+    fn usage_with_cache_creation() {
+        let body = br#"{
+            "id":"x",
+            "usage":{
+                "input_tokens":1000,
+                "output_tokens":500,
+                "cache_read_input_tokens":2000,
+                "cache_creation_input_tokens":300
+            }
+        }"#;
+        let u = extract_usage_json(body);
+        assert_eq!(u.prompt_tokens, 3300);
+        assert_eq!(u.cached_tokens, 2000);
+        assert_eq!(u.cache_creation_tokens, 300);
     }
 }

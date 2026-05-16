@@ -108,12 +108,21 @@ impl UpstreamAdapter for OpenAiAdapter {
     ) -> AppResult<ChatResponse> {
         let url = join_url(base_url, "/v1/chat/completions");
 
+        // For streaming, force `stream_options.include_usage = true` so the
+        // upstream emits a final chunk with `usage`. Without it, OpenAI never
+        // sends usage on a stream and we'd bill the user 0 tokens.
+        let body_to_send: Bytes = if req.stream {
+            ensure_include_usage(&req.raw_body)
+        } else {
+            req.raw_body.clone()
+        };
+
         let resp = http
             .post(&url)
             .bearer_auth(api_key)
             .header("content-type", "application/json")
             .timeout(FORWARD_TIMEOUT)
-            .body(req.raw_body.clone())
+            .body(body_to_send)
             .send()
             .await
             .map_err(|e| AppError::Upstream(format!("network error: {e}")))?;
@@ -193,6 +202,44 @@ impl UpstreamAdapter for OpenAiAdapter {
             events: boxed,
             final_usage: usage_rx,
         }))
+    }
+}
+
+/// Patch a chat-completions request body so the upstream emits a final
+/// `usage` chunk on streaming responses. OpenAI gates this behind
+/// `stream_options.include_usage = true`; without it, streamed responses
+/// never carry usage and we'd record 0 tokens for every streamed call.
+///
+/// We only mutate `stream_options.include_usage`; every other user field
+/// (including unrelated keys under `stream_options`) is preserved. If the
+/// body isn't valid JSON we return it unchanged and let the upstream reject
+/// it — we'd rather surface the upstream's error than mask it.
+fn ensure_include_usage(raw: &Bytes) -> Bytes {
+    let mut value: serde_json::Value = match serde_json::from_slice(raw) {
+        Ok(v) => v,
+        Err(_) => return raw.clone(),
+    };
+    let Some(obj) = value.as_object_mut() else {
+        return raw.clone();
+    };
+
+    let opts = obj
+        .entry("stream_options".to_string())
+        .or_insert_with(|| serde_json::json!({}));
+    if let Some(opts_obj) = opts.as_object_mut() {
+        opts_obj.insert(
+            "include_usage".to_string(),
+            serde_json::Value::Bool(true),
+        );
+    } else {
+        // `stream_options` was set to a non-object (rare, malformed). Replace
+        // it with the minimal correct shape rather than crashing.
+        *opts = serde_json::json!({ "include_usage": true });
+    }
+
+    match serde_json::to_vec(&value) {
+        Ok(buf) => Bytes::from(buf),
+        Err(_) => raw.clone(),
     }
 }
 
@@ -286,5 +333,42 @@ mod tests {
         let body = br#"{"id":"x"}"#;
         let u = extract_usage_json(body);
         assert_eq!(u.prompt_tokens, 0);
+    }
+
+    #[test]
+    fn ensure_include_usage_adds_when_missing() {
+        let body = br#"{"model":"gpt-4o","stream":true,"messages":[]}"#;
+        let out = super::ensure_include_usage(&bytes::Bytes::from_static(body));
+        let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(v["stream_options"]["include_usage"], serde_json::json!(true));
+        // Original fields are preserved.
+        assert_eq!(v["model"], "gpt-4o");
+        assert_eq!(v["stream"], true);
+    }
+
+    #[test]
+    fn ensure_include_usage_overrides_false() {
+        let body = br#"{"stream":true,"stream_options":{"include_usage":false}}"#;
+        let out = super::ensure_include_usage(&bytes::Bytes::from_static(body));
+        let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(v["stream_options"]["include_usage"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn ensure_include_usage_keeps_other_options() {
+        let body = br#"{"stream":true,"stream_options":{"some_other":"keep"}}"#;
+        let out = super::ensure_include_usage(&bytes::Bytes::from_static(body));
+        let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(v["stream_options"]["include_usage"], serde_json::json!(true));
+        assert_eq!(v["stream_options"]["some_other"], "keep");
+    }
+
+    #[test]
+    fn ensure_include_usage_passes_through_unparseable() {
+        // Garbage in → garbage out, untouched. Lets the upstream reject it
+        // with its own error message instead of us masking it.
+        let body = b"not-json";
+        let out = super::ensure_include_usage(&bytes::Bytes::copy_from_slice(body));
+        assert_eq!(&out[..], body);
     }
 }
