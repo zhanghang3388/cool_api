@@ -180,6 +180,17 @@ pub async fn forward(
                     tracing::error!(error = ?e, "charge failed after json response");
                 }
 
+                // Successful forward — clear any prior error/warning state.
+                if let Err(e) = repo::channels::mark_healthy(
+                    &state.db,
+                    channel.id,
+                    chrono::Utc::now(),
+                )
+                .await
+                {
+                    tracing::warn!(channel_id = channel.id, error = ?e, "mark_healthy failed");
+                }
+
                 // Store a cacheable successful response before we reply, so a
                 // parallel second request can hit the cache.
                 if let (Some(hash), Some(mut redis)) =
@@ -211,6 +222,17 @@ pub async fn forward(
                 return Ok(build_json_response(resp.status, resp.body));
             }
             Ok(ChatResponse::Stream(stream_resp)) => {
+                // Headers were already received successfully — channel is up.
+                if let Err(e) = repo::channels::mark_healthy(
+                    &state.db,
+                    channel.id,
+                    chrono::Utc::now(),
+                )
+                .await
+                {
+                    tracing::warn!(channel_id = channel.id, error = ?e, "mark_healthy failed");
+                }
+
                 let state_clone = state.clone();
                 let user_id = api.user.id;
                 let api_key_id = api.api_key_id;
@@ -281,6 +303,33 @@ pub async fn forward(
                 .await;
                 last_err = Some(msg);
                 continue;
+            }
+            Err(AppError::UpstreamRequest(msg)) => {
+                // The request itself was rejected (e.g. bad model / oversized
+                // prompt). Channel is fine — log against the user, do NOT
+                // failover, do NOT mark the channel unhealthy.
+                let latency_ms = started
+                    .elapsed()
+                    .as_millis()
+                    .min(i32::MAX as u128) as i32;
+                let _ = billing::charge(
+                    &state.db,
+                    billing::ChargeInput {
+                        user_id: api.user.id,
+                        api_key_id: Some(api.api_key_id),
+                        group_id: api.group_id,
+                        group_multiplier: &api.group_multiplier,
+                        model: &model_row,
+                        channel_id: Some(channel.id),
+                        usage: Usage::default(),
+                        latency_ms,
+                        status: RequestStatus::Error,
+                        error_message: Some(&msg),
+                        client_ip,
+                    },
+                )
+                .await;
+                return Err(AppError::UpstreamRequest(msg));
             }
             Err(other) => return Err(other),
         }

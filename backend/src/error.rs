@@ -29,6 +29,13 @@ pub enum AppError {
     #[error("upstream error: {0}")]
     Upstream(String),
 
+    /// Upstream rejected the request because of the request itself (4xx other
+    /// than auth / rate-limit). Surfaced to the caller as 400 — the channel is
+    /// fine, the request body is the problem, so the router must not failover
+    /// or mark the channel unhealthy.
+    #[error("upstream rejected request: {0}")]
+    UpstreamRequest(String),
+
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
 
@@ -53,6 +60,7 @@ impl AppError {
             Self::InsufficientBalance => StatusCode::PAYMENT_REQUIRED,
             Self::NoAvailableChannel(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::Upstream(_) => StatusCode::BAD_GATEWAY,
+            Self::UpstreamRequest(_) => StatusCode::BAD_REQUEST,
             Self::Database(_) | Self::Redis(_) | Self::Http(_) | Self::Internal(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
@@ -69,6 +77,7 @@ impl AppError {
             Self::InsufficientBalance => "insufficient_balance",
             Self::NoAvailableChannel(_) => "no_available_channel",
             Self::Upstream(_) => "upstream_error",
+            Self::UpstreamRequest(_) => "upstream_request_rejected",
             _ => "internal_error",
         }
     }

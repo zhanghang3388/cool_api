@@ -133,3 +133,23 @@ pub async fn record_test_result(
     .await?;
     Ok(())
 }
+
+/// Mark a channel as healthy after a successful forward. Only flips state
+/// when it's currently `error` or `warning` so we don't churn `updated_at`
+/// for already-active rows.
+pub async fn mark_healthy(
+    pool: &PgPool,
+    id: i64,
+    tested_at: DateTime<Utc>,
+) -> AppResult<()> {
+    sqlx::query(
+        "UPDATE channels
+            SET status = 'active', last_error = NULL, last_test_at = $2, updated_at = NOW()
+          WHERE id = $1 AND status IN ('error','warning')",
+    )
+    .bind(id)
+    .bind(tested_at)
+    .execute(pool)
+    .await?;
+    Ok(())
+}

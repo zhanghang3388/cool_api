@@ -139,10 +139,14 @@ impl UpstreamAdapter for AnthropicAdapter {
         let status = resp.status();
         if !status.is_success() {
             let body = resp.bytes().await.unwrap_or_default();
-            return Err(AppError::Upstream(format!(
+            let detail = format!(
                 "{status}: {}",
                 truncate(&String::from_utf8_lossy(&body), 800)
-            )));
+            );
+            if super::is_request_error_status(status.as_u16()) {
+                return Err(AppError::UpstreamRequest(detail));
+            }
+            return Err(AppError::Upstream(detail));
         }
 
         if !req.stream {

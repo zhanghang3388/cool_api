@@ -130,3 +130,40 @@ pub(crate) fn join_url(base: &str, path: &str) -> String {
 
 pub(crate) const TEST_TIMEOUT: Duration = Duration::from_secs(15);
 pub(crate) const FORWARD_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Classify an upstream HTTP status into "user request problem" vs "channel
+/// problem". 4xx that's clearly about the request body (400, 404, 422 …) is
+/// the user's fault — channel stays healthy. 401/403/408/425/429 + every 5xx
+/// is treated as a channel/transport issue and triggers failover.
+pub(crate) fn is_request_error_status(status: u16) -> bool {
+    if !(400..500).contains(&status) {
+        return false;
+    }
+    !matches!(status, 401 | 403 | 408 | 425 | 429)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_request_error_status;
+
+    #[test]
+    fn user_request_errors() {
+        for s in [400u16, 404, 405, 411, 413, 414, 415, 422] {
+            assert!(is_request_error_status(s), "{s} should be a user error");
+        }
+    }
+
+    #[test]
+    fn channel_failures() {
+        for s in [401u16, 403, 408, 425, 429, 500, 502, 503, 504] {
+            assert!(!is_request_error_status(s), "{s} should NOT be a user error");
+        }
+    }
+
+    #[test]
+    fn success_codes_not_user_errors() {
+        for s in [200u16, 204, 301, 302] {
+            assert!(!is_request_error_status(s));
+        }
+    }
+}

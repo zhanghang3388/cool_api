@@ -121,12 +121,17 @@ impl UpstreamAdapter for OpenAiAdapter {
         let status = resp.status();
         if !status.is_success() {
             let body = resp.bytes().await.unwrap_or_default();
-            // Surface upstream body directly so client can debug — caller maps
-            // this into the AppError / response to downstream.
-            return Err(AppError::Upstream(format!(
+            let detail = format!(
                 "{status}: {}",
                 truncate(&String::from_utf8_lossy(&body), 800)
-            )));
+            );
+            // 4xx (excluding auth + rate-limit) means the request body is bad.
+            // The channel is healthy — surface as a request error so the router
+            // does NOT failover to other channels or mark this one unhealthy.
+            if super::is_request_error_status(status.as_u16()) {
+                return Err(AppError::UpstreamRequest(detail));
+            }
+            return Err(AppError::Upstream(detail));
         }
 
         if !req.stream {
