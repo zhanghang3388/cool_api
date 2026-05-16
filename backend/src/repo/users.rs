@@ -181,6 +181,20 @@ pub async fn topup(
     if bonus_cents < 0 {
         return Err(AppError::BadRequest("bonus must be >= 0".into()));
     }
+    // Sanity cap to keep a bad admin click from creating a balance that
+    // overflows `bigint` or wedges the audit story. 1 billion cents = ¥10M
+    // per single topup is far above any legitimate manual credit.
+    const MAX_PER_TOPUP_CENTS: i64 = 1_000_000_000;
+    if amount_cents > MAX_PER_TOPUP_CENTS || bonus_cents > MAX_PER_TOPUP_CENTS {
+        return Err(AppError::BadRequest(format!(
+            "amount and bonus must each be <= {MAX_PER_TOPUP_CENTS} cents"
+        )));
+    }
+    // Defense-in-depth against the addition itself overflowing i64 if the
+    // caps above ever change.
+    let credit = amount_cents
+        .checked_add(bonus_cents)
+        .ok_or_else(|| AppError::BadRequest("amount + bonus overflows".into()))?;
 
     let mut tx: Transaction<'_, Postgres> = pool.begin().await?;
 
@@ -189,7 +203,7 @@ pub async fn topup(
          WHERE id = $1 RETURNING {COLUMNS}"
     ))
     .bind(user_id)
-    .bind(amount_cents + bonus_cents)
+    .bind(credit)
     .fetch_optional(&mut *tx)
     .await?;
     let user = user.ok_or(AppError::NotFound)?;

@@ -1,5 +1,5 @@
 use chrono::{Duration, Utc};
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, AppResult};
@@ -20,14 +20,22 @@ pub struct Claims {
 pub struct JwtService {
     encoding: EncodingKey,
     decoding: DecodingKey,
+    validation: Validation,
     ttl: Duration,
 }
 
 impl JwtService {
     pub fn new(secret: &str, ttl_hours: i64) -> Self {
+        // Pin the algorithm. `Validation::default()` happens to be HS256
+        // today but lets the decoder accept whatever the token's `alg`
+        // header claims — the foundation of "alg confusion" attacks. The
+        // matching encoder also runs HS256 by default, but we pin the
+        // header explicitly below for symmetry.
+        let validation = Validation::new(Algorithm::HS256);
         Self {
             encoding: EncodingKey::from_secret(secret.as_bytes()),
             decoding: DecodingKey::from_secret(secret.as_bytes()),
+            validation,
             ttl: Duration::hours(ttl_hours),
         }
     }
@@ -40,12 +48,12 @@ impl JwtService {
             iat: now.timestamp(),
             exp: (now + self.ttl).timestamp(),
         };
-        encode(&Header::default(), &claims, &self.encoding)
+        encode(&Header::new(Algorithm::HS256), &claims, &self.encoding)
             .map_err(|e| AppError::Internal(format!("jwt encode: {e}")))
     }
 
     pub fn verify(&self, token: &str) -> AppResult<Claims> {
-        let data = decode::<Claims>(token, &self.decoding, &Validation::default())
+        let data = decode::<Claims>(token, &self.decoding, &self.validation)
             .map_err(|_| AppError::Unauthorized)?;
         Ok(data.claims)
     }

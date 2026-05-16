@@ -87,16 +87,23 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let status = self.status();
         let code = self.error_code();
-        let message = self.to_string();
 
-        if status.is_server_error() {
+        // 5xx errors carry raw infrastructure messages (sqlx column names,
+        // constraint names, redis traces, reqwest URLs) that we don't want
+        // surfacing to API clients — those messages help an attacker probe
+        // the schema or internal hostnames. Only the original `Display`
+        // impl goes to the log; the response gets a fixed sanitized string.
+        let public_message: String = if status.is_server_error() {
             tracing::error!(error = ?self, "request failed");
+            "internal server error".to_string()
         } else {
-            tracing::warn!(error = %message, code, "request rejected");
-        }
+            let m = self.to_string();
+            tracing::warn!(error = %m, code, "request rejected");
+            m
+        };
 
         let body = Json(json!({
-            "error": { "code": code, "message": message }
+            "error": { "code": code, "message": public_message }
         }));
         (status, body).into_response()
     }

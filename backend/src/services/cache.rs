@@ -57,10 +57,18 @@ impl CachedEntry {
     }
 }
 
-/// Stable key = sha256("{model}\n{canonical_body_json}"). We lowercase-hex the digest.
-pub fn make_key(model: &str, raw_body: &[u8]) -> String {
+/// Stable key, **scoped per API key** so cache entries never cross tenants.
+///
+/// Two users sending the exact same request body must NOT share a cache hit:
+/// the cached response was generated for user A's prompt and may incorporate
+/// content (system prompts, names, fragments of files) that we shouldn't echo
+/// to user B. The api_key_id namespace makes that mathematical: distinct keys
+/// → distinct hashes, even when model + body are byte-identical.
+pub fn make_key(api_key_id: i64, model: &str, raw_body: &[u8]) -> String {
     let canonical = canonicalize_body(raw_body);
     let mut h = Sha256::new();
+    h.update(api_key_id.to_le_bytes());
+    h.update(b"\n");
     h.update(model.as_bytes());
     h.update(b"\n");
     h.update(canonical.as_bytes());
@@ -330,11 +338,14 @@ pub async fn clear_all(redis: &mut ConnectionManager) -> redis::RedisResult<i64>
 mod tests {
     use super::*;
 
+    const KEY_A: i64 = 1;
+    const KEY_B: i64 = 2;
+
     #[test]
     fn key_stable_for_reordered_keys() {
         let a = br#"{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}"#;
         let b = br#"{"messages":[{"content":"hi","role":"user"}],"model":"gpt-4o"}"#;
-        assert_eq!(make_key("gpt-4o", a), make_key("gpt-4o", b));
+        assert_eq!(make_key(KEY_A, "gpt-4o", a), make_key(KEY_A, "gpt-4o", b));
     }
 
     #[test]
@@ -342,19 +353,36 @@ mod tests {
         let base = br#"{"model":"gpt-4o","messages":[]}"#;
         let with_stream =
             br#"{"model":"gpt-4o","messages":[],"stream":true,"user":"alice"}"#;
-        assert_eq!(make_key("gpt-4o", base), make_key("gpt-4o", with_stream));
+        assert_eq!(
+            make_key(KEY_A, "gpt-4o", base),
+            make_key(KEY_A, "gpt-4o", with_stream)
+        );
     }
 
     #[test]
     fn key_differs_across_models() {
         let body = br#"{"messages":[]}"#;
-        assert_ne!(make_key("gpt-4o", body), make_key("gpt-4o-mini", body));
+        assert_ne!(
+            make_key(KEY_A, "gpt-4o", body),
+            make_key(KEY_A, "gpt-4o-mini", body)
+        );
+    }
+
+    #[test]
+    fn key_differs_across_api_keys() {
+        // Same model, same body, different api_key_id MUST hash differently —
+        // otherwise user B could be served user A's cached response.
+        let body = br#"{"messages":[{"role":"user","content":"hi"}]}"#;
+        assert_ne!(
+            make_key(KEY_A, "gpt-4o", body),
+            make_key(KEY_B, "gpt-4o", body)
+        );
     }
 
     #[test]
     fn non_json_body_still_hashes() {
-        let k1 = make_key("m", b"plain text");
-        let k2 = make_key("m", b"plain text");
+        let k1 = make_key(KEY_A, "m", b"plain text");
+        let k2 = make_key(KEY_A, "m", b"plain text");
         assert_eq!(k1, k2);
         assert!(!k1.is_empty());
     }

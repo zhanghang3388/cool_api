@@ -95,7 +95,8 @@ pub async fn forward(
         && !cache_bypass
         && is_body_cacheable(&input.body);
 
-    let cache_hash = cacheable.then(|| cache::make_key(&input.model_name, &input.body));
+    let cache_hash = cacheable
+        .then(|| cache::make_key(api.api_key_id, &input.model_name, &input.body));
 
     if let (Some(ref hash), Some(mut redis)) = (cache_hash.as_ref(), state.redis.clone()) {
         if let Ok(Some(entry)) = cache::get(&mut redis, hash).await {
