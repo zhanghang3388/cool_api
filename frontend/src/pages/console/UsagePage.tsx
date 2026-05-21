@@ -21,11 +21,6 @@ function formatYuan(cents: number): string {
   return `¥${(cents / 10000).toFixed(4)}`;
 }
 
-function formatDollar(cents: number | null): string {
-  if (cents == null) return '—';
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
 function formatPriceYuan(priceCents: number | null, multiplier: number): string {
   if (priceCents == null) return '—';
   return `¥${(priceCents * multiplier / 100).toFixed(2)}`;
