@@ -1,3 +1,4 @@
+use bigdecimal::BigDecimal;
 use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
 use serde::Serialize;
@@ -57,6 +58,8 @@ pub struct UserLogRow {
     pub model_cache_read_price_cents: Option<i64>,
     pub model_cache_write_price_cents: Option<i64>,
 
+    pub multiplier_applied: BigDecimal,
+
     pub latency_ms: i32,
     pub status: RequestStatus,
     pub error_message: Option<String>,
@@ -112,6 +115,7 @@ pub async fn list(
             m.output_price_cents AS model_output_price_cents, \
             m.cache_read_price_cents AS model_cache_read_price_cents, \
             m.cache_write_price_cents AS model_cache_write_price_cents, \
+            r.multiplier_applied, \
             r.latency_ms, r.status, r.error_message, r.client_ip \
          FROM request_logs r \
          LEFT JOIN groups g ON g.id = r.group_id \
@@ -179,6 +183,7 @@ pub async fn list(
             model_output_price_cents: r.try_get("model_output_price_cents").ok(),
             model_cache_read_price_cents: r.try_get("model_cache_read_price_cents").ok(),
             model_cache_write_price_cents: r.try_get("model_cache_write_price_cents").ok(),
+            multiplier_applied: r.get("multiplier_applied"),
             latency_ms: r.get("latency_ms"),
             status: r.get("status"),
             error_message: r.try_get("error_message").ok(),

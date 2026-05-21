@@ -26,6 +26,11 @@ function formatDollar(cents: number | null): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+function formatPriceYuan(priceCents: number | null, multiplier: number): string {
+  if (priceCents == null) return '—';
+  return `¥${(priceCents * multiplier / 100).toFixed(2)}`;
+}
+
 /** Postgres INET serializes single hosts with /32 or /128 — strip it off for display. */
 function formatIp(raw: string | null): string {
   if (!raw) return '—';
@@ -293,21 +298,21 @@ function LogTableRow({
                 </dl>
               </div>
 
-              {/* Model prices (official) */}
+              {/* Model prices (effective for this group) */}
               <div>
                 <h4 className="text-gray-400 font-medium mb-2">
-                  模型官方价格 <span className="text-gray-600">($/1M)</span>
+                  模型价格 <span className="text-gray-600">(¥/1M)</span>
                 </h4>
                 <dl className="space-y-1 font-mono">
-                  <DetailRow label="输入" value={formatDollar(row.model_input_price_cents)} />
-                  <DetailRow label="输出" value={formatDollar(row.model_output_price_cents)} />
+                  <DetailRow label="输入" value={formatPriceYuan(row.model_input_price_cents, row.multiplier_applied)} />
+                  <DetailRow label="输出" value={formatPriceYuan(row.model_output_price_cents, row.multiplier_applied)} />
                   <DetailRow
                     label="缓存读"
-                    value={formatDollar(row.model_cache_read_price_cents)}
+                    value={formatPriceYuan(row.model_cache_read_price_cents, row.multiplier_applied)}
                   />
                   <DetailRow
                     label="缓存写"
-                    value={formatDollar(row.model_cache_write_price_cents)}
+                    value={formatPriceYuan(row.model_cache_write_price_cents, row.multiplier_applied)}
                   />
                 </dl>
               </div>

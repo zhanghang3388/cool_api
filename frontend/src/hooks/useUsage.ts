@@ -32,6 +32,8 @@ export interface UsageLogRow {
   model_cache_read_price_cents: number | null;
   model_cache_write_price_cents: number | null;
 
+  multiplier_applied: number;
+
   latency_ms: number;
   status: RequestStatus;
   error_message: string | null;
