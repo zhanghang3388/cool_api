@@ -1,8 +1,10 @@
 //! Channel routing: pick the best channel for a model + user group.
 //!
 //! Behavior:
-//! - Filter to channels that are enabled, status in {active, warning}, and list
-//!   the requested model in `allowed_models` (or have an empty list = wildcard).
+//! - Filter to channels that are enabled, status in {active, warning, error},
+//!   and list the requested model in `allowed_models` (or have an empty list =
+//!   wildcard). Error channels are still tried — transient 5xx shouldn't
+//!   permanently exclude a channel. Only `disabled` is excluded.
 //! - Restrict to the requested provider (phase 4 is same-protocol forwarding).
 //! - Restrict by `allowed_group_ids` (empty = open to all groups).
 //! - Group candidates by `priority` (lower wins), apply weighted random pick
@@ -30,7 +32,7 @@ pub async fn plan(
                 enabled, status, allowed_models, allowed_group_ids, balance_cents, \
                 last_test_at, last_error, created_at, updated_at \
          FROM channels \
-         WHERE enabled = TRUE AND provider = $1 AND status IN ('active','warning') \
+         WHERE enabled = TRUE AND provider = $1 AND status IN ('active','warning','error') \
          ORDER BY priority ASC, id ASC",
     )
     .bind(provider)
