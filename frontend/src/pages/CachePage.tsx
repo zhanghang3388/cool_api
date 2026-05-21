@@ -11,7 +11,7 @@ import {
 } from '@/hooks/useCache';
 
 function formatYuan(cents: number): string {
-  return `¥${(cents / 100).toFixed(2)}`;
+  return `¥${(cents / 10000).toFixed(2)}`;
 }
 
 function formatCompact(n: number): string {

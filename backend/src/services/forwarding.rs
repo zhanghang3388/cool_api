@@ -22,7 +22,7 @@ use crate::AppState;
 
 /// Minimum balance (in cents) required to start a request. Saves an upstream
 /// RTT when the user is clearly out of funds.
-const MIN_BALANCE_TO_START: i64 = 1;
+const MIN_BALANCE_TO_START: i64 = 100;
 
 /// Header users can send to opt out of caching for a specific request, or to
 /// force a bypass for debugging (value can be anything — presence is enough).

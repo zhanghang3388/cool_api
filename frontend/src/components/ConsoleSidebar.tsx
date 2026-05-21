@@ -40,7 +40,7 @@ export default function ConsoleSidebar({ user }: { user: UserInfo }) {
     navigate('/login', { replace: true });
   };
 
-  const balance = (user.balance_cents / 100).toFixed(2);
+  const balance = (user.balance_cents / 10000).toFixed(2);
 
   return (
     <aside className="fixed left-0 top-0 bottom-0 w-60 bg-base-100 border-r border-base-300 flex flex-col z-40">

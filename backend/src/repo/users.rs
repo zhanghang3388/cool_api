@@ -184,7 +184,7 @@ pub async fn topup(
     // Sanity cap to keep a bad admin click from creating a balance that
     // overflows `bigint` or wedges the audit story. 1 billion cents = ¥10M
     // per single topup is far above any legitimate manual credit.
-    const MAX_PER_TOPUP_CENTS: i64 = 1_000_000_000;
+    const MAX_PER_TOPUP_CENTS: i64 = 100_000_000_000;
     if amount_cents > MAX_PER_TOPUP_CENTS || bonus_cents > MAX_PER_TOPUP_CENTS {
         return Err(AppError::BadRequest(format!(
             "amount and bonus must each be <= {MAX_PER_TOPUP_CENTS} cents"

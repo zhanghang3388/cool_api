@@ -3,7 +3,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useUsageSummary } from '@/hooks/useUsage';
 
 function formatYuan(cents: number): string {
-  return `¥${(cents / 100).toFixed(2)}`;
+  return `¥${(cents / 10000).toFixed(2)}`;
 }
 
 export default function ConsoleDashboardPage() {
@@ -11,7 +11,7 @@ export default function ConsoleDashboardPage() {
   const { data: summary, isLoading } = useUsageSummary();
   if (!user) return null;
 
-  const balance = (user.balance_cents / 100).toFixed(2);
+  const balance = (user.balance_cents / 10000).toFixed(2);
 
   return (
     <div className="fade-in space-y-4">

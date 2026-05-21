@@ -32,7 +32,7 @@ const STATUS_STYLE: Record<TopUpStatus, { label: string; className: string }> = 
 };
 
 function formatYuan(cents: number): string {
-  return `¥${(cents / 100).toFixed(2)}`;
+  return `¥${(cents / 10000).toFixed(2)}`;
 }
 
 export default function TopUpPage() {
@@ -43,7 +43,7 @@ export default function TopUpPage() {
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const presets = info?.presets_cents ?? [100, 500, 1000, 2000, 5000, 10000];
+  const presets = info?.presets_cents ?? [10000, 50000, 100000, 200000, 500000, 1000000];
   const [selectedPreset, setSelectedPreset] = useState<number | 'custom'>(presets[0]);
   const [customYuan, setCustomYuan] = useState('');
   const [payType, setPayType] = useState<'alipay' | 'wxpay'>('alipay');
@@ -61,12 +61,12 @@ export default function TopUpPage() {
     if (selectedPreset !== 'custom') return selectedPreset;
     const y = parseFloat(customYuan);
     if (!Number.isFinite(y) || y < 1) return 0;
-    return Math.round(y * 100);
+    return Math.round(y * 10000);
   }, [selectedPreset, customYuan]);
 
   const submit = async () => {
     setError(null);
-    const min = info?.min_amount_cents ?? 100;
+    const min = info?.min_amount_cents ?? 10000;
     if (amountCents < min) {
       setError(`金额必须 >= ${formatYuan(min)}`);
       return;
@@ -161,7 +161,7 @@ export default function TopUpPage() {
                       : 'bg-base-200 border-base-300 text-gray-300 hover:border-amber-500/20'
                   }`}
                 >
-                  ¥{cents / 100}
+                  ¥{cents / 10000}
                 </button>
               );
             })}
@@ -227,11 +227,11 @@ export default function TopUpPage() {
 
           <button
             onClick={submit}
-            disabled={createMut.isPending || amountCents < 100}
+            disabled={createMut.isPending || amountCents < 10000}
             className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-black font-medium rounded-lg transition-colors text-sm flex items-center justify-center gap-2"
           >
             {createMut.isPending && <Spinner className="border-black/30 border-t-black" />}
-            {amountCents >= 100 ? `支付 ${formatYuan(amountCents)}` : '选择金额'}
+            {amountCents >= 10000 ? `支付 ${formatYuan(amountCents)}` : '选择金额'}
           </button>
           <p className="text-[10px] text-gray-600 text-center">
             点击支付后将跳转到第三方支付页面。支付完成后返回本页面即可看到余额更新。

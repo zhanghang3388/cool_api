@@ -18,7 +18,7 @@ const STATUS_STYLE: Record<RequestStatus, { label: string; className: string }> 
 };
 
 function formatYuan(cents: number): string {
-  return `¥${(cents / 100).toFixed(4)}`;
+  return `¥${(cents / 10000).toFixed(4)}`;
 }
 
 function formatDollar(cents: number | null): string {

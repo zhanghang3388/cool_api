@@ -1,13 +1,14 @@
 //! Usage-based billing.
 //!
 //! Cost formula (per request):
-//!   non_cached_input_cost = model.input_price_cents  * non_cached_prompt * multiplier / 1_000_000
-//!   cached_input_cost     = (model.cache_read_price_cents OR input_price_cents) * cached * multiplier / 1_000_000
-//!   output_cost           = model.output_price_cents * completion * multiplier / 1_000_000
-//!   total                 = ceil(non_cached_input_cost + cached_input_cost + output_cost)  // in cents
+//!   non_cached_input = model.input_price_cents  * non_cached_prompt * multiplier / 10_000
+//!   cached_input     = (model.cache_read_price_cents OR input_price_cents) * cached * multiplier / 10_000
+//!   output           = model.output_price_cents * completion * multiplier / 10_000
+//!   total            = ceil(non_cached_input + cached_input + output)
 //!
-//! The total is ALWAYS an integer number of cents; we round up (ceil) so we
-//! never under-bill fractional cents.
+//! All monetary values are stored in units of 0.0001 yuan (1/10000 元).
+//! Model prices remain "cents per 1M tokens" — the divisor change handles
+//! the unit conversion.
 
 use bigdecimal::{BigDecimal, Signed, ToPrimitive};
 use chrono::{DateTime, Utc};
@@ -56,7 +57,7 @@ pub fn compute_cost(input: &ChargeInput<'_>) -> (i64, i64, i64) {
         non_cached_prompt = 0;
     }
 
-    let one_mil = BigDecimal::from(1_000_000);
+    let divisor = BigDecimal::from(10_000);
 
     let input_price = BigDecimal::from(input.model.input_price_cents);
     let output_price = BigDecimal::from(input.model.output_price_cents);
@@ -72,20 +73,20 @@ pub fn compute_cost(input: &ChargeInput<'_>) -> (i64, i64, i64) {
         .unwrap_or_else(|| input_price.clone());
 
     let non_cached_cost =
-        &input_price * BigDecimal::from(non_cached_prompt) * mult / &one_mil;
+        &input_price * BigDecimal::from(non_cached_prompt) * mult / &divisor;
     let cached_read_cost =
-        &cache_read_price * BigDecimal::from(input.usage.cached_tokens) * mult / &one_mil;
+        &cache_read_price * BigDecimal::from(input.usage.cached_tokens) * mult / &divisor;
     let cached_write_cost = &cache_write_price
         * BigDecimal::from(input.usage.cache_creation_tokens)
         * mult
-        / &one_mil;
+        / &divisor;
     let output_cost =
-        &output_price * BigDecimal::from(input.usage.completion_tokens) * mult / &one_mil;
+        &output_price * BigDecimal::from(input.usage.completion_tokens) * mult / &divisor;
 
     // Everything prompt-side rolls into "input" for reporting; completion is
     // its own bucket. Rounding happens once per bucket so we never under-bill.
-    let input_total = ceil_to_cents(&(non_cached_cost + cached_read_cost + cached_write_cost));
-    let output_total = ceil_to_cents(&output_cost);
+    let input_total = ceil_to_unit(&(non_cached_cost + cached_read_cost + cached_write_cost));
+    let output_total = ceil_to_unit(&output_cost);
     (input_total, output_total, input_total + output_total)
 }
 
@@ -95,7 +96,7 @@ pub fn compute_cost(input: &ChargeInput<'_>) -> (i64, i64, i64) {
 /// standard output rate.
 pub fn compute_cached_cost(input: &ChargeInput<'_>) -> (i64, i64, i64) {
     let mult = input.group_multiplier;
-    let one_mil = BigDecimal::from(1_000_000);
+    let divisor = BigDecimal::from(10_000);
 
     let input_price = BigDecimal::from(input.model.input_price_cents);
     let output_price = BigDecimal::from(input.model.output_price_cents);
@@ -106,16 +107,16 @@ pub fn compute_cached_cost(input: &ChargeInput<'_>) -> (i64, i64, i64) {
         .unwrap_or_else(|| input_price.clone());
 
     let input_cost =
-        &cache_price * BigDecimal::from(input.usage.prompt_tokens) * mult / &one_mil;
+        &cache_price * BigDecimal::from(input.usage.prompt_tokens) * mult / &divisor;
     let output_cost =
-        &output_price * BigDecimal::from(input.usage.completion_tokens) * mult / &one_mil;
+        &output_price * BigDecimal::from(input.usage.completion_tokens) * mult / &divisor;
 
-    let input_total = ceil_to_cents(&input_cost);
-    let output_total = ceil_to_cents(&output_cost);
+    let input_total = ceil_to_unit(&input_cost);
+    let output_total = ceil_to_unit(&output_cost);
     (input_total, output_total, input_total + output_total)
 }
 
-fn ceil_to_cents(v: &BigDecimal) -> i64 {
+fn ceil_to_unit(v: &BigDecimal) -> i64 {
     if !v.is_positive() {
         return 0;
     }
@@ -311,9 +312,9 @@ mod tests {
             client_ip: None,
         };
         let (i, o, t) = compute_cost(&input);
-        assert_eq!(i, 1500); // 1500 cents for 1M input tokens
-        assert_eq!(o, 3750); // 3750 for 500k output
-        assert_eq!(t, 5250);
+        assert_eq!(i, 150_000); // 1500 * 1M / 10_000
+        assert_eq!(o, 375_000); // 7500 * 500k / 10_000
+        assert_eq!(t, 525_000);
     }
 
     #[test]
@@ -339,8 +340,8 @@ mod tests {
             client_ip: None,
         };
         let (_, _, t) = compute_cost(&input);
-        // (1500 + 7500) * 0.4 = 3600
-        assert_eq!(t, 3600);
+        // (1500 + 7500) * 1M * 0.4 / 10_000 = 360_000
+        assert_eq!(t, 360_000);
     }
 
     #[test]
@@ -353,7 +354,7 @@ mod tests {
             group_multiplier: &BigDecimal::from(1),
             model: &model,
             channel_id: None,
-            // 1 token in at $0.01/1M = 0.0000001 cents ... round up to 1 cent
+            // 1 token in at 100 cents/1M: 100 * 1 / 10_000 = 0.01 → ceil to 1
             usage: Usage {
                 prompt_tokens: 1,
                 completion_tokens: 0,
@@ -373,7 +374,7 @@ mod tests {
 
     #[test]
     fn cached_tokens_use_cheaper_rate() {
-        // Input $10/1M, cache $1/1M. 1M tokens, all cached = 1 cent.
+        // Input $10/1M, cache $1/1M. 1M tokens, all cached.
         let model = mk_model(1000, 1000, Some(100));
         let input = ChargeInput {
             user_id: 1,
@@ -394,14 +395,15 @@ mod tests {
             client_ip: None,
         };
         let (i, _, t) = compute_cost(&input);
-        assert_eq!(i, 100); // all 1M tokens charged at cache price 100 cents/1M
-        assert_eq!(t, 100);
+        // 100 * 1M / 10_000 = 10_000
+        assert_eq!(i, 10_000);
+        assert_eq!(t, 10_000);
     }
 
     #[test]
     fn cache_creation_uses_write_price() {
         // Input $10/1M, write $12.5/1M (Anthropic 1.25x). 1M tokens, all
-        // being written into the cache = 12.5 cents, rounded up to 13.
+        // being written into the cache = 1250 * 1M / 10_000 = 125_000.
         let model = mk_model_full(1000, 1000, Some(100), Some(1250));
         let input = ChargeInput {
             user_id: 1,
@@ -422,15 +424,13 @@ mod tests {
             client_ip: None,
         };
         let (i, _, t) = compute_cost(&input);
-        assert_eq!(i, 1250);
-        assert_eq!(t, 1250);
+        assert_eq!(i, 125_000);
+        assert_eq!(t, 125_000);
     }
 
     #[test]
     fn mixed_prompt_buckets() {
-        // Splits a 1M-token prompt across normal / read / write buckets and
-        // verifies each bucket is priced with its own rate, not just the
-        // base input rate.
+        // Splits a 1M-token prompt across normal / read / write buckets.
         let model = mk_model_full(1000, 1000, Some(100), Some(1250));
         let input = ChargeInput {
             user_id: 1,
@@ -442,9 +442,9 @@ mod tests {
             usage: Usage {
                 prompt_tokens: 1_000_000,
                 completion_tokens: 0,
-                cached_tokens: 400_000,     // 40 cents @ 100/M
-                cache_creation_tokens: 100_000, // 125 cents @ 1250/M
-                // remaining 500_000 non-cached @ 1000/M = 500 cents
+                cached_tokens: 400_000,     // 100 * 400k / 10_000 = 4_000
+                cache_creation_tokens: 100_000, // 1250 * 100k / 10_000 = 12_500
+                // remaining 500_000 non-cached: 1000 * 500k / 10_000 = 50_000
             },
             latency_ms: 0,
             status: RequestStatus::Success,
@@ -452,8 +452,8 @@ mod tests {
             client_ip: None,
         };
         let (i, _, t) = compute_cost(&input);
-        assert_eq!(i, 500 + 40 + 125);
-        assert_eq!(t, 665);
+        assert_eq!(i, 50_000 + 4_000 + 12_500);
+        assert_eq!(t, 66_500);
     }
 
     #[test]

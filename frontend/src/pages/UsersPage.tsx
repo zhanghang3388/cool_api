@@ -16,7 +16,7 @@ import {
 const PAGE_SIZE = 20;
 
 function formatYuan(cents: number): string {
-  return `¥${(cents / 100).toFixed(2)}`;
+  return `¥${(cents / 10000).toFixed(2)}`;
 }
 
 export default function UsersPage() {
@@ -100,8 +100,8 @@ export default function UsersPage() {
       await topUpMut.mutateAsync({
         id: topUpTarget.id,
         body: {
-          amount_cents: Math.round(amount * 100),
-          bonus_cents: Math.round(bonus * 100),
+          amount_cents: Math.round(amount * 10000),
+          bonus_cents: Math.round(bonus * 10000),
           note: topUpNote,
         },
       });
@@ -247,7 +247,7 @@ export default function UsersPage() {
                 </td>
                 <td
                   className={`p-4 text-right font-mono ${
-                    u.balance_cents < 1000 ? 'text-rose-400' : 'text-gray-300'
+                    u.balance_cents < 100000 ? 'text-rose-400' : 'text-gray-300'
                   }`}
                 >
                   {formatYuan(u.balance_cents)}

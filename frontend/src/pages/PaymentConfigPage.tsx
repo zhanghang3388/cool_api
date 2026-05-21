@@ -183,7 +183,7 @@ export default function PaymentConfigPage() {
               >
                 <div className="flex justify-between items-center">
                   <span className="font-mono text-gray-200">
-                    ¥{(r.amount_cents / 100).toFixed(2)}
+                    ¥{(r.amount_cents / 10000).toFixed(2)}
                   </span>
                   <span
                     className={`text-[10px] px-2 py-0.5 rounded font-mono ${

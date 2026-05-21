@@ -57,9 +57,9 @@ async fn notify(
     // field would already fail the sign, but this is cheap extra defense.
     let record = repo::top_up_records::get_by_out_trade_no(&state.db, &out_trade_no).await?;
     let reported_money = raw.get("money").and_then(|s| s.parse::<f64>().ok());
-    let reported_cents = reported_money.map(|m| (m * 100.0).round() as i64);
-    if reported_cents != Some(record.amount_cents) {
-        tracing::warn!(%out_trade_no, ?reported_cents, expected = record.amount_cents,
+    let reported_units = reported_money.map(|m| (m * 10000.0).round() as i64);
+    if reported_units != Some(record.amount_cents) {
+        tracing::warn!(%out_trade_no, ?reported_units, expected = record.amount_cents,
             "amount mismatch on epay notify");
         return Err(AppError::BadRequest("amount mismatch".into()));
     }

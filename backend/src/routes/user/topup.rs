@@ -52,8 +52,8 @@ async fn info(
         && !pay.key_encrypted.is_empty()
         && !pay.api_url.is_empty();
     Ok(Json(TopUpInfo {
-        presets_cents: vec![100, 500, 1000, 2000, 5000, 10000],
-        min_amount_cents: 100,
+        presets_cents: vec![10000, 50000, 100000, 200000, 500000, 1000000],
+        min_amount_cents: 10000,
         payment_enabled: enabled,
         payment_name: pay.name,
     }))
@@ -88,12 +88,12 @@ async fn create_order(
     auth: AuthUser,
     Json(body): Json<CreateOrderRequest>,
 ) -> AppResult<Json<CreateOrderResponse>> {
-    if body.amount_cents < 100 {
+    if body.amount_cents < 10000 {
         return Err(AppError::BadRequest(
-            "amount must be >= 1 元 (100 cents)".into(),
+            "amount must be >= 1 元 (10000 units)".into(),
         ));
     }
-    if body.amount_cents > 1_000_000 {
+    if body.amount_cents > 100_000_000 {
         return Err(AppError::BadRequest(
             "amount must be <= 10000 元".into(),
         ));
@@ -132,7 +132,7 @@ async fn create_order(
     )
     .await?;
 
-    let money = format!("{:.2}", (body.amount_cents as f64) / 100.0);
+    let money = format!("{:.2}", (body.amount_cents as f64) / 10000.0);
     let name = format!("AetherGate 充值 {money} 元");
 
     let mut params: BTreeMap<String, String> = BTreeMap::new();
