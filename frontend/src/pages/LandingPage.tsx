@@ -213,28 +213,9 @@ function TelemetryCard() {
           </div>
         ))}
       </div>
-
-      <div className="mt-5 pt-4 border-t border-base-300/60 grid grid-cols-3 gap-3 text-center">
-        <Stat label="协议" value="2" />
-        <Stat label="渠道" value="∞" />
-        <Stat label="重试" value="0ms" />
-      </div>
     </div>
   );
 }
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-2xl font-semibold text-amber-400 mono-data">{value}</div>
-      <div className="text-[10px] font-mono tracking-widest text-gray-500 mt-1">
-        {label}
-      </div>
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
 
 function Features() {
   const items = [
