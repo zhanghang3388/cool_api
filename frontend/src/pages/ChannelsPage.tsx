@@ -81,6 +81,7 @@ export default function ChannelsPage() {
 
   const [fetchedModels, setFetchedModels] = useState<UpstreamModelEntry[]>([]);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [chipInput, setChipInput] = useState('');
 
   const modelNames = useMemo(() => models.map((m) => m.name), [models]);
 
@@ -90,6 +91,7 @@ export default function ChannelsPage() {
     setFormError(null);
     setFetchedModels([]);
     setFetchError(null);
+    setChipInput('');
     setModalOpen(true);
   };
 
@@ -109,6 +111,7 @@ export default function ChannelsPage() {
     setFormError(null);
     setFetchedModels([]);
     setFetchError(null);
+    setChipInput('');
     setModalOpen(true);
   };
 
@@ -140,6 +143,27 @@ export default function ChannelsPage() {
     const next = new Set(parsedAllowed);
     if (next.has(name)) next.delete(name);
     else next.add(name);
+    setAllowedList(next);
+  };
+
+  const commitChipInput = () => {
+    const items = chipInput
+      .split(/[,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (items.length === 0) {
+      setChipInput('');
+      return;
+    }
+    const next = new Set(parsedAllowed);
+    items.forEach((it) => next.add(it));
+    setAllowedList(next);
+    setChipInput('');
+  };
+
+  const removeAllowedModel = (name: string) => {
+    const next = new Set(parsedAllowed);
+    next.delete(name);
     setAllowedList(next);
   };
 
@@ -543,12 +567,74 @@ export default function ChannelsPage() {
               </div>
             )}
 
-            <input
-              value={form.allowed_models}
-              onChange={(e) => setForm({ ...form, allowed_models: e.target.value })}
-              className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-200 focus:outline-none focus:border-amber-500"
-              placeholder="逗号分隔，或从上方列表勾选"
-            />
+            <div
+              className="w-full bg-base-200 border border-base-300 rounded-lg px-2 py-1.5 min-h-[42px] flex flex-wrap gap-1.5 items-center focus-within:border-amber-500 transition-colors cursor-text"
+              onClick={(e) => {
+                const target = e.target as HTMLElement;
+                if (target.tagName !== 'INPUT' && target.tagName !== 'BUTTON') {
+                  (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.focus();
+                }
+              }}
+            >
+              {Array.from(parsedAllowed).map((name) => (
+                <span
+                  key={name}
+                  className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-mono"
+                >
+                  <span className="truncate max-w-[200px]" title={name}>{name}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeAllowedModel(name)}
+                    className="w-4 h-4 inline-flex items-center justify-center rounded text-amber-400/70 hover:text-amber-200 hover:bg-amber-500/20 leading-none"
+                    aria-label={`移除 ${name}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              <input
+                value={chipInput}
+                onChange={(e) => setChipInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ',' || e.key === ' ') {
+                    if (chipInput.trim()) {
+                      e.preventDefault();
+                      commitChipInput();
+                    }
+                  } else if (e.key === 'Backspace' && chipInput === '' && parsedAllowed.size > 0) {
+                    const arr = Array.from(parsedAllowed);
+                    removeAllowedModel(arr[arr.length - 1]);
+                  }
+                }}
+                onBlur={commitChipInput}
+                onPaste={(e) => {
+                  const text = e.clipboardData.getData('text');
+                  if (/[,\s]/.test(text)) {
+                    e.preventDefault();
+                    const items = text
+                      .split(/[,\s]+/)
+                      .map((s) => s.trim())
+                      .filter(Boolean);
+                    const next = new Set(parsedAllowed);
+                    items.forEach((it) => next.add(it));
+                    setAllowedList(next);
+                    setChipInput('');
+                  }
+                }}
+                className="flex-1 min-w-[160px] bg-transparent text-sm font-mono text-gray-200 focus:outline-none placeholder:text-gray-600 px-1 py-0.5"
+                placeholder={parsedAllowed.size === 0 ? '从上方勾选，或输入模型名后回车 / 逗号添加' : ''}
+              />
+              {parsedAllowed.size > 0 && (
+                <button
+                  type="button"
+                  onClick={clearAllowed}
+                  className="text-[10px] text-gray-500 hover:text-gray-300 px-1.5"
+                  title="清空全部"
+                >
+                  清空
+                </button>
+              )}
+            </div>
             {modelNames.length > 0 && fetchedModels.length === 0 && (
               <div className="mt-2 flex flex-wrap gap-1">
                 <span className="text-[10px] text-gray-600 mr-1">常用：</span>
