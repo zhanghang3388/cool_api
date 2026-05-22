@@ -120,13 +120,22 @@ function pivot(points: DailyGroupPoint[]): PivotResult {
   // Build the canonical 7 days (or however many were requested) from "today
   // back". Backend may omit days that had zero traffic, so we manufacture
   // them here so the X-axis stays consistent regardless of activity.
+  //
+  // We use **local** Y/M/D components (not toISOString — that converts to
+  // UTC and silently drops a day for users east of UTC, which made today
+  // disappear from the chart for CN users). Backend buckets in
+  // Asia/Shanghai, so as long as we format dates locally for CN users they
+  // line up.
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const dayKeys: string[] = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(today.getDate() - i);
-    dayKeys.push(d.toISOString().slice(0, 10));
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    dayKeys.push(`${y}-${m}-${day}`);
   }
 
   // Collect groups in stable order (id ascending).
@@ -138,12 +147,12 @@ function pivot(points: DailyGroupPoint[]): PivotResult {
   });
   const groupIds = Array.from(groupMeta.keys()).sort((a, b) => a - b);
 
-  // Quick lookup: groupId → dayKey → tokens.
+  // Quick lookup: groupId → dayKey → tokens. Backend now returns `day` as a
+  // plain `YYYY-MM-DD` string already aligned to Asia/Shanghai.
   const lookup = new Map<number, Map<string, number>>();
   points.forEach((p) => {
-    const dayKey = p.day.slice(0, 10);
     if (!lookup.has(p.group_id)) lookup.set(p.group_id, new Map());
-    lookup.get(p.group_id)!.set(dayKey, p.tokens);
+    lookup.get(p.group_id)!.set(p.day, p.tokens);
   });
 
   const series: PivotedSeries[] = groupIds.map((id, i) => ({
@@ -168,9 +177,11 @@ function formatTokens(n: number): string {
 }
 
 function formatDayShort(iso: string): string {
-  // "2026-05-22" → "5/22"
-  const d = new Date(`${iso}T00:00:00Z`);
-  return `${d.getMonth() + 1}/${d.getDate()}`;
+  // iso = "YYYY-MM-DD". Parse as plain string — no Date object — so the
+  // displayed month/day matches what's on the data point regardless of the
+  // browser's local timezone.
+  const [, m, d] = iso.split('-');
+  return `${parseInt(m, 10)}/${parseInt(d, 10)}`;
 }
 
 function DailyByGroupChart({ points }: { points: DailyGroupPoint[] }) {

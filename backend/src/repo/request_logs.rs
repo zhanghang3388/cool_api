@@ -376,9 +376,13 @@ pub async fn recent_requests(pool: &PgPool, limit: i64) -> AppResult<Vec<RecentR
 /// traffic in the window — but groups the user never touched are not
 /// fabricated. The frontend pivots this into per-group time series and
 /// fills any missing days as 0.
+///
+/// Days are bucketed in `Asia/Shanghai` (the project's primary user
+/// timezone) and returned as `YYYY-MM-DD` strings so the frontend can
+/// align them as plain calendar dates without timezone math.
 #[derive(Debug, Serialize)]
 pub struct DailyGroupPoint {
-    pub day: DateTime<Utc>,
+    pub day: String,
     pub group_id: i64,
     pub group_name: String,
     pub group_label: String,
@@ -392,9 +396,9 @@ pub async fn daily_by_group_for_user(
     user_id: i64,
     days: i32,
 ) -> AppResult<Vec<DailyGroupPoint>> {
-    let rows: Vec<(DateTime<Utc>, i64, String, String, i64, i64, i64)> = sqlx::query_as(
+    let rows: Vec<(String, i64, String, String, i64, i64, i64)> = sqlx::query_as(
         "SELECT \
-            date_trunc('day', r.created_at) AS day, \
+            to_char(date_trunc('day', r.created_at AT TIME ZONE 'Asia/Shanghai'), 'YYYY-MM-DD') AS day, \
             r.group_id, \
             COALESCE(g.name, ''), \
             COALESCE(g.label, ''), \
@@ -404,7 +408,10 @@ pub async fn daily_by_group_for_user(
          FROM request_logs r \
          LEFT JOIN groups g ON g.id = r.group_id \
          WHERE r.user_id = $1 \
-           AND r.created_at >= date_trunc('day', NOW()) - (($2::INT - 1) * INTERVAL '1 day') \
+           AND r.created_at >= ( \
+                  date_trunc('day', NOW() AT TIME ZONE 'Asia/Shanghai') \
+                  - (($2::INT - 1) * INTERVAL '1 day') \
+              ) AT TIME ZONE 'Asia/Shanghai' \
          GROUP BY day, r.group_id, g.name, g.label \
          ORDER BY day ASC, r.group_id ASC",
     )
