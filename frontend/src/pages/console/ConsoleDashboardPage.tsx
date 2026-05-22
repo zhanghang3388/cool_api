@@ -224,18 +224,32 @@ function DailyByGroupChart({ points }: { points: DailyGroupPoint[] }) {
     Math.round((yMaxPadded * i) / gridSteps)
   );
 
-  // Smoothed cubic path for each series — feels less "plotty" than straight
-  // segments and is one knob better than corners on a 7-point series.
+  // Smoothed cubic spline (Catmull-Rom → Bezier conversion). Each segment's
+  // control points are derived from the slope at its endpoints rather than
+  // a fixed midpoint, so the line flows through all data points without
+  // kinks. Tension 0.4 is a slightly tamer Catmull-Rom (full = 0.5) — keeps
+  // bumps visible but avoids the curve overshooting deep below zero
+  // between two big-then-small samples.
   const smoothPath = (vals: number[]) => {
     if (vals.length === 0) return '';
     const pts = vals.map((v, i) => [xAt(i), yAt(v)] as const);
     if (pts.length === 1) return `M ${pts[0][0]} ${pts[0][1]}`;
+    if (pts.length === 2) {
+      return `M ${pts[0][0]} ${pts[0][1]} L ${pts[1][0]} ${pts[1][1]}`;
+    }
+
+    const tension = 0.4;
     let d = `M ${pts[0][0]} ${pts[0][1]}`;
     for (let i = 0; i < pts.length - 1; i++) {
-      const [x0, y0] = pts[i];
-      const [x1, y1] = pts[i + 1];
-      const cx = (x0 + x1) / 2;
-      d += ` C ${cx} ${y0} ${cx} ${y1} ${x1} ${y1}`;
+      const p0 = pts[i - 1] ?? pts[i];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[i + 2] ?? p2;
+      const c1x = p1[0] + ((p2[0] - p0[0]) * tension) / 3;
+      const c1y = p1[1] + ((p2[1] - p0[1]) * tension) / 3;
+      const c2x = p2[0] - ((p3[0] - p1[0]) * tension) / 3;
+      const c2y = p2[1] - ((p3[1] - p1[1]) * tension) / 3;
+      d += ` C ${c1x} ${c1y} ${c2x} ${c2y} ${p2[0]} ${p2[1]}`;
     }
     return d;
   };
