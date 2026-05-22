@@ -222,7 +222,12 @@ async fn sync_preview(
         .await?;
     let upstream_total = upstream_models.len();
 
-    let pricing = pricing_oracle::get_pricing_table(&state.http).await?;
+    let table = pricing_oracle::get_pricing_table(&state.http).await?;
+    // Use the channel's own provider as the canonical price source. We
+    // explicitly do NOT fall back to other providers: a reseller's
+    // discount price isn't an "official" price.
+    let canonical_key = canonical_provider_key(channel.provider);
+    let canonical = table.get(canonical_key);
 
     // Pre-load all existing model names once so we don't N+1 the DB.
     let existing: std::collections::HashSet<String> = repo::models::list(&state.db)
@@ -239,7 +244,7 @@ async fn sync_preview(
         if !seen.insert(name.clone()) {
             continue; // upstream listed the same id twice — ignore the dup
         }
-        let Some(price) = pricing.get(&name) else {
+        let Some(price) = canonical.and_then(|m| m.get(&name)) else {
             no_pricing += 1;
             continue;
         };
@@ -289,7 +294,9 @@ async fn sync_apply(
     Json(body): Json<SyncApplyRequest>,
 ) -> AppResult<Json<SyncApplyResponse>> {
     let channel = repo::channels::get(&state.db, body.channel_id).await?;
-    let pricing = pricing_oracle::get_pricing_table(&state.http).await?;
+    let table = pricing_oracle::get_pricing_table(&state.http).await?;
+    let canonical_key = canonical_provider_key(channel.provider);
+    let canonical = table.get(canonical_key);
     let provider_label = match channel.provider {
         ChannelProvider::Openai => "OpenAI",
         ChannelProvider::Anthropic => "Anthropic",
@@ -309,7 +316,7 @@ async fn sync_apply(
             skipped_existing.push(trimmed.to_string());
             continue;
         }
-        let Some(price) = pricing.get(trimmed) else {
+        let Some(price) = canonical.and_then(|m| m.get(trimmed)) else {
             skipped_no_price.push(trimmed.to_string());
             continue;
         };
@@ -335,4 +342,13 @@ async fn sync_apply(
         skipped_existing,
         skipped_no_price,
     }))
+}
+
+/// Map our channel provider enum to the matching top-level key used by
+/// models.dev. New variants must be added here too.
+fn canonical_provider_key(provider: ChannelProvider) -> &'static str {
+    match provider {
+        ChannelProvider::Openai => "openai",
+        ChannelProvider::Anthropic => "anthropic",
+    }
 }
