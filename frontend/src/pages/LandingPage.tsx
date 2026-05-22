@@ -1,6 +1,10 @@
 import { Link } from 'react-router-dom';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
-import { usePublicSiteConfig } from '@/hooks/useAdminSettings';
+import {
+  usePublicSiteConfig,
+  usePublicPricingShowcase,
+  type PricingShowcaseModel,
+} from '@/hooks/useAdminSettings';
 import { landingPath } from '@/lib/auth';
 import SiteLogo from '@/components/SiteLogo';
 
@@ -226,16 +230,11 @@ function Features() {
     },
     {
       n: '02',
-      title: '多渠道路由',
-      desc: '按优先级分层、同层加权随机；任一上游异常自动切到下一档，对调用方完全透明。',
-    },
-    {
-      n: '03',
       title: '按量计费',
       desc: '每个分组独立倍率，输入/输出/缓存 token 分桶定价，所有调用都有可审计的账本。',
     },
     {
-      n: '04',
+      n: '03',
       title: 'Prompt 缓存',
       desc: '确定性请求自动落 Redis，命中走更便宜的 cached 单价；保留缓存读写计费记录。',
     },
@@ -246,7 +245,7 @@ function Features() {
       className="max-w-6xl mx-auto px-6 lg:px-10 py-16 lg:py-24"
     >
       <SectionLabel kicker="// 特性" title="为什么用网关" />
-      <div className="mt-10 grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="mt-10 grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {items.map((it, i) => (
           <div
             key={it.n}
@@ -377,30 +376,121 @@ function ClientPill({ label, sub }: { label: string; sub: string }) {
 /* -------------------------------------------------------------------------- */
 
 function Pricing() {
+  const { data, isLoading } = usePublicPricingShowcase();
+  // Hide entire section when admin hasn't picked a showcase group, or the
+  // backend returned an empty group (group disabled / deleted).
+  if (isLoading) return null;
+  if (!data || !data.group) return null;
+
+  const multiplier = parseFloat(data.group.multiplier);
+  if (!Number.isFinite(multiplier) || multiplier <= 0) return null;
+  if (data.models.length === 0) return null;
+
+  // 1 storage unit = 0.01¥ per 1M tokens. Display as ¥/1M.
+  const fmt = (cents: number | null | undefined) =>
+    cents == null ? null : (cents / 100).toFixed(cents < 100 ? 3 : 2);
+  const savingPct = (1 - multiplier) * 100;
+
   return (
     <section
       id="pricing"
       className="max-w-6xl mx-auto px-6 lg:px-10 py-16 lg:py-24"
     >
-      <SectionLabel kicker="// 计费" title="按量结算，分桶清晰" />
-      <div className="mt-10 grid md:grid-cols-3 gap-4">
-        <PriceCell title="充值即用" mono="prepaid" desc="充值进余额，随调随扣。0 月费、0 起步金额。" />
-        <PriceCell title="分组倍率" mono="× multiplier" desc="管理员可为不同用户分组配置统一倍率，B 端转售场景一行配置。" />
-        <PriceCell title="缓存折扣" mono="cache hit" desc="命中 prompt 缓存的 token 走单独的低单价，长上下文场景成本可观。" />
+      <SectionLabel kicker="// 计费" title="模型定价" />
+
+      <div className="mt-6 mb-4 flex flex-wrap items-baseline gap-x-6 gap-y-2">
+        <div className="text-sm text-gray-300">
+          当前展示分组：
+          <span className="ml-2 px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 font-mono text-xs">
+            {data.group.label}
+          </span>
+        </div>
+        <div className="text-xs text-gray-500 font-mono">
+          倍率 ×{multiplier.toFixed(2)}
+          {Math.abs(savingPct) > 0.5 && (
+            <span
+              className={
+                savingPct > 0
+                  ? 'ml-3 text-emerald-400'
+                  : 'ml-3 text-rose-400'
+              }
+            >
+              {savingPct > 0
+                ? `较官网省 ${savingPct.toFixed(0)}%`
+                : `较官网贵 ${(-savingPct).toFixed(0)}%`}
+            </span>
+          )}
+        </div>
+        <div className="ml-auto text-[10px] text-gray-600 font-mono">
+          单位：¥ / 1M tokens · 缓存价由 models.dev 提供，缺省时按输入价计费
+        </div>
       </div>
+
+      <div className="stat-card rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-[10px] text-gray-500 border-b border-base-300 bg-base-200/50">
+                <th className="text-left p-3 pl-4 font-medium">模型</th>
+                <th className="text-right p-3 font-medium">输入</th>
+                <th className="text-right p-3 font-medium">输出</th>
+                <th className="text-right p-3 font-medium">缓存读</th>
+                <th className="text-right p-3 pr-4 font-medium">缓存写</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-base-300/50">
+              {data.models.map((m) => (
+                <PriceRow key={m.name} model={m} multiplier={multiplier} fmt={fmt} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <p className="mt-4 text-[11px] text-gray-500 font-mono">
+        // 官网价 = base × 1.0；本站价 = base × 倍率（{multiplier.toFixed(2)}）
+      </p>
     </section>
   );
 }
 
-function PriceCell({ title, mono, desc }: { title: string; mono: string; desc: string }) {
-  return (
-    <div className="stat-card rounded-xl p-6">
-      <div className="font-mono text-[10px] tracking-widest text-gray-500 mb-3">
-        {mono}
+interface PriceRowProps {
+  model: PricingShowcaseModel;
+  multiplier: number;
+  fmt: (cents: number | null | undefined) => string | null;
+}
+
+function PriceRow({ model, multiplier, fmt }: PriceRowProps) {
+  const cell = (cents: number | null | undefined) => {
+    const base = fmt(cents);
+    if (base == null) {
+      return <span className="text-gray-700">—</span>;
+    }
+    if (Math.abs(multiplier - 1) < 1e-6) {
+      // Same as official; one line is enough.
+      return <span className="text-amber-400 font-mono">¥{base}</span>;
+    }
+    const effective = fmt(cents == null ? cents : Math.round((cents ?? 0) * multiplier));
+    return (
+      <div className="leading-tight">
+        <div className="text-amber-400 font-mono">¥{effective}</div>
+        <div className="text-[10px] text-gray-600 font-mono line-through">¥{base}</div>
       </div>
-      <h3 className="text-base font-semibold text-gray-100 mb-2">{title}</h3>
-      <p className="text-xs text-gray-400 leading-relaxed">{desc}</p>
-    </div>
+    );
+  };
+  return (
+    <tr className="hover:bg-base-200/30 transition-colors">
+      <td className="p-3 pl-4">
+        <div className="font-mono text-gray-200 truncate max-w-[260px]" title={model.name}>
+          {model.name}
+        </div>
+        <div className="text-[10px] text-gray-600 font-mono">{model.provider}</div>
+      </td>
+      <td className="p-3 text-right">{cell(model.input_price_cents)}</td>
+      <td className="p-3 text-right">{cell(model.output_price_cents)}</td>
+      <td className="p-3 text-right">{cell(model.cache_read_price_cents)}</td>
+      <td className="p-3 pr-4 text-right">{cell(model.cache_write_price_cents)}</td>
+    </tr>
   );
 }
 

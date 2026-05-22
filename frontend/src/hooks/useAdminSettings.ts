@@ -110,3 +110,62 @@ export function useUpdateDefaultUserGroups() {
     },
   });
 }
+
+/* ---- Landing-page pricing showcase group ---- */
+
+export interface LandingPricingGroup {
+  group_id: number | null;
+}
+
+const LANDING_PRICING_KEY = ['admin-settings', 'landing-pricing-group'] as const;
+
+export function useLandingPricingGroup() {
+  return useQuery<LandingPricingGroup>({
+    queryKey: LANDING_PRICING_KEY,
+    queryFn: () => api.get<LandingPricingGroup>('/admin/settings/landing-pricing-group'),
+  });
+}
+
+export function useUpdateLandingPricingGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (group_id: number | null) =>
+      api.put<LandingPricingGroup>('/admin/settings/landing-pricing-group', { group_id }),
+    onSuccess: (data) => {
+      qc.setQueryData(LANDING_PRICING_KEY, data);
+      // Public landing-page query also reflects this — invalidate it so the
+      // page rerenders if it's currently mounted somewhere.
+      qc.invalidateQueries({ queryKey: ['public-pricing-showcase'] });
+    },
+  });
+}
+
+export interface PricingShowcaseGroup {
+  id: number;
+  name: string;
+  label: string;
+  /** NUMERIC arrives as a string from the backend. */
+  multiplier: string;
+}
+
+export interface PricingShowcaseModel {
+  name: string;
+  provider: string;
+  input_price_cents: number;
+  output_price_cents: number;
+  cache_read_price_cents: number | null;
+  cache_write_price_cents: number | null;
+}
+
+export interface PricingShowcaseResponse {
+  group: PricingShowcaseGroup | null;
+  models: PricingShowcaseModel[];
+}
+
+export function usePublicPricingShowcase() {
+  return useQuery<PricingShowcaseResponse>({
+    queryKey: ['public-pricing-showcase'],
+    queryFn: () => api.get<PricingShowcaseResponse>('/pricing-showcase'),
+    staleTime: 5 * 60 * 1000,
+  });
+}

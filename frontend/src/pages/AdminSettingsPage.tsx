@@ -7,6 +7,8 @@ import {
   useUpdateSiteConfig,
   useDefaultUserGroups,
   useUpdateDefaultUserGroups,
+  useLandingPricingGroup,
+  useUpdateLandingPricingGroup,
 } from '@/hooks/useAdminSettings';
 import { useGroups } from '@/hooks/useGroups';
 
@@ -191,6 +193,7 @@ export default function AdminSettingsPage() {
       </div>
 
       <DefaultUserGroupsCard />
+      <LandingPricingGroupCard />
     </div>
   );
 }
@@ -302,6 +305,83 @@ function DefaultUserGroupsCard() {
       >
         {updateMut.isPending && <Spinner className="border-black/30 border-t-black" />}
         保存默认分组
+      </button>
+    </div>
+  );
+}
+
+function LandingPricingGroupCard() {
+  const { data: groups = [] } = useGroups();
+  const { data: current } = useLandingPricingGroup();
+  const updateMut = useUpdateLandingPricingGroup();
+  const [selected, setSelected] = useState<number | null>(null);
+  const [status, setStatus] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+  useEffect(() => {
+    if (current !== undefined) setSelected(current?.group_id ?? null);
+  }, [current]);
+
+  const enabledGroups = useMemo(() => groups.filter((g) => g.enabled), [groups]);
+
+  const save = async () => {
+    setStatus(null);
+    try {
+      await updateMut.mutateAsync(selected);
+      setStatus({ kind: 'ok', text: '已保存' });
+    } catch (e) {
+      setStatus({ kind: 'err', text: e instanceof ApiError ? e.message : '保存失败' });
+    }
+  };
+
+  return (
+    <div className="stat-card rounded-xl p-5 space-y-4 max-w-2xl">
+      <div>
+        <h3 className="text-sm font-medium text-gray-300">首页定价展示分组</h3>
+        <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
+          选一个分组作为公开首页"模型定价"区的展示样本。访客会看到该分组的折扣价（base × 倍率）与官网价（base × 1.0）的对比。选"不展示"则首页隐藏整个定价区。
+        </p>
+      </div>
+
+      <div>
+        <label className="text-xs text-gray-400 block mb-1">展示分组</label>
+        <select
+          value={selected == null ? '' : String(selected)}
+          onChange={(e) =>
+            setSelected(e.target.value === '' ? null : Number(e.target.value))
+          }
+          className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-amber-500"
+        >
+          <option value="">不展示</option>
+          {enabledGroups.map((g) => (
+            <option key={g.id} value={g.id}>
+              {g.label}（×{Number(g.multiplier).toFixed(2)}）
+            </option>
+          ))}
+        </select>
+        {enabledGroups.length === 0 && (
+          <p className="text-[10px] text-gray-600 mt-1">还没有启用的分组。</p>
+        )}
+      </div>
+
+      {status && (
+        <div
+          className={`text-xs px-2 py-1.5 rounded border ${
+            status.kind === 'ok'
+              ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+              : 'text-rose-400 bg-rose-500/10 border-rose-500/20'
+          }`}
+        >
+          {status.text}
+        </div>
+      )}
+
+      <button
+        onClick={save}
+        disabled={updateMut.isPending}
+        className="px-5 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-black font-medium rounded-lg transition-colors text-sm flex items-center gap-2"
+      >
+        {updateMut.isPending && <Spinner className="border-black/30 border-t-black" />}
+        保存展示分组
       </button>
     </div>
   );

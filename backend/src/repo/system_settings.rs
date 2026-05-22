@@ -8,6 +8,7 @@ use crate::error::AppResult;
 pub const CACHE_KEY: &str = "cache";
 pub const SITE_KEY: &str = "site";
 pub const PAYMENT_KEY: &str = "payment";
+pub const LANDING_PRICING_GROUP_KEY: &str = "landing_pricing_group_id";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheConfig {
@@ -133,4 +134,31 @@ pub async fn get_payment_config(pool: &PgPool) -> AppResult<PaymentConfig> {
 
 pub async fn update_payment_config(pool: &PgPool, cfg: &PaymentConfig) -> AppResult<()> {
     put_typed(pool, PAYMENT_KEY, cfg).await
+}
+
+/// Group ID whose pricing is showcased on the public landing page. `None`
+/// hides the showcase section.
+pub async fn get_landing_pricing_group_id(pool: &PgPool) -> AppResult<Option<i64>> {
+    let row: Option<(serde_json::Value,)> =
+        sqlx::query_as("SELECT value FROM system_settings WHERE key = $1")
+            .bind(LANDING_PRICING_GROUP_KEY)
+            .fetch_optional(pool)
+            .await?;
+    Ok(row.and_then(|(v,)| v.as_i64()))
+}
+
+pub async fn set_landing_pricing_group_id(pool: &PgPool, id: Option<i64>) -> AppResult<()> {
+    let value = match id {
+        Some(n) => serde_json::Value::from(n),
+        None => serde_json::Value::Null,
+    };
+    sqlx::query(
+        "INSERT INTO system_settings (key, value) VALUES ($1, $2) \
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+    )
+    .bind(LANDING_PRICING_GROUP_KEY)
+    .bind(value)
+    .execute(pool)
+    .await?;
+    Ok(())
 }

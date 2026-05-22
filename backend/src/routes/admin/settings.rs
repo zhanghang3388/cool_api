@@ -24,6 +24,10 @@ pub fn router() -> Router<AppState> {
             "/default-user-groups",
             get(get_default_user_groups).put(put_default_user_groups),
         )
+        .route(
+            "/landing-pricing-group",
+            get(get_landing_pricing).put(put_landing_pricing),
+        )
 }
 
 async fn get_site(
@@ -192,4 +196,41 @@ async fn put_default_user_groups(
         .collect();
     repo::user_groups::set_default_user_group_ids(&state.db, &cleaned).await?;
     Ok(Json(DefaultUserGroupsResponse { group_ids: cleaned }))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct LandingPricingGroup {
+    /// `None` (== `null` in JSON) hides the landing-page pricing section.
+    group_id: Option<i64>,
+}
+
+async fn get_landing_pricing(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+) -> AppResult<Json<LandingPricingGroup>> {
+    let id = repo::system_settings::get_landing_pricing_group_id(&state.db).await?;
+    Ok(Json(LandingPricingGroup { group_id: id }))
+}
+
+async fn put_landing_pricing(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Json(body): Json<LandingPricingGroup>,
+) -> AppResult<Json<LandingPricingGroup>> {
+    if let Some(gid) = body.group_id {
+        // Validate the group exists and is enabled — saving a hidden group
+        // would silently break the showcase.
+        let g = repo::groups::get(&state.db, gid).await.map_err(|e| match e {
+            AppError::NotFound => AppError::BadRequest("group not found".into()),
+            other => other,
+        })?;
+        if !g.enabled {
+            return Err(AppError::BadRequest(format!(
+                "group '{}' is disabled",
+                g.name
+            )));
+        }
+    }
+    repo::system_settings::set_landing_pricing_group_id(&state.db, body.group_id).await?;
+    Ok(Json(body))
 }
