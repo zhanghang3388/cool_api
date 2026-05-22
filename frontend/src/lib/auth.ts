@@ -9,7 +9,6 @@ export interface UserInfo {
   email: string | null;
   role: UserRole;
   status: UserStatus;
-  group_id: number;
   balance_cents: number;
   created_at: string;
   last_login_at: string | null;

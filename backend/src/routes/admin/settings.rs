@@ -6,7 +6,7 @@
 //! an empty string (keep existing).
 
 use axum::extract::State;
-use axum::routing::{get, patch};
+use axum::routing::get;
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +20,10 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/site", get(get_site).patch(patch_site))
         .route("/payment", get(get_payment).patch(patch_payment))
+        .route(
+            "/default-user-groups",
+            get(get_default_user_groups).put(put_default_user_groups),
+        )
 }
 
 async fn get_site(
@@ -142,4 +146,50 @@ async fn patch_payment(
     }
     repo::system_settings::update_payment_config(&state.db, &cfg).await?;
     Ok(Json(view(&cfg, &state.cipher)))
+}
+
+#[derive(Debug, Serialize)]
+struct DefaultUserGroupsResponse {
+    group_ids: Vec<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PutDefaultUserGroups {
+    group_ids: Vec<i64>,
+}
+
+async fn get_default_user_groups(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+) -> AppResult<Json<DefaultUserGroupsResponse>> {
+    Ok(Json(DefaultUserGroupsResponse {
+        group_ids: repo::user_groups::get_default_user_group_ids(&state.db).await?,
+    }))
+}
+
+async fn put_default_user_groups(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Json(body): Json<PutDefaultUserGroups>,
+) -> AppResult<Json<DefaultUserGroupsResponse>> {
+    // Validate every id refers to an existing group; we don't enforce
+    // `enabled = true` here so admin can pre-stage a disabled group and
+    // flip it on later.
+    let groups = repo::groups::list(&state.db).await?;
+    for id in &body.group_ids {
+        if !groups.iter().any(|g| g.id == *id) {
+            return Err(AppError::BadRequest(format!(
+                "group id {id} does not exist"
+            )));
+        }
+    }
+    // De-dup while preserving order so the JSON view is stable.
+    let mut seen = std::collections::HashSet::new();
+    let cleaned: Vec<i64> = body
+        .group_ids
+        .into_iter()
+        .filter(|id| seen.insert(*id))
+        .collect();
+    repo::user_groups::set_default_user_group_ids(&state.db, &cleaned).await?;
+    Ok(Json(DefaultUserGroupsResponse { group_ids: cleaned }))
 }

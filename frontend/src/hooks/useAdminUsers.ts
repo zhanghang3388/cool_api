@@ -10,13 +10,12 @@ export interface AdminUserRow {
   email: string | null;
   role: UserRole;
   status: UserStatus;
-  group_id: number;
-  group_name: string;
-  group_label: string;
   balance_cents: number;
   total_used_cents: number;
   created_at: string;
   last_login_at: string | null;
+  /** Group IDs the user can actually use right now (defaults + adds − removes). */
+  effective_group_ids: number[];
 }
 
 export interface AdminUsersResponse {
@@ -31,7 +30,6 @@ export interface AdminUsersFilter {
   page_size?: number;
   search?: string;
   status?: UserStatus | '';
-  group_id?: number;
 }
 
 function buildQuery(f: AdminUsersFilter): string {
@@ -40,7 +38,6 @@ function buildQuery(f: AdminUsersFilter): string {
   if (f.page_size) p.set('page_size', String(f.page_size));
   if (f.search) p.set('search', f.search);
   if (f.status) p.set('status', f.status);
-  if (f.group_id != null) p.set('group_id', String(f.group_id));
   const s = p.toString();
   return s ? `?${s}` : '';
 }
@@ -57,7 +54,6 @@ export function useAdminUsers(filter: AdminUsersFilter) {
 
 export interface UpdateUserPayload {
   status?: UserStatus;
-  group_id?: number;
 }
 
 export function useUpdateUser() {
@@ -81,5 +77,40 @@ export function useTopUpUser() {
     mutationFn: ({ id, body }: { id: number; body: TopUpPayload }) =>
       api.post(`/admin/users/${id}/topup`, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: LIST_KEY }),
+  });
+}
+
+/* ---- Per-user group overrides ---- */
+
+export interface UserGroupOverrides {
+  /** System-wide default groups for regular users (read-only here). */
+  default_group_ids: number[];
+  added_group_ids: number[];
+  removed_group_ids: number[];
+  effective_group_ids: number[];
+}
+
+export interface SetUserGroupOverridesPayload {
+  added_group_ids: number[];
+  removed_group_ids: number[];
+}
+
+export function useUserGroupOverrides(userId: number | null) {
+  return useQuery<UserGroupOverrides>({
+    queryKey: ['admin-user-group-overrides', userId],
+    queryFn: () => api.get<UserGroupOverrides>(`/admin/users/${userId}/group-overrides`),
+    enabled: userId != null,
+  });
+}
+
+export function useSetUserGroupOverrides() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: number; body: SetUserGroupOverridesPayload }) =>
+      api.put<UserGroupOverrides>(`/admin/users/${id}/group-overrides`, body),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: LIST_KEY });
+      qc.invalidateQueries({ queryKey: ['admin-user-group-overrides', vars.id] });
+    },
   });
 }

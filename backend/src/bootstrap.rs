@@ -31,23 +31,18 @@ pub async fn ensure_admin_user(pool: &sqlx::PgPool) -> anyhow::Result<()> {
         );
     }
 
-    let default_group_id: i64 = sqlx::query_scalar("SELECT id FROM groups WHERE name = 'default'")
-        .fetch_one(pool)
-        .await?;
-
     let hash = password::hash_password(&password_plain)
         .map_err(|e| anyhow::anyhow!("hash admin password: {e}"))?;
 
     sqlx::query(
         r#"
-        INSERT INTO users (username, password_hash, role, status, group_id, balance_cents)
-        VALUES ($1, $2, $3, 'active', $4, 0)
+        INSERT INTO users (username, password_hash, role, status, balance_cents)
+        VALUES ($1, $2, $3, 'active', 0)
         "#,
     )
     .bind(&username)
     .bind(&hash)
     .bind(UserRole::Admin)
-    .bind(default_group_id)
     .execute(pool)
     .await?;
 

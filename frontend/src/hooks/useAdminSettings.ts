@@ -82,3 +82,31 @@ export function usePublicSiteConfig() {
     staleTime: 5 * 60 * 1000,
   });
 }
+
+/* ---- Default groups for newly registered (and existing) regular users ---- */
+
+export interface DefaultUserGroups {
+  group_ids: number[];
+}
+
+const DEFAULT_USER_GROUPS_KEY = ['admin-settings', 'default-user-groups'] as const;
+
+export function useDefaultUserGroups() {
+  return useQuery<DefaultUserGroups>({
+    queryKey: DEFAULT_USER_GROUPS_KEY,
+    queryFn: () => api.get<DefaultUserGroups>('/admin/settings/default-user-groups'),
+  });
+}
+
+export function useUpdateDefaultUserGroups() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (group_ids: number[]) =>
+      api.put<DefaultUserGroups>('/admin/settings/default-user-groups', { group_ids }),
+    onSuccess: (data) => {
+      qc.setQueryData(DEFAULT_USER_GROUPS_KEY, data);
+      // Effective groups for every user changed — invalidate admin user list.
+      qc.invalidateQueries({ queryKey: ['admin-users'] });
+    },
+  });
+}

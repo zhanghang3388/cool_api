@@ -14,6 +14,10 @@ pub fn router() -> Router<AppState> {
         .route("/", get(list))
         .route("/:id", patch(update))
         .route("/:id/topup", post(topup))
+        .route(
+            "/:id/group-overrides",
+            get(get_overrides).put(set_overrides),
+        )
 }
 
 #[derive(Debug, Deserialize)]
@@ -22,12 +26,20 @@ struct ListQuery {
     page_size: Option<i64>,
     search: Option<String>,
     status: Option<UserStatus>,
-    group_id: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct AdminUserView {
+    #[serde(flatten)]
+    row: repo::users::AdminUserRow,
+    /// Group IDs the user can actually use right now. Computed by combining
+    /// the system-wide default list with this user's overrides.
+    effective_group_ids: Vec<i64>,
 }
 
 #[derive(Debug, Serialize)]
 struct UsersResponse {
-    items: Vec<repo::users::AdminUserRow>,
+    items: Vec<AdminUserView>,
     total: i64,
     page: i64,
     page_size: i64,
@@ -45,11 +57,27 @@ async fn list(
     let filter = repo::users::UserFilter {
         search: q.search.as_deref(),
         status: q.status,
-        group_id: q.group_id,
     };
     let page_data = repo::users::list(&state.db, filter, page_size, offset).await?;
+
+    // Resolve effective groups per row. The default list and groups table
+    // are loaded once and reused for every user.
+    let defaults = repo::user_groups::get_default_user_group_ids(&state.db).await?;
+    let groups = repo::groups::list(&state.db).await?;
+
+    let mut items = Vec::with_capacity(page_data.items.len());
+    for row in page_data.items {
+        let overrides = repo::user_groups::list_overrides(&state.db, row.id).await?;
+        let effective_group_ids =
+            repo::user_groups::compute_effective(row.role, &defaults, &overrides, &groups);
+        items.push(AdminUserView {
+            row,
+            effective_group_ids,
+        });
+    }
+
     Ok(Json(UsersResponse {
-        items: page_data.items,
+        items,
         total: page_data.total,
         page,
         page_size,
@@ -59,7 +87,6 @@ async fn list(
 #[derive(Debug, Deserialize)]
 struct UpdateUserRequest {
     status: Option<UserStatus>,
-    group_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -69,7 +96,6 @@ struct UserRow {
     email: Option<String>,
     role: UserRole,
     status: UserStatus,
-    group_id: i64,
     balance_cents: i64,
     total_used_cents: i64,
 }
@@ -82,7 +108,6 @@ impl From<User> for UserRow {
             email: u.email,
             role: u.role,
             status: u.status,
-            group_id: u.group_id,
             balance_cents: u.balance_cents,
             total_used_cents: u.total_used_cents,
         }
@@ -101,24 +126,11 @@ async fn update(
             "cannot disable your own account".into(),
         ));
     }
-    if let Some(gid) = body.group_id {
-        let group = repo::groups::get(&state.db, gid).await.map_err(|e| match e {
-            AppError::NotFound => AppError::BadRequest("group not found".into()),
-            other => other,
-        })?;
-        if !group.enabled {
-            return Err(AppError::BadRequest(format!(
-                "group '{}' is disabled",
-                group.name
-            )));
-        }
-    }
     let u = repo::users::update(
         &state.db,
         id,
         repo::users::UpdateUser {
             status: body.status,
-            group_id: body.group_id,
         },
     )
     .await?;
@@ -149,4 +161,79 @@ async fn topup(
     )
     .await?;
     Ok(Json(u.into()))
+}
+
+#[derive(Debug, Serialize)]
+struct OverridesResponse {
+    /// System-wide default group IDs (read-only here; managed via admin settings).
+    default_group_ids: Vec<i64>,
+    /// Group IDs explicitly added for this user.
+    added_group_ids: Vec<i64>,
+    /// Group IDs explicitly removed for this user (overrides default + added).
+    removed_group_ids: Vec<i64>,
+    /// Final list this user can actually use.
+    effective_group_ids: Vec<i64>,
+}
+
+async fn get_overrides(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Path(id): Path<i64>,
+) -> AppResult<Json<OverridesResponse>> {
+    let user = repo::users::get(&state.db, id).await?;
+    let defaults = repo::user_groups::get_default_user_group_ids(&state.db).await?;
+    let groups = repo::groups::list(&state.db).await?;
+    let overrides = repo::user_groups::list_overrides(&state.db, id).await?;
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+    for o in &overrides {
+        match o.mode {
+            repo::user_groups::OverrideMode::Add => added.push(o.group_id),
+            repo::user_groups::OverrideMode::Remove => removed.push(o.group_id),
+        }
+    }
+    let effective = repo::user_groups::compute_effective(user.role, &defaults, &overrides, &groups);
+    Ok(Json(OverridesResponse {
+        default_group_ids: defaults,
+        added_group_ids: added,
+        removed_group_ids: removed,
+        effective_group_ids: effective,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct SetOverridesRequest {
+    /// Group IDs this user is explicitly granted (on top of system defaults).
+    #[serde(default)]
+    added_group_ids: Vec<i64>,
+    /// Group IDs this user is explicitly denied (subtracted from defaults+added).
+    #[serde(default)]
+    removed_group_ids: Vec<i64>,
+}
+
+async fn set_overrides(
+    State(state): State<AppState>,
+    admin: AdminUser,
+    Path(id): Path<i64>,
+    Json(body): Json<SetOverridesRequest>,
+) -> AppResult<Json<OverridesResponse>> {
+    // Sanity: a single group can't be both added and removed.
+    let dup = body
+        .added_group_ids
+        .iter()
+        .any(|a| body.removed_group_ids.contains(a));
+    if dup {
+        return Err(AppError::BadRequest(
+            "a group cannot appear in both added and removed".into(),
+        ));
+    }
+    repo::users::get(&state.db, id).await?; // 404 if user gone
+    repo::user_groups::replace_overrides(
+        &state.db,
+        id,
+        &body.added_group_ids,
+        &body.removed_group_ids,
+    )
+    .await?;
+    get_overrides(State(state), admin, Path(id)).await
 }

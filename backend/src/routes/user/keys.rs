@@ -67,7 +67,7 @@ async fn create(
     if name.len() > 64 {
         return Err(AppError::BadRequest("name too long (max 64)".into()));
     }
-    let group = resolve_group(&state, body.group_id).await?;
+    let group = resolve_group(&state, &auth, body.group_id).await?;
 
     let gen = repo::api_keys::generate_key();
     let plaintext = gen.plaintext.clone();
@@ -105,7 +105,7 @@ async fn update(
         }
     }
     if let Some(gid) = body.group_id {
-        resolve_group(&state, gid).await?;
+        resolve_group(&state, &auth, gid).await?;
     }
     let saved = repo::api_keys::update(
         &state.db,
@@ -131,7 +131,11 @@ async fn remove(
     Ok(Json(serde_json::json!({ "deleted": true })))
 }
 
-async fn resolve_group(state: &AppState, id: i64) -> AppResult<crate::models::Group> {
+async fn resolve_group(
+    state: &AppState,
+    auth: &AuthUser,
+    id: i64,
+) -> AppResult<crate::models::Group> {
     let group = repo::groups::get(&state.db, id)
         .await
         .map_err(|e| match e {
@@ -143,6 +147,12 @@ async fn resolve_group(state: &AppState, id: i64) -> AppResult<crate::models::Gr
             "group '{}' is disabled",
             group.name
         )));
+    }
+    // Make sure this user is actually allowed to bind a key to this group.
+    let effective =
+        repo::user_groups::effective_group_ids(&state.db, auth.user_id, auth.role).await?;
+    if !effective.contains(&group.id) {
+        return Err(AppError::Forbidden);
     }
     Ok(group)
 }

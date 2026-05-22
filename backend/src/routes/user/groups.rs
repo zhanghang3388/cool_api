@@ -25,12 +25,14 @@ struct UserGroupDto {
 
 async fn list(
     State(state): State<AppState>,
-    _auth: AuthUser,
+    auth: AuthUser,
 ) -> AppResult<Json<Vec<UserGroupDto>>> {
+    let effective =
+        repo::user_groups::effective_group_ids(&state.db, auth.user_id, auth.role).await?;
     let rows = repo::groups::list(&state.db).await?;
     Ok(Json(
         rows.into_iter()
-            .filter(|g| g.enabled)
+            .filter(|g| g.enabled && effective.contains(&g.id))
             .map(|g| UserGroupDto {
                 id: g.id,
                 name: g.name,

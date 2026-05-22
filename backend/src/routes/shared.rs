@@ -15,7 +15,6 @@ pub struct UserInfo {
     pub email: Option<String>,
     pub role: UserRole,
     pub status: UserStatus,
-    pub group_id: i64,
     pub balance_cents: i64,
     pub created_at: DateTime<Utc>,
     pub last_login_at: Option<DateTime<Utc>>,
@@ -29,7 +28,6 @@ impl From<User> for UserInfo {
             email: u.email,
             role: u.role,
             status: u.status,
-            group_id: u.group_id,
             balance_cents: u.balance_cents,
             created_at: u.created_at,
             last_login_at: u.last_login_at,
@@ -50,7 +48,7 @@ pub struct LoginResponse {
 }
 
 pub const USER_COLUMNS: &str =
-    "id, username, email, password_hash, role, status, group_id, \
+    "id, username, email, password_hash, role, status, \
      balance_cents, total_used_cents, created_at, last_login_at";
 
 /// Verify credentials, update last_login_at, issue a JWT. Shared by both

@@ -158,7 +158,7 @@ where
             .ok_or(AppError::Unauthorized)?;
 
         let user: User = sqlx::query_as(
-            "SELECT id, username, email, password_hash, role, status, group_id, \
+            "SELECT id, username, email, password_hash, role, status, \
                     balance_cents, total_used_cents, created_at, last_login_at \
              FROM users WHERE id = $1",
         )
@@ -175,6 +175,17 @@ where
 
         if user.status != UserStatus::Active {
             return Err(AppError::Forbidden);
+        }
+
+        // Runtime group enforcement: even though the token was created with a
+        // valid group, admin may have revoked the user's access to that group
+        // afterwards. Admins bypass.
+        if user.role != UserRole::Admin {
+            let effective =
+                repo::user_groups::effective_group_ids(&app_state.db, user.id, user.role).await?;
+            if !effective.contains(&key.group_id) {
+                return Err(AppError::Forbidden);
+            }
         }
 
         // Fire-and-forget: bump last_used_at. Throttled so we don't spawn

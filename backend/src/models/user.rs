@@ -26,7 +26,6 @@ pub struct User {
     pub password_hash: String,
     pub role: UserRole,
     pub status: UserStatus,
-    pub group_id: i64,
     pub balance_cents: i64,
     pub total_used_cents: i64,
     pub created_at: DateTime<Utc>,

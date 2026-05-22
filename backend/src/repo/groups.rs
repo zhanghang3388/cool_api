@@ -94,18 +94,31 @@ pub async fn update(pool: &PgPool, id: i64, patch: UpdateGroup<'_>) -> AppResult
 }
 
 pub async fn delete(pool: &PgPool, id: i64) -> AppResult<()> {
-    let group = get(pool, id).await?;
-    if group.name == "default" {
-        return Err(AppError::Conflict("cannot delete default group".into()));
-    }
-    let in_use: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE group_id = $1")
+    get(pool, id).await?;
+    // Reject if any token currently routes through this group.
+    let token_uses: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM api_keys WHERE group_id = $1")
         .bind(id)
         .fetch_one(pool)
         .await?;
-    if in_use > 0 {
+    if token_uses > 0 {
         return Err(AppError::Conflict(format!(
-            "group is in use by {in_use} user(s)"
+            "group is in use by {token_uses} api key(s)"
         )));
+    }
+    // Reject if any user has an explicit add/remove override pinned to it.
+    let override_uses = crate::repo::user_groups::count_overrides_for_group(pool, id).await?;
+    if override_uses > 0 {
+        return Err(AppError::Conflict(format!(
+            "group is referenced by {override_uses} per-user override(s); clear them first"
+        )));
+    }
+    // Reject if it's listed in the system-wide default user groups.
+    let defaults = crate::repo::user_groups::get_default_user_group_ids(pool).await?;
+    if defaults.contains(&id) {
+        return Err(AppError::Conflict(
+            "group is in the system-wide default user groups; remove it from settings first"
+                .into(),
+        ));
     }
     sqlx::query("DELETE FROM groups WHERE id = $1")
         .bind(id)

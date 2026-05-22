@@ -87,24 +87,21 @@ async fn register(
         }
     }
 
-    let default_group_id: i64 =
-        sqlx::query_scalar("SELECT id FROM groups WHERE name = 'default'")
-            .fetch_one(&state.db)
-            .await?;
-
     let hash = password::hash_password(&req.password)?;
     let user = sqlx::query_as::<_, User>(&format!(
-        "INSERT INTO users (username, email, password_hash, role, status, group_id)
-         VALUES ($1, $2, $3, $4, 'active', $5)
+        "INSERT INTO users (username, email, password_hash, role, status)
+         VALUES ($1, $2, $3, $4, 'active')
          RETURNING {USER_COLUMNS}"
     ))
     .bind(username)
     .bind(email)
     .bind(&hash)
     .bind(UserRole::User)
-    .bind(default_group_id)
     .fetch_one(&state.db)
     .await?;
+    // Effective group list is computed dynamically from
+    // `system_settings.default_user_groups` ∪ overrides − overrides at lookup
+    // time, so we don't need to materialize anything per-user at signup.
 
     let token = state.jwt.issue(user.id, user.role)?;
     Ok(Json(LoginResponse {

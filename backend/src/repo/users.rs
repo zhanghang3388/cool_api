@@ -5,14 +5,13 @@ use sqlx::{PgPool, Postgres, Transaction};
 use crate::error::{AppError, AppResult};
 use crate::models::{User, UserRole, UserStatus};
 
-pub const COLUMNS: &str = "id, username, email, password_hash, role, status, group_id, \
+pub const COLUMNS: &str = "id, username, email, password_hash, role, status, \
     balance_cents, total_used_cents, created_at, last_login_at";
 
 #[derive(Default)]
 pub struct UserFilter<'a> {
     pub search: Option<&'a str>,
     pub status: Option<UserStatus>,
-    pub group_id: Option<i64>,
 }
 
 pub struct Page<T> {
@@ -20,7 +19,9 @@ pub struct Page<T> {
     pub total: i64,
 }
 
-/// Lightweight row shape that joins group name for the admin UI.
+/// Lightweight row shape for the admin user list. Effective groups are
+/// computed by `repo::user_groups::effective_group_ids` per row at the
+/// route layer, not joined here.
 #[derive(Debug, Serialize)]
 pub struct AdminUserRow {
     pub id: i64,
@@ -28,9 +29,6 @@ pub struct AdminUserRow {
     pub email: Option<String>,
     pub role: UserRole,
     pub status: UserStatus,
-    pub group_id: i64,
-    pub group_name: String,
-    pub group_label: String,
     pub balance_cents: i64,
     pub total_used_cents: i64,
     pub created_at: DateTime<Utc>,
@@ -58,10 +56,6 @@ pub async fn list(
         clauses.push(format!("u.status = ${idx}"));
         idx += 1;
     }
-    if filter.group_id.is_some() {
-        clauses.push(format!("u.group_id = ${idx}"));
-        idx += 1;
-    }
     let where_sql = if clauses.is_empty() {
         String::new()
     } else {
@@ -69,10 +63,10 @@ pub async fn list(
     };
 
     let list_sql = format!(
-        "SELECT u.id, u.username, u.email, u.role, u.status, u.group_id, \
-                g.name, g.label, u.balance_cents, u.total_used_cents, \
+        "SELECT u.id, u.username, u.email, u.role, u.status, \
+                u.balance_cents, u.total_used_cents, \
                 u.created_at, u.last_login_at \
-         FROM users u JOIN groups g ON g.id = u.group_id \
+         FROM users u \
          {where_sql} \
          ORDER BY u.id DESC LIMIT ${limit_idx} OFFSET ${offset_idx}",
         limit_idx = idx,
@@ -86,9 +80,6 @@ pub async fn list(
         Option<String>,
         UserRole,
         UserStatus,
-        i64,
-        String,
-        String,
         i64,
         i64,
         DateTime<Utc>,
@@ -105,10 +96,6 @@ pub async fn list(
         list_q = list_q.bind(v);
         count_q = count_q.bind(v);
     }
-    if let Some(v) = filter.group_id {
-        list_q = list_q.bind(v);
-        count_q = count_q.bind(v);
-    }
     list_q = list_q.bind(limit).bind(offset);
 
     let rows = list_q.fetch_all(pool).await?;
@@ -122,13 +109,10 @@ pub async fn list(
             email: r.2,
             role: r.3,
             status: r.4,
-            group_id: r.5,
-            group_name: r.6,
-            group_label: r.7,
-            balance_cents: r.8,
-            total_used_cents: r.9,
-            created_at: r.10,
-            last_login_at: r.11,
+            balance_cents: r.5,
+            total_used_cents: r.6,
+            created_at: r.7,
+            last_login_at: r.8,
         })
         .collect();
     Ok(Page { items, total })
@@ -147,20 +131,17 @@ pub async fn get(pool: &PgPool, id: i64) -> AppResult<User> {
 #[derive(Default)]
 pub struct UpdateUser {
     pub status: Option<UserStatus>,
-    pub group_id: Option<i64>,
 }
 
 pub async fn update(pool: &PgPool, id: i64, patch: UpdateUser) -> AppResult<User> {
     sqlx::query_as::<_, User>(&format!(
         "UPDATE users SET \
-            status   = COALESCE($2, status), \
-            group_id = COALESCE($3, group_id) \
+            status = COALESCE($2, status) \
          WHERE id = $1 \
          RETURNING {COLUMNS}"
     ))
     .bind(id)
     .bind(patch.status)
-    .bind(patch.group_id)
     .fetch_optional(pool)
     .await?
     .ok_or(AppError::NotFound)

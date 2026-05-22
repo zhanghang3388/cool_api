@@ -1,8 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Upload } from 'lucide-react';
 import Spinner from '@/components/ui/Spinner';
 import { ApiError } from '@/lib/api';
-import { useSiteConfig, useUpdateSiteConfig } from '@/hooks/useAdminSettings';
+import {
+  useSiteConfig,
+  useUpdateSiteConfig,
+  useDefaultUserGroups,
+  useUpdateDefaultUserGroups,
+} from '@/hooks/useAdminSettings';
+import { useGroups } from '@/hooks/useGroups';
 
 // Cap uploaded logos at 512 KB raw (~680 KB as base64) to keep the JSONB
 // row reasonable. Most brand marks fit well inside that budget.
@@ -183,6 +189,120 @@ export default function AdminSettingsPage() {
           保存设置
         </button>
       </div>
+
+      <DefaultUserGroupsCard />
+    </div>
+  );
+}
+
+function DefaultUserGroupsCard() {
+  const { data: groups = [] } = useGroups();
+  const { data: defaultsRes } = useDefaultUserGroups();
+  const updateMut = useUpdateDefaultUserGroups();
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [status, setStatus] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+  useEffect(() => {
+    if (defaultsRes) setSelected(new Set(defaultsRes.group_ids));
+  }, [defaultsRes]);
+
+  const toggle = (id: number) => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelected(next);
+  };
+
+  const enabledGroups = useMemo(() => groups.filter((g) => g.enabled), [groups]);
+  const disabledSelected = useMemo(
+    () => groups.filter((g) => !g.enabled && selected.has(g.id)),
+    [groups, selected]
+  );
+
+  const save = async () => {
+    setStatus(null);
+    try {
+      await updateMut.mutateAsync(Array.from(selected));
+      setStatus({ kind: 'ok', text: '已保存' });
+    } catch (e) {
+      setStatus({ kind: 'err', text: e instanceof ApiError ? e.message : '保存失败' });
+    }
+  };
+
+  return (
+    <div className="stat-card rounded-xl p-5 space-y-4 max-w-2xl">
+      <div>
+        <h3 className="text-sm font-medium text-gray-300">普通用户默认分组</h3>
+        <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
+          这里勾选的分组会自动授予给所有普通用户（包括已注册的老用户）。可在「用户管理 → 编辑」里对单个用户做"强制启用 / 强制禁用"覆盖。管理员账号不受此设置约束，自动可用全部启用的分组。
+        </p>
+      </div>
+
+      {groups.length === 0 ? (
+        <div className="text-xs text-gray-500">暂无任何分组，先去「分组管理」创建。</div>
+      ) : (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-[11px] text-gray-500">
+            <span>已选 {selected.size} / 共 {enabledGroups.length} 个启用分组</span>
+            {selected.size > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelected(new Set())}
+                className="text-gray-400 hover:text-gray-200"
+              >
+                全部清除
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {groups.map((g) => {
+              const active = selected.has(g.id);
+              return (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() => toggle(g.id)}
+                  className={`px-2.5 py-1 rounded text-xs transition-colors border ${
+                    active
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                      : 'bg-base-200 text-gray-400 border-base-300 hover:text-gray-200'
+                  } ${!g.enabled ? 'opacity-60' : ''}`}
+                  title={!g.enabled ? '此分组已停用' : undefined}
+                >
+                  {g.label}
+                  {!g.enabled && <span className="ml-1 text-[10px] text-rose-400">·停</span>}
+                </button>
+              );
+            })}
+          </div>
+          {disabledSelected.length > 0 && (
+            <div className="text-[10px] text-amber-400">
+              注意：所选项中包含已停用的分组（{disabledSelected.map((g) => g.label).join('、')}），用户能在该分组重新启用后即时获得访问权。
+            </div>
+          )}
+        </div>
+      )}
+
+      {status && (
+        <div
+          className={`text-xs px-2 py-1.5 rounded border ${
+            status.kind === 'ok'
+              ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+              : 'text-rose-400 bg-rose-500/10 border-rose-500/20'
+          }`}
+        >
+          {status.text}
+        </div>
+      )}
+
+      <button
+        onClick={save}
+        disabled={updateMut.isPending}
+        className="px-5 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-black font-medium rounded-lg transition-colors text-sm flex items-center gap-2"
+      >
+        {updateMut.isPending && <Spinner className="border-black/30 border-t-black" />}
+        保存默认分组
+      </button>
     </div>
   );
 }
