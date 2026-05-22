@@ -78,3 +78,49 @@ export function formatPrice(cents: number): string {
 export function dollarsToCents(dollars: number): number {
   return Math.round(dollars * 100);
 }
+
+/* ---- Sync from channel via models.dev pricing oracle ---- */
+
+export interface SyncOfficialPrice {
+  input_price_cents: number;
+  output_price_cents: number;
+  cache_read_price_cents: number | null;
+  cache_write_price_cents: number | null;
+}
+
+export interface SyncPreviewItem {
+  model_name: string;
+  exists: boolean;
+  official: SyncOfficialPrice;
+}
+
+export interface SyncPreviewResponse {
+  channel_id: number;
+  channel_name: string;
+  channel_provider: 'openai' | 'anthropic';
+  upstream_total: number;
+  no_pricing: number;
+  items: SyncPreviewItem[];
+}
+
+export interface SyncApplyResponse {
+  added: string[];
+  skipped_existing: string[];
+  skipped_no_price: string[];
+}
+
+export function useSyncPreview() {
+  return useMutation({
+    mutationFn: (channel_id: number) =>
+      api.post<SyncPreviewResponse>('/admin/models/sync/preview', { channel_id }),
+  });
+}
+
+export function useSyncApply() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ channel_id, model_names }: { channel_id: number; model_names: string[] }) =>
+      api.post<SyncApplyResponse>('/admin/models/sync/apply', { channel_id, model_names }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
+  });
+}

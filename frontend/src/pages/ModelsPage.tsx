@@ -14,10 +14,15 @@ import {
   useCreateModel,
   useUpdateModel,
   useDeleteModel,
+  useSyncPreview,
+  useSyncApply,
   formatPrice,
   dollarsToCents,
   type Model,
+  type SyncPreviewItem,
+  type SyncApplyResponse,
 } from '@/hooks/useModels';
+import { useChannels } from '@/hooks/useChannels';
 
 interface FormState {
   name: string;
@@ -161,16 +166,101 @@ export default function ModelsPage() {
     });
   };
 
+  // ---- sync from channel ----
+  const { data: channels = [] } = useChannels();
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [syncChannelId, setSyncChannelId] = useState<number | null>(null);
+  const [syncSelected, setSyncSelected] = useState<Set<string>>(new Set());
+  const [syncResult, setSyncResult] = useState<SyncApplyResponse | null>(null);
+  const previewMut = useSyncPreview();
+  const applyMut = useSyncApply();
+  const previewData = previewMut.data;
+
+  const openSync = () => {
+    setSyncOpen(true);
+    setSyncChannelId(channels[0]?.id ?? null);
+    setSyncSelected(new Set());
+    setSyncResult(null);
+    previewMut.reset();
+    applyMut.reset();
+  };
+
+  const runPreview = async () => {
+    if (syncChannelId == null) return;
+    setSyncResult(null);
+    setSyncSelected(new Set());
+    try {
+      const res = await previewMut.mutateAsync(syncChannelId);
+      // Default-select every importable item; existing rows are not selectable.
+      const next = new Set<string>();
+      res.items.forEach((it) => {
+        if (!it.exists) next.add(it.model_name);
+      });
+      setSyncSelected(next);
+    } catch {
+      /* error surfaced by mutation state */
+    }
+  };
+
+  const toggleSyncRow = (name: string, exists: boolean) => {
+    if (exists) return;
+    const next = new Set(syncSelected);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    setSyncSelected(next);
+  };
+
+  const importableCount = previewData?.items.filter((i) => !i.exists).length ?? 0;
+
+  const setAllSelected = (checked: boolean) => {
+    if (!previewData) return;
+    if (!checked) {
+      setSyncSelected(new Set());
+      return;
+    }
+    const next = new Set<string>();
+    previewData.items.forEach((it) => {
+      if (!it.exists) next.add(it.model_name);
+    });
+    setSyncSelected(next);
+  };
+
+  const submitSync = async () => {
+    if (syncChannelId == null || syncSelected.size === 0) return;
+    try {
+      const res = await applyMut.mutateAsync({
+        channel_id: syncChannelId,
+        model_names: Array.from(syncSelected),
+      });
+      setSyncResult(res);
+      setSyncSelected(new Set());
+      // Refresh the preview so newly-added rows now show as `exists`.
+      if (syncChannelId != null) {
+        previewMut.mutate(syncChannelId);
+      }
+    } catch (e) {
+      alert(e instanceof ApiError ? e.message : '同步失败');
+    }
+  };
+
   return (
     <div className="fade-in space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">模型价格</h2>
-        <button
-          onClick={openCreate}
-          className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-black text-sm font-medium rounded-lg transition-colors"
-        >
-          + 添加模型
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={openSync}
+            className="px-4 py-2 bg-base-200 hover:bg-base-300 border border-base-300 text-gray-200 text-sm font-medium rounded-lg transition-colors"
+          >
+            从渠道同步
+          </button>
+          <button
+            onClick={openCreate}
+            className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-black text-sm font-medium rounded-lg transition-colors"
+          >
+            + 添加模型
+          </button>
+        </div>
       </div>
 
       {/* Group selector */}
@@ -434,6 +524,186 @@ export default function ModelsPage() {
           </button>
         </div>
       </Modal>
+
+      <Modal
+        open={syncOpen}
+        onClose={() => setSyncOpen(false)}
+        title="从渠道同步价格"
+        maxWidth="max-w-3xl"
+      >
+        <div className="space-y-4">
+          <div className="text-[11px] text-gray-500 leading-relaxed">
+            选一个已有渠道 → 拉它 <code className="font-mono text-amber-400">/v1/models</code>{' '}
+            支持的模型 → 与 <a
+              href="https://models.dev"
+              target="_blank"
+              rel="noreferrer"
+              className="text-cyan-400 hover:text-cyan-300 underline"
+            >models.dev</a>{' '}
+            的官方价目对齐 → 已存在的跳过；无官方价目的略过；价格按 1 USD = 1 ¥ 直接换算。
+          </div>
+
+          <div className="flex items-end gap-2">
+            <div className="flex-1">
+              <label className="text-xs text-gray-400 block mb-1">渠道</label>
+              <select
+                value={syncChannelId ?? ''}
+                onChange={(e) => setSyncChannelId(Number(e.target.value))}
+                disabled={channels.length === 0}
+                className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-amber-500 disabled:opacity-50"
+              >
+                {channels.length === 0 && <option value="">暂无渠道</option>}
+                {channels.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.provider})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={runPreview}
+              disabled={syncChannelId == null || previewMut.isPending}
+              className="px-4 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/30 text-cyan-300 text-sm rounded-lg disabled:opacity-50 flex items-center gap-2"
+            >
+              {previewMut.isPending && <Spinner className="border-cyan-500/30 border-t-cyan-300" />}
+              拉取并对齐
+            </button>
+          </div>
+
+          {previewMut.isError && (
+            <div className="text-xs text-rose-400 px-2 py-1.5 rounded bg-rose-500/10 border border-rose-500/20">
+              {previewMut.error instanceof ApiError ? previewMut.error.message : '拉取失败'}
+            </div>
+          )}
+
+          {previewData && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-[11px] text-gray-500">
+                <span>
+                  上游 {previewData.upstream_total} 个模型 ·
+                  匹配价目 {previewData.items.length} 个 ·
+                  无价目跳过 {previewData.no_pricing} 个 ·
+                  已勾选 {syncSelected.size} / 可同步 {importableCount}
+                </span>
+                {importableCount > 0 && (
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setAllSelected(true)}
+                      className="text-cyan-400 hover:text-cyan-300"
+                    >
+                      全选
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAllSelected(false)}
+                      className="text-gray-400 hover:text-gray-200"
+                    >
+                      全不选
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {previewData.items.length === 0 ? (
+                <div className="text-xs text-gray-500 px-3 py-6 text-center bg-base-200/40 rounded-lg border border-base-300">
+                  没有可同步的模型——上游返回的模型 models.dev 都没有价目。
+                </div>
+              ) : (
+                <div className="rounded-lg border border-base-300 bg-base-200/40 max-h-[420px] overflow-y-auto scrollbar-thin">
+                  <table className="w-full text-xs">
+                    <thead className="text-[10px] text-gray-500 bg-base-200/80 sticky top-0">
+                      <tr>
+                        <th className="text-left p-2 pl-3 w-8"></th>
+                        <th className="text-left p-2">模型</th>
+                        <th className="text-right p-2">输入 ¥/1M</th>
+                        <th className="text-right p-2">输出 ¥/1M</th>
+                        <th className="text-right p-2">缓存读 ¥/1M</th>
+                        <th className="text-right p-2 pr-3">缓存写 ¥/1M</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-base-300">
+                      {previewData.items.map((it) => (
+                        <SyncRow
+                          key={it.model_name}
+                          item={it}
+                          checked={syncSelected.has(it.model_name)}
+                          onToggle={() => toggleSyncRow(it.model_name, it.exists)}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {syncResult && (
+            <div className="text-xs px-3 py-2 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 space-y-1">
+              <div>
+                已添加 {syncResult.added.length} 个 · 已存在跳过 {syncResult.skipped_existing.length} 个
+                {syncResult.skipped_no_price.length > 0 &&
+                  ` · 无价目跳过 ${syncResult.skipped_no_price.length} 个`}
+              </div>
+              {syncResult.added.length > 0 && (
+                <div className="font-mono text-[10px] text-gray-400 break-all">
+                  + {syncResult.added.join('、')}
+                </div>
+              )}
+            </div>
+          )}
+
+          <button
+            onClick={submitSync}
+            disabled={syncSelected.size === 0 || applyMut.isPending}
+            className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-black font-medium rounded-lg transition-colors text-sm flex items-center justify-center gap-2"
+          >
+            {applyMut.isPending && <Spinner className="border-black/30 border-t-black" />}
+            {syncSelected.size === 0 ? '请勾选要导入的模型' : `导入 ${syncSelected.size} 个模型`}
+          </button>
+        </div>
+      </Modal>
     </div>
+  );
+}
+
+interface SyncRowProps {
+  item: SyncPreviewItem;
+  checked: boolean;
+  onToggle: () => void;
+}
+
+function SyncRow({ item, checked, onToggle }: SyncRowProps) {
+  const fmt = (cents: number | null) =>
+    cents == null ? <span className="text-gray-600">—</span> : (cents / 100).toFixed(2);
+  return (
+    <tr
+      className={`${item.exists ? 'opacity-60' : 'hover:bg-base-300/30 cursor-pointer'}`}
+      onClick={onToggle}
+    >
+      <td className="p-2 pl-3">
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={item.exists}
+          onChange={onToggle}
+          onClick={(e) => e.stopPropagation()}
+          className="accent-amber-500"
+        />
+      </td>
+      <td className="p-2">
+        <div className="font-mono text-gray-200 truncate max-w-[260px]" title={item.model_name}>
+          {item.model_name}
+        </div>
+        {item.exists && (
+          <div className="text-[10px] text-gray-500">已存在 · 跳过</div>
+        )}
+      </td>
+      <td className="p-2 text-right font-mono text-gray-300">{fmt(item.official.input_price_cents)}</td>
+      <td className="p-2 text-right font-mono text-gray-300">{fmt(item.official.output_price_cents)}</td>
+      <td className="p-2 text-right font-mono text-gray-400">{fmt(item.official.cache_read_price_cents)}</td>
+      <td className="p-2 pr-3 text-right font-mono text-gray-400">{fmt(item.official.cache_write_price_cents)}</td>
+    </tr>
   );
 }
