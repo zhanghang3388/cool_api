@@ -386,10 +386,11 @@ function Pricing() {
   if (!Number.isFinite(multiplier) || multiplier <= 0) return null;
   if (data.models.length === 0) return null;
 
-  // 1 storage unit = 0.01¥ per 1M tokens. Display as ¥/1M.
+  // 1 storage unit = 0.01 unit per 1M tokens. Project policy 1 USD = 1 ¥,
+  // so the same numeric value is displayed as `$` for the official price
+  // and `¥` for the local (group) price after multiplier.
   const fmt = (cents: number | null | undefined) =>
     cents == null ? null : (cents / 100).toFixed(cents < 100 ? 3 : 2);
-  const savingPct = (1 - multiplier) * 100;
 
   return (
     <section
@@ -405,24 +406,9 @@ function Pricing() {
             {data.group.label}
           </span>
         </div>
-        <div className="text-xs text-gray-500 font-mono">
-          倍率 ×{multiplier.toFixed(2)}
-          {Math.abs(savingPct) > 0.5 && (
-            <span
-              className={
-                savingPct > 0
-                  ? 'ml-3 text-emerald-400'
-                  : 'ml-3 text-rose-400'
-              }
-            >
-              {savingPct > 0
-                ? `较官网省 ${savingPct.toFixed(0)}%`
-                : `较官网贵 ${(-savingPct).toFixed(0)}%`}
-            </span>
-          )}
-        </div>
+        <div className="text-xs text-gray-500 font-mono">倍率 ×{multiplier.toFixed(2)}</div>
         <div className="ml-auto text-[10px] text-gray-600 font-mono">
-          单位：¥ / 1M tokens · 缓存价由 models.dev 提供，缺省时按输入价计费
+          官网价 $ · 本站价 ¥ · 单价 / 1M tokens
         </div>
       </div>
 
@@ -448,7 +434,7 @@ function Pricing() {
       </div>
 
       <p className="mt-4 text-[11px] text-gray-500 font-mono">
-        // 官网价 = base × 1.0；本站价 = base × 倍率（{multiplier.toFixed(2)}）
+        // 官网价 $（base）；本站价 ¥ = base × 倍率（{multiplier.toFixed(2)}）
       </p>
     </section>
   );
@@ -466,15 +452,17 @@ function PriceRow({ model, multiplier, fmt }: PriceRowProps) {
     if (base == null) {
       return <span className="text-gray-700">—</span>;
     }
+    const effectiveCents = cents == null ? cents : Math.round((cents ?? 0) * multiplier);
+    const effective = fmt(effectiveCents);
     if (Math.abs(multiplier - 1) < 1e-6) {
-      // Same as official; one line is enough.
+      // Group price equals the official base — show one line, in ¥ since
+      // it's what the user pays.
       return <span className="text-amber-400 font-mono">¥{base}</span>;
     }
-    const effective = fmt(cents == null ? cents : Math.round((cents ?? 0) * multiplier));
     return (
       <div className="leading-tight">
         <div className="text-amber-400 font-mono">¥{effective}</div>
-        <div className="text-[10px] text-gray-600 font-mono line-through">¥{base}</div>
+        <div className="text-[10px] text-gray-600 font-mono line-through">${base}</div>
       </div>
     );
   };
