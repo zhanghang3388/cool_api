@@ -568,7 +568,7 @@ export default function ChannelsPage() {
             )}
 
             <div
-              className="w-full bg-base-200 border border-base-300 rounded-lg px-2 py-1.5 min-h-[42px] flex flex-wrap gap-1.5 items-center focus-within:border-amber-500 transition-colors cursor-text"
+              className="w-full bg-base-200 border border-base-300 rounded-lg px-2 py-1.5 min-h-[42px] max-h-40 overflow-y-auto scrollbar-thin flex flex-wrap gap-1.5 items-center content-start focus-within:border-amber-500 transition-colors cursor-text"
               onClick={(e) => {
                 const target = e.target as HTMLElement;
                 if (target.tagName !== 'INPUT' && target.tagName !== 'BUTTON') {
