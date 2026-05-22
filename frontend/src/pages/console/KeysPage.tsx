@@ -303,7 +303,7 @@ export default function KeysPage() {
             <div className="pt-2 border-t border-base-300 text-[11px] text-gray-500">
               用法示例：
               <pre className="mt-2 bg-base-200 rounded-lg p-3 font-mono text-gray-300 overflow-x-auto">
-{`curl http://localhost:3000/v1/chat/completions \\
+{`curl ${window.location.origin}/v1/chat/completions \\
   -H "Authorization: Bearer ${revealed.plaintext}" \\
   -H "Content-Type: application/json" \\
   -d '{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}'`}

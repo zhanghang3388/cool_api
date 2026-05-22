@@ -91,15 +91,34 @@ where
     app_state.jwt.verify(token)
 }
 
-fn bearer_token(parts: &Parts) -> Result<&str, AppError> {
-    let auth = parts
+/// Read the API key from either `Authorization: Bearer <key>` (OpenAI SDK
+/// convention) or `x-api-key: <key>` (Anthropic SDK default). Returns an
+/// owned String so we don't tie the lifetime to a single header value —
+/// the two header lookups can't share one borrow.
+fn bearer_token(parts: &Parts) -> Result<String, AppError> {
+    if let Some(auth) = parts
         .headers
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
-        .ok_or(AppError::Unauthorized)?;
-    auth.strip_prefix("Bearer ")
-        .map(str::trim)
-        .ok_or(AppError::Unauthorized)
+    {
+        if let Some(rest) = auth.strip_prefix("Bearer ") {
+            let trimmed = rest.trim();
+            if !trimmed.is_empty() {
+                return Ok(trimmed.to_string());
+            }
+        }
+    }
+    if let Some(key) = parts
+        .headers
+        .get("x-api-key")
+        .and_then(|v| v.to_str().ok())
+    {
+        let trimmed = key.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
+        }
+    }
+    Err(AppError::Unauthorized)
 }
 
 #[async_trait]
@@ -152,7 +171,7 @@ where
             return Err(AppError::Unauthorized);
         }
 
-        let hash = repo::api_keys::hash_key(raw);
+        let hash = repo::api_keys::hash_key(&raw);
         let key = repo::api_keys::find_active_by_hash(&app_state.db, &hash)
             .await?
             .ok_or(AppError::Unauthorized)?;

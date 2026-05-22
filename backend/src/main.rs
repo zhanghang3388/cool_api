@@ -74,7 +74,7 @@ async fn main() -> anyhow::Result<()> {
         .nest("/user", routes::user::router())
         .nest("/payment", routes::payment::router())
         .nest("/v1", routes::v1::router())
-        .nest("/anthropic", routes::anthropic::router())
+        .merge(routes::anthropic::router())
         .with_state(state)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http());

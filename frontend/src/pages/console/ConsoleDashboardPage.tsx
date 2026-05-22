@@ -54,13 +54,27 @@ export default function ConsoleDashboardPage() {
 {`from openai import OpenAI
 client = OpenAI(
     api_key="sk-ag-...",           # 你在本站创建的令牌
-    base_url="http://localhost:3000/v1"
+    base_url="${window.location.origin}/v1"
 )
 resp = client.chat.completions.create(
     model="gpt-4o",
     messages=[{"role":"user","content":"你好"}]
 )
 print(resp.choices[0].message.content)`}
+          </pre>
+          <p>或使用 Anthropic SDK（注意 base_url 不带 <code className="font-mono px-1 bg-base-200 rounded">/v1</code>）：</p>
+          <pre className="bg-base-200 rounded-lg p-3 font-mono text-[11px] text-gray-300 overflow-x-auto">
+{`from anthropic import Anthropic
+client = Anthropic(
+    api_key="sk-ag-...",
+    base_url="${window.location.origin}"
+)
+resp = client.messages.create(
+    model="claude-sonnet-4-5",
+    max_tokens=1024,
+    messages=[{"role":"user","content":"你好"}]
+)
+print(resp.content[0].text)`}
           </pre>
           <p>3. 到 <Link to="/console/usage" className="text-amber-400 hover:underline">用量日志</Link> 查看每次请求的 token 与费用明细</p>
         </div>
