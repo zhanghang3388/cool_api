@@ -1,6 +1,14 @@
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
-import { useUsageSummary } from '@/hooks/useUsage';
+import {
+  useUsageSummary,
+  useDailyByGroup,
+  useGroupHealth,
+  type DailyGroupPoint,
+  type GroupHealth,
+  type GroupHealthStatus,
+} from '@/hooks/useUsage';
 
 function formatYuan(cents: number): string {
   return `¥${(cents / 10000).toFixed(2)}`;
@@ -9,6 +17,9 @@ function formatYuan(cents: number): string {
 export default function ConsoleDashboardPage() {
   const { data: user } = useCurrentUser();
   const { data: summary, isLoading } = useUsageSummary();
+  const { data: daily = [] } = useDailyByGroup(7);
+  const { data: health = [] } = useGroupHealth(60);
+
   if (!user) return null;
 
   const balance = (user.balance_cents / 10000).toFixed(2);
@@ -22,7 +33,7 @@ export default function ConsoleDashboardPage() {
           <p className="text-xs text-gray-500 mb-2">账户余额</p>
           <p className="text-2xl font-mono font-bold text-emerald-400">¥{balance}</p>
           <p className="text-[10px] text-gray-600 mt-2">
-            不足时请到 <Link to="/console/topup" className="text-amber-400 hover:underline">充值</Link> 页面补充
+            不足时请到 <Link to="/console/topup" className="text-amber-400 hover:underline">用户钱包</Link> 页面补充
           </p>
         </div>
         <div className="stat-card rounded-xl p-5">
@@ -45,40 +56,403 @@ export default function ConsoleDashboardPage() {
         </div>
       </div>
 
-      <div className="stat-card rounded-xl p-5">
-        <h3 className="text-sm font-medium text-gray-300 mb-3">快速开始</h3>
-        <div className="space-y-3 text-xs text-gray-400">
-          <p>1. 到 <Link to="/console/keys" className="text-amber-400 hover:underline">令牌</Link> 页面创建一个令牌（只在创建时显示一次，记得保存）</p>
-          <p>2. 使用 OpenAI SDK，把 <code className="font-mono px-1 bg-base-200 rounded">base_url</code> 指向本网关：</p>
-          <pre className="bg-base-200 rounded-lg p-3 font-mono text-[11px] text-gray-300 overflow-x-auto">
-{`from openai import OpenAI
-client = OpenAI(
-    api_key="sk-ag-...",           # 你在本站创建的令牌
-    base_url="${window.location.origin}/v1"
-)
-resp = client.chat.completions.create(
-    model="gpt-4o",
-    messages=[{"role":"user","content":"你好"}]
-)
-print(resp.choices[0].message.content)`}
-          </pre>
-          <p>或使用 Anthropic SDK（注意 base_url 不带 <code className="font-mono px-1 bg-base-200 rounded">/v1</code>）：</p>
-          <pre className="bg-base-200 rounded-lg p-3 font-mono text-[11px] text-gray-300 overflow-x-auto">
-{`from anthropic import Anthropic
-client = Anthropic(
-    api_key="sk-ag-...",
-    base_url="${window.location.origin}"
-)
-resp = client.messages.create(
-    model="claude-sonnet-4-5",
-    max_tokens=1024,
-    messages=[{"role":"user","content":"你好"}]
-)
-print(resp.content[0].text)`}
-          </pre>
-          <p>3. 到 <Link to="/console/usage" className="text-amber-400 hover:underline">用量日志</Link> 查看每次请求的 token 与费用明细</p>
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <div className="lg:col-span-3 stat-card rounded-xl p-5">
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-sm font-medium text-gray-300">近 7 天分组用量</h3>
+            <span className="text-[10px] text-gray-600 font-mono tracking-wider">tokens / day</span>
+          </div>
+          <p className="text-[10px] text-gray-500 mb-4">
+            按令牌所属分组聚合每日 token 消耗，鼠标悬停查看具体数值。
+          </p>
+          <DailyByGroupChart points={daily} />
+        </div>
+
+        <div className="stat-card rounded-xl p-5">
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-sm font-medium text-gray-300">分组健康状态</h3>
+            <span className="text-[10px] text-gray-600 font-mono">/ 1h</span>
+          </div>
+          <p className="text-[10px] text-gray-500 mb-3">
+            最近 1 小时该分组下的请求成功率与延迟。30s 自动刷新。
+          </p>
+          <GroupHealthList items={health} />
         </div>
       </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Hand-rolled SVG chart — keeps the bundle tiny and avoids dragging in a    */
+/* whole charting lib for one panel.                                         */
+/* -------------------------------------------------------------------------- */
+
+const CHART_PALETTE = [
+  '#f59e0b', // amber-500
+  '#22d3ee', // cyan-400
+  '#a78bfa', // violet-400
+  '#34d399', // emerald-400
+  '#f87171', // rose-400
+  '#fb923c', // orange-400
+  '#60a5fa', // blue-400
+  '#facc15', // yellow-400
+];
+
+interface PivotedSeries {
+  group_id: number;
+  label: string;
+  values: number[];
+  color: string;
+}
+
+interface PivotResult {
+  days: string[];
+  series: PivotedSeries[];
+  yMax: number;
+  totalByDay: number[];
+}
+
+function pivot(points: DailyGroupPoint[]): PivotResult {
+  if (points.length === 0) {
+    return { days: [], series: [], yMax: 0, totalByDay: [] };
+  }
+  // Build the canonical 7 days (or however many were requested) from "today
+  // back". Backend may omit days that had zero traffic, so we manufacture
+  // them here so the X-axis stays consistent regardless of activity.
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dayKeys: string[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    dayKeys.push(d.toISOString().slice(0, 10));
+  }
+
+  // Collect groups in stable order (id ascending).
+  const groupMeta = new Map<number, { label: string }>();
+  points.forEach((p) => {
+    if (!groupMeta.has(p.group_id)) {
+      groupMeta.set(p.group_id, { label: p.group_label || p.group_name || `#${p.group_id}` });
+    }
+  });
+  const groupIds = Array.from(groupMeta.keys()).sort((a, b) => a - b);
+
+  // Quick lookup: groupId → dayKey → tokens.
+  const lookup = new Map<number, Map<string, number>>();
+  points.forEach((p) => {
+    const dayKey = p.day.slice(0, 10);
+    if (!lookup.has(p.group_id)) lookup.set(p.group_id, new Map());
+    lookup.get(p.group_id)!.set(dayKey, p.tokens);
+  });
+
+  const series: PivotedSeries[] = groupIds.map((id, i) => ({
+    group_id: id,
+    label: groupMeta.get(id)!.label,
+    color: CHART_PALETTE[i % CHART_PALETTE.length],
+    values: dayKeys.map((d) => lookup.get(id)?.get(d) ?? 0),
+  }));
+
+  const totalByDay = dayKeys.map((_, di) =>
+    series.reduce((acc, s) => acc + s.values[di], 0)
+  );
+  const yMax = Math.max(0, ...series.flatMap((s) => s.values));
+
+  return { days: dayKeys, series, yMax, totalByDay };
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+function formatDayShort(iso: string): string {
+  // "2026-05-22" → "5/22"
+  const d = new Date(`${iso}T00:00:00Z`);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+function DailyByGroupChart({ points }: { points: DailyGroupPoint[] }) {
+  const { days, series, yMax, totalByDay } = useMemo(() => pivot(points), [points]);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  // SVG view is unitless; we lay it out at 800×260 and let the viewBox handle
+  // the actual responsive scaling. Padding leaves room for axis labels.
+  const W = 800;
+  const H = 260;
+  const padL = 40;
+  const padR = 16;
+  const padT = 16;
+  const padB = 28;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+
+  // Empty / all-zero state.
+  if (days.length === 0 || (yMax === 0 && series.length === 0)) {
+    return (
+      <div className="h-[260px] flex items-center justify-center text-xs text-gray-500">
+        近 7 天还没有用量数据。先去
+        <Link to="/console/keys" className="mx-1 text-amber-400 hover:underline">创建令牌</Link>
+        发起请求吧。
+      </div>
+    );
+  }
+
+  // Scale: leave a touch of headroom so the topmost line doesn't touch the frame.
+  const yMaxPadded = yMax === 0 ? 1 : yMax * 1.1;
+  const xAt = (i: number) =>
+    days.length === 1
+      ? padL + innerW / 2
+      : padL + (innerW * i) / (days.length - 1);
+  const yAt = (v: number) => padT + innerH - (innerH * v) / yMaxPadded;
+
+  // 5 horizontal grid lines (incl. top + bottom).
+  const gridSteps = 4;
+  const yTicks = Array.from({ length: gridSteps + 1 }, (_, i) =>
+    Math.round((yMaxPadded * i) / gridSteps)
+  );
+
+  // Smoothed cubic path for each series — feels less "plotty" than straight
+  // segments and is one knob better than corners on a 7-point series.
+  const smoothPath = (vals: number[]) => {
+    if (vals.length === 0) return '';
+    const pts = vals.map((v, i) => [xAt(i), yAt(v)] as const);
+    if (pts.length === 1) return `M ${pts[0][0]} ${pts[0][1]}`;
+    let d = `M ${pts[0][0]} ${pts[0][1]}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [x0, y0] = pts[i];
+      const [x1, y1] = pts[i + 1];
+      const cx = (x0 + x1) / 2;
+      d += ` C ${cx} ${y0} ${cx} ${y1} ${x1} ${y1}`;
+    }
+    return d;
+  };
+
+  return (
+    <div className="relative">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[260px] overflow-visible">
+        {/* horizontal gridlines + y-axis labels */}
+        {yTicks.map((tick, i) => {
+          const y = yAt(tick);
+          return (
+            <g key={`grid-${i}`}>
+              <line
+                x1={padL}
+                x2={W - padR}
+                y1={y}
+                y2={y}
+                stroke="currentColor"
+                strokeWidth={1}
+                className="text-base-300"
+                strokeDasharray={i === 0 ? undefined : '2 4'}
+                opacity={i === 0 ? 0.6 : 0.4}
+              />
+              <text
+                x={padL - 6}
+                y={y + 3}
+                textAnchor="end"
+                className="fill-gray-500 font-mono"
+                style={{ fontSize: 10 }}
+              >
+                {formatTokens(tick)}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* X axis labels */}
+        {days.map((d, i) => (
+          <text
+            key={d}
+            x={xAt(i)}
+            y={H - padB + 14}
+            textAnchor="middle"
+            className="fill-gray-500 font-mono"
+            style={{ fontSize: 10 }}
+          >
+            {formatDayShort(d)}
+          </text>
+        ))}
+
+        {/* hover guideline */}
+        {hoverIdx !== null && (
+          <line
+            x1={xAt(hoverIdx)}
+            x2={xAt(hoverIdx)}
+            y1={padT}
+            y2={H - padB}
+            stroke="currentColor"
+            className="text-amber-500/40"
+            strokeWidth={1}
+          />
+        )}
+
+        {/* series — area gradient + smoothed line */}
+        <defs>
+          {series.map((s) => (
+            <linearGradient key={s.group_id} id={`g${s.group_id}`} x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor={s.color} stopOpacity={0.25} />
+              <stop offset="100%" stopColor={s.color} stopOpacity={0} />
+            </linearGradient>
+          ))}
+        </defs>
+        {series.map((s) => {
+          const linePath = smoothPath(s.values);
+          // Area fill = line path closed back along the bottom.
+          const lastX = xAt(s.values.length - 1);
+          const firstX = xAt(0);
+          const areaPath = `${linePath} L ${lastX} ${yAt(0)} L ${firstX} ${yAt(0)} Z`;
+          return (
+            <g key={s.group_id}>
+              <path d={areaPath} fill={`url(#g${s.group_id})`} />
+              <path
+                d={linePath}
+                fill="none"
+                stroke={s.color}
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              {/* points — small dots so single-day series still show */}
+              {s.values.map((v, i) => (
+                <circle
+                  key={i}
+                  cx={xAt(i)}
+                  cy={yAt(v)}
+                  r={hoverIdx === i ? 4 : 2.5}
+                  fill={s.color}
+                  stroke="#0b0b0e"
+                  strokeWidth={1.5}
+                />
+              ))}
+            </g>
+          );
+        })}
+
+        {/* hover catcher: invisible columns that update the hovered day */}
+        {days.map((_, i) => {
+          const colW = innerW / (days.length || 1);
+          return (
+            <rect
+              key={`hit-${i}`}
+              x={xAt(i) - colW / 2}
+              y={padT}
+              width={colW}
+              height={innerH}
+              fill="transparent"
+              onMouseEnter={() => setHoverIdx(i)}
+              onMouseLeave={() => setHoverIdx((h) => (h === i ? null : h))}
+            />
+          );
+        })}
+      </svg>
+
+      {/* legend */}
+      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+        {series.map((s) => (
+          <div key={s.group_id} className="flex items-center gap-1.5 text-[10px] text-gray-400">
+            <span
+              className="w-2.5 h-2.5 rounded-sm"
+              style={{ background: s.color }}
+            />
+            {s.label}
+          </div>
+        ))}
+      </div>
+
+      {/* tooltip */}
+      {hoverIdx !== null && (
+        <div className="absolute top-1 right-1 stat-card rounded-md border border-base-300 bg-base-200/95 px-3 py-2 text-[10px] font-mono text-gray-300 pointer-events-none min-w-[140px]">
+          <div className="text-gray-500 mb-1">
+            {formatDayShort(days[hoverIdx])} · 总 {formatTokens(totalByDay[hoverIdx])}
+          </div>
+          {series.map((s) => (
+            <div key={s.group_id} className="flex items-center justify-between gap-3">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-sm" style={{ background: s.color }} />
+                {s.label}
+              </span>
+              <span className="text-gray-200">{formatTokens(s.values[hoverIdx])}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+
+const STATUS_META: Record<GroupHealthStatus, { label: string; dot: string; text: string }> = {
+  healthy: { label: '正常', dot: 'bg-emerald-500', text: 'text-emerald-400' },
+  degraded: { label: '降级', dot: 'bg-amber-500', text: 'text-amber-400' },
+  down: { label: '异常', dot: 'bg-rose-500', text: 'text-rose-400' },
+  idle: { label: '空闲', dot: 'bg-gray-500', text: 'text-gray-500' },
+};
+
+function GroupHealthList({ items }: { items: GroupHealth[] }) {
+  if (items.length === 0) {
+    return (
+      <div className="h-[200px] flex items-center justify-center text-[11px] text-gray-500">
+        近 1 小时没有请求记录
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2 max-h-[400px] overflow-y-auto scrollbar-thin pr-1">
+      {items.map((g) => {
+        const meta = STATUS_META[g.status] ?? STATUS_META.idle;
+        const successRate = g.total === 0 ? 0 : (g.success / g.total) * 100;
+        return (
+          <div
+            key={g.group_id}
+            className="rounded-lg border border-base-300 bg-base-200/40 p-3"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-gray-200 font-mono truncate" title={g.group_label}>
+                {g.group_label || g.group_name || `#${g.group_id}`}
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-[10px]">
+                <span className={`w-2 h-2 rounded-full ${meta.dot} pulse-dot`} />
+                <span className={meta.text}>{meta.label}</span>
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-y-1 text-[10px] font-mono text-gray-400">
+              <span>请求</span>
+              <span className="text-right text-gray-200">{g.total.toLocaleString()}</span>
+              <span>成功率</span>
+              <span
+                className={`text-right ${
+                  successRate >= 95
+                    ? 'text-emerald-400'
+                    : successRate >= 70
+                      ? 'text-amber-400'
+                      : 'text-rose-400'
+                }`}
+              >
+                {g.total === 0 ? '—' : `${successRate.toFixed(1)}%`}
+              </span>
+              <span>平均延迟</span>
+              <span className="text-right text-gray-200">
+                {g.total === 0 ? '—' : `${g.avg_latency_ms} ms`}
+              </span>
+              {g.error > 0 && (
+                <>
+                  <span className="text-rose-400/80">错误</span>
+                  <span className="text-right text-rose-400">{g.error}</span>
+                </>
+              )}
+              {g.cached > 0 && (
+                <>
+                  <span className="text-cyan-400/80">缓存命中</span>
+                  <span className="text-right text-cyan-400">{g.cached}</span>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -23,10 +23,10 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { to: '/console', label: '仪表盘', icon: LayoutDashboard },
-  { to: '/console/keys', label: '令牌', icon: Key },
+  { to: '/console/keys', label: '令牌管理', icon: Key },
   { to: '/console/usage', label: '用量日志', icon: Activity },
   { to: '/console/models', label: '模型价格', icon: Coins },
-  { to: '/console/topup', label: '充值', icon: Wallet },
+  { to: '/console/topup', label: '用户钱包', icon: Wallet },
   { to: '/console/profile', label: '个人资料', icon: UserCircle },
 ];
 

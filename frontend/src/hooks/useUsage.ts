@@ -92,3 +92,47 @@ export function useUsageSummary() {
     queryFn: () => api.get<UsageSummary>('/user/usage/summary'),
   });
 }
+
+/* ---- Dashboard: 7-day per-group trend + 1-hour group health ---- */
+
+export interface DailyGroupPoint {
+  day: string;
+  group_id: number;
+  group_name: string;
+  group_label: string;
+  requests: number;
+  tokens: number;
+  cost_cents: number;
+}
+
+export function useDailyByGroup(days = 7) {
+  return useQuery<DailyGroupPoint[]>({
+    queryKey: ['user-usage-daily-by-group', days],
+    queryFn: () =>
+      api.get<DailyGroupPoint[]>(`/user/usage/daily-by-group?days=${days}`),
+    staleTime: 60 * 1000,
+  });
+}
+
+export type GroupHealthStatus = 'healthy' | 'degraded' | 'down' | 'idle';
+
+export interface GroupHealth {
+  group_id: number;
+  group_name: string;
+  group_label: string;
+  total: number;
+  success: number;
+  error: number;
+  cached: number;
+  avg_latency_ms: number;
+  status: GroupHealthStatus;
+}
+
+export function useGroupHealth(minutes = 60) {
+  return useQuery<GroupHealth[]>({
+    queryKey: ['user-group-health', minutes],
+    queryFn: () => api.get<GroupHealth[]>(`/user/usage/group-health?minutes=${minutes}`),
+    refetchInterval: 30 * 1000,
+    staleTime: 15 * 1000,
+  });
+}

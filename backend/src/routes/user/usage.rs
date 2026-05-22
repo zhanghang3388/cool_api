@@ -14,6 +14,8 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/logs", get(logs))
         .route("/summary", get(summary))
+        .route("/daily-by-group", get(daily_by_group))
+        .route("/group-health", get(group_health))
 }
 
 #[derive(Debug, Deserialize)]
@@ -67,4 +69,37 @@ async fn summary(
 ) -> AppResult<Json<repo::request_logs::UserUsageSummary>> {
     let s = repo::request_logs::summarize_by_user(&state.db, auth.user_id).await?;
     Ok(Json(s))
+}
+
+#[derive(Debug, Deserialize)]
+struct DailyByGroupQuery {
+    /// How many trailing days to include (clamped 1..=30). Defaults to 7.
+    days: Option<i32>,
+}
+
+async fn daily_by_group(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Query(q): Query<DailyByGroupQuery>,
+) -> AppResult<Json<Vec<repo::request_logs::DailyGroupPoint>>> {
+    let days = q.days.unwrap_or(7).clamp(1, 30);
+    let rows = repo::request_logs::daily_by_group_for_user(&state.db, auth.user_id, days).await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Deserialize)]
+struct GroupHealthQuery {
+    /// Look-back window in minutes (clamped 5..=1440). Defaults to 60.
+    minutes: Option<i32>,
+}
+
+async fn group_health(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Query(q): Query<GroupHealthQuery>,
+) -> AppResult<Json<Vec<repo::request_logs::GroupHealth>>> {
+    let minutes = q.minutes.unwrap_or(60).clamp(5, 1440);
+    let rows =
+        repo::request_logs::group_health_for_user(&state.db, auth.user_id, minutes).await?;
+    Ok(Json(rows))
 }

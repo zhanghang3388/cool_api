@@ -369,3 +369,139 @@ pub async fn recent_requests(pool: &PgPool, limit: i64) -> AppResult<Vec<RecentR
         })
         .collect())
 }
+
+/// One (day × group) cell for the per-user dashboard chart. The series is
+/// built by joining a generate_series of days against the user's logs, so
+/// days with no traffic still appear (with zeros) for groups that DID see
+/// traffic in the window — but groups the user never touched are not
+/// fabricated. The frontend pivots this into per-group time series and
+/// fills any missing days as 0.
+#[derive(Debug, Serialize)]
+pub struct DailyGroupPoint {
+    pub day: DateTime<Utc>,
+    pub group_id: i64,
+    pub group_name: String,
+    pub group_label: String,
+    pub requests: i64,
+    pub tokens: i64,
+    pub cost_cents: i64,
+}
+
+pub async fn daily_by_group_for_user(
+    pool: &PgPool,
+    user_id: i64,
+    days: i32,
+) -> AppResult<Vec<DailyGroupPoint>> {
+    let rows: Vec<(DateTime<Utc>, i64, String, String, i64, i64, i64)> = sqlx::query_as(
+        "SELECT \
+            date_trunc('day', r.created_at) AS day, \
+            r.group_id, \
+            COALESCE(g.name, ''), \
+            COALESCE(g.label, ''), \
+            COUNT(*)::BIGINT, \
+            SUM(r.prompt_tokens + r.completion_tokens)::BIGINT, \
+            SUM(r.total_cost_cents)::BIGINT \
+         FROM request_logs r \
+         LEFT JOIN groups g ON g.id = r.group_id \
+         WHERE r.user_id = $1 \
+           AND r.created_at >= date_trunc('day', NOW()) - (($2::INT - 1) * INTERVAL '1 day') \
+         GROUP BY day, r.group_id, g.name, g.label \
+         ORDER BY day ASC, r.group_id ASC",
+    )
+    .bind(user_id)
+    .bind(days)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(
+            |(day, group_id, group_name, group_label, requests, tokens, cost_cents)| {
+                DailyGroupPoint {
+                    day,
+                    group_id,
+                    group_name,
+                    group_label,
+                    requests,
+                    tokens,
+                    cost_cents,
+                }
+            },
+        )
+        .collect())
+}
+
+/// Per-group request health for the past `minutes` minutes (per user).
+/// `status` is computed at the SQL layer: idle when no requests; degraded
+/// when error_rate ≥ 5%; down when error_rate ≥ 30%; healthy otherwise.
+#[derive(Debug, Serialize)]
+pub struct GroupHealth {
+    pub group_id: i64,
+    pub group_name: String,
+    pub group_label: String,
+    pub total: i64,
+    pub success: i64,
+    pub error: i64,
+    pub cached: i64,
+    pub avg_latency_ms: i64,
+    pub status: &'static str,
+}
+
+pub async fn group_health_for_user(
+    pool: &PgPool,
+    user_id: i64,
+    minutes: i32,
+) -> AppResult<Vec<GroupHealth>> {
+    let rows: Vec<(i64, String, String, i64, i64, i64, i64, Option<f64>)> = sqlx::query_as(
+        "SELECT \
+            r.group_id, \
+            COALESCE(g.name, ''), \
+            COALESCE(g.label, ''), \
+            COUNT(*)::BIGINT, \
+            COUNT(*) FILTER (WHERE r.status = 'success')::BIGINT, \
+            COUNT(*) FILTER (WHERE r.status = 'error')::BIGINT, \
+            COUNT(*) FILTER (WHERE r.status = 'cached')::BIGINT, \
+            AVG(r.latency_ms)::DOUBLE PRECISION \
+         FROM request_logs r \
+         LEFT JOIN groups g ON g.id = r.group_id \
+         WHERE r.user_id = $1 \
+           AND r.created_at >= NOW() - ($2::INT * INTERVAL '1 minute') \
+         GROUP BY r.group_id, g.name, g.label \
+         ORDER BY total DESC",
+    )
+    .bind(user_id)
+    .bind(minutes)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(
+            |(group_id, group_name, group_label, total, success, error, cached, avg_latency)| {
+                let avg_latency_ms = avg_latency.unwrap_or(0.0).round() as i64;
+                let status = if total == 0 {
+                    "idle"
+                } else {
+                    let error_rate = error as f64 / total as f64;
+                    if error_rate >= 0.30 {
+                        "down"
+                    } else if error_rate >= 0.05 {
+                        "degraded"
+                    } else {
+                        "healthy"
+                    }
+                };
+                GroupHealth {
+                    group_id,
+                    group_name,
+                    group_label,
+                    total,
+                    success,
+                    error,
+                    cached,
+                    avg_latency_ms,
+                    status,
+                }
+            },
+        )
+        .collect())
+}
