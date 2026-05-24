@@ -1,11 +1,14 @@
+import { useState } from 'react';
 import Spinner from '@/components/ui/Spinner';
 import {
   useAdminOverview,
+  useAdminDailyByModel,
   useProviderDistribution,
   useRecentRequests,
-  useRequestsTrend,
   type RecentRequest,
 } from '@/hooks/useAdminStats';
+import { useGroups } from '@/hooks/useGroups';
+import { DailyByModelChart, GroupTabs } from '@/components/DailyByModelChart';
 
 const PROVIDER_COLORS: Record<string, string> = {
   openai: 'bg-emerald-500',
@@ -31,18 +34,16 @@ function formatCompact(n: number): string {
   return String(n);
 }
 
-function formatDayLabel(iso: string): string {
-  const d = new Date(iso);
-  return `${d.getMonth() + 1}/${d.getDate()}`;
-}
-
 export default function AdminDashboardPage() {
   const { data: overview } = useAdminOverview();
-  const { data: trend = [] } = useRequestsTrend(7);
   const { data: providers = [] } = useProviderDistribution();
   const { data: recent = [], isLoading: recentLoading } = useRecentRequests(10);
+  const { data: groups = [] } = useGroups();
+  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
+  const { data: daily = [] } = useAdminDailyByModel(7, selectedGroupId);
 
-  const maxRequests = Math.max(1, ...trend.map((p) => p.requests));
+  // Admin can see every group; only enabled ones are useful in the picker.
+  const enabledGroups = groups.filter((g) => g.enabled);
   const totalRequests = providers.reduce((acc, p) => acc + p.requests, 0);
 
   return (
@@ -60,8 +61,8 @@ export default function AdminDashboardPage() {
           accent="text-cyan-400"
         />
         <StatCard
-          label="今日收入"
-          value={overview ? formatYuan(overview.today_revenue_cents) : '—'}
+          label="今日充值"
+          value={overview ? formatYuan(overview.today_topup_cents) : '—'}
           accent="text-emerald-400"
         />
         <StatCard
@@ -73,37 +74,23 @@ export default function AdminDashboardPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="md:col-span-2 stat-card rounded-xl p-5">
-          <h3 className="text-sm font-medium text-gray-300 mb-4">请求趋势 (近 7 天)</h3>
-          <div className="flex items-end gap-3 h-40">
-            {trend.length === 0 && (
-              <div className="flex-1 text-center text-xs text-gray-600 pt-16">暂无数据</div>
-            )}
-            {trend.map((p) => {
-              const heightPct = (p.requests / maxRequests) * 100;
-              return (
-                <div key={p.day} className="flex-1 flex flex-col items-center gap-2">
-                  <div
-                    className="w-full bg-base-300 rounded-t relative overflow-hidden"
-                    style={{ height: '140px' }}
-                    title={`${p.requests.toLocaleString()} 请求 · ${formatYuan(p.cost_cents)}`}
-                  >
-                    <div
-                      className="absolute bottom-0 w-full rounded-t bg-gradient-to-t from-amber-600 to-amber-400 transition-all duration-500"
-                      style={{ height: `${heightPct}%` }}
-                    />
-                  </div>
-                  <span className="text-[10px] text-gray-500 font-mono">
-                    {formatDayLabel(p.day)}
-                  </span>
-                </div>
-              );
-            })}
+          <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
+            <h3 className="text-sm font-medium text-gray-300">近 7 天分组用量</h3>
+            <span className="text-[10px] text-gray-600 font-mono tracking-wider">tokens / day</span>
           </div>
-          <div className="flex justify-between mt-3 text-[10px] text-gray-600 font-mono">
-            <span>峰值 {maxRequests.toLocaleString()}</span>
-            <span>
-              合计 {trend.reduce((acc, p) => acc + p.requests, 0).toLocaleString()} 请求
-            </span>
+          <p className="text-[10px] text-gray-500 mb-3">
+            全站维度。顶部按分组切换；下方按该分组下的模型展开 token 消耗。「全部分组」会把不同分组里同名的模型合并成一条线。
+          </p>
+          <GroupTabs
+            groups={enabledGroups}
+            value={selectedGroupId}
+            onChange={setSelectedGroupId}
+          />
+          <div className="mt-3">
+            <DailyByModelChart
+              points={daily}
+              emptyState={<span>近 7 天还没有任何请求记录。</span>}
+            />
           </div>
         </div>
 

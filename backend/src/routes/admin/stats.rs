@@ -12,6 +12,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/overview", get(overview))
         .route("/requests-trend", get(requests_trend))
+        .route("/daily-by-model", get(daily_by_model))
         .route("/provider-distribution", get(provider_distribution))
         .route("/recent-requests", get(recent_requests))
 }
@@ -36,6 +37,23 @@ async fn requests_trend(
 ) -> AppResult<Json<Vec<repo::request_logs::TrendPoint>>> {
     let days = q.days.unwrap_or(7).clamp(1, 90);
     Ok(Json(repo::request_logs::requests_trend(&state.db, days).await?))
+}
+
+#[derive(Debug, Deserialize)]
+struct DailyByModelQuery {
+    days: Option<i32>,
+    group_id: Option<i64>,
+}
+
+async fn daily_by_model(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Query(q): Query<DailyByModelQuery>,
+) -> AppResult<Json<Vec<repo::request_logs::DailyModelPoint>>> {
+    let days = q.days.unwrap_or(7).clamp(1, 30);
+    Ok(Json(
+        repo::request_logs::daily_by_model_global(&state.db, days, q.group_id).await?,
+    ))
 }
 
 async fn provider_distribution(

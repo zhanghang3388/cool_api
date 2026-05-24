@@ -4,7 +4,7 @@ import { api } from '@/lib/api';
 export interface AdminOverview {
   today_requests: number;
   today_tokens: number;
-  today_revenue_cents: number;
+  today_topup_cents: number;
   active_users_today: number;
 }
 
@@ -31,6 +31,14 @@ export interface RecentRequest {
   created_at: string;
 }
 
+export interface AdminDailyModelPoint {
+  day: string;
+  model_name: string;
+  requests: number;
+  tokens: number;
+  cost_cents: number;
+}
+
 export function useAdminOverview() {
   return useQuery<AdminOverview>({
     queryKey: ['admin-stats', 'overview'],
@@ -43,6 +51,18 @@ export function useRequestsTrend(days = 7) {
   return useQuery<TrendPoint[]>({
     queryKey: ['admin-stats', 'trend', days],
     queryFn: () => api.get<TrendPoint[]>(`/admin/stats/requests-trend?days=${days}`),
+  });
+}
+
+export function useAdminDailyByModel(days = 7, groupId: number | null = null) {
+  return useQuery<AdminDailyModelPoint[]>({
+    queryKey: ['admin-stats', 'daily-by-model', days, groupId],
+    queryFn: () => {
+      const qs = new URLSearchParams({ days: String(days) });
+      if (groupId != null) qs.set('group_id', String(groupId));
+      return api.get<AdminDailyModelPoint[]>(`/admin/stats/daily-by-model?${qs.toString()}`);
+    },
+    staleTime: 60 * 1000,
   });
 }
 

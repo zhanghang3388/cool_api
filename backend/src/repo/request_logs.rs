@@ -245,26 +245,35 @@ pub async fn summarize_by_user(pool: &PgPool, user_id: i64) -> AppResult<UserUsa
 pub struct AdminOverview {
     pub today_requests: i64,
     pub today_tokens: i64,
-    pub today_revenue_cents: i64,
+    /// Sum of successful top-ups (amount + bonus) credited today, in
+    /// 1/10000 yuan. Replaces the old "revenue from request costs" because
+    /// what an operator actually wants on the dashboard is real money in.
+    pub today_topup_cents: i64,
     pub active_users_today: i64,
 }
 
 pub async fn admin_overview(pool: &PgPool) -> AppResult<AdminOverview> {
-    let row: (i64, i64, i64, i64) = sqlx::query_as(
+    let row: (i64, i64, i64) = sqlx::query_as(
         "SELECT \
             COALESCE(COUNT(*), 0)::BIGINT, \
             COALESCE(SUM(prompt_tokens + completion_tokens), 0)::BIGINT, \
-            COALESCE(SUM(total_cost_cents), 0)::BIGINT, \
             COALESCE(COUNT(DISTINCT user_id), 0)::BIGINT \
          FROM request_logs WHERE created_at >= date_trunc('day', NOW())",
+    )
+    .fetch_one(pool)
+    .await?;
+    let topup: (i64,) = sqlx::query_as(
+        "SELECT COALESCE(SUM(amount_cents + bonus_cents), 0)::BIGINT \
+         FROM top_up_records \
+         WHERE status = 'success' AND created_at >= date_trunc('day', NOW())",
     )
     .fetch_one(pool)
     .await?;
     Ok(AdminOverview {
         today_requests: row.0,
         today_tokens: row.1,
-        today_revenue_cents: row.2,
-        active_users_today: row.3,
+        today_topup_cents: topup.0,
+        active_users_today: row.2,
     })
 }
 
@@ -511,6 +520,71 @@ pub async fn daily_by_model_for_user(
                  ORDER BY day ASC, r.model_name ASC",
             )
             .bind(user_id)
+            .bind(days)
+            .fetch_all(pool)
+            .await?
+        }
+    };
+    Ok(rows
+        .into_iter()
+        .map(|(day, model_name, requests, tokens, cost_cents)| DailyModelPoint {
+            day,
+            model_name,
+            requests,
+            tokens,
+            cost_cents,
+        })
+        .collect())
+}
+
+/// Global per-model daily token usage across **all** users. Mirrors
+/// `daily_by_model_for_user` but without the user_id filter — for the
+/// admin dashboard chart. Same merge semantics: identical model names
+/// across groups collapse to one series in the no-group case.
+pub async fn daily_by_model_global(
+    pool: &PgPool,
+    days: i32,
+    group_id: Option<i64>,
+) -> AppResult<Vec<DailyModelPoint>> {
+    let rows: Vec<(String, String, i64, i64, i64)> = match group_id {
+        Some(gid) => {
+            sqlx::query_as(
+                "SELECT \
+                    to_char(date_trunc('day', r.created_at AT TIME ZONE 'Asia/Shanghai'), 'YYYY-MM-DD') AS day, \
+                    r.model_name, \
+                    COUNT(*)::BIGINT, \
+                    SUM(r.prompt_tokens + r.completion_tokens)::BIGINT, \
+                    SUM(r.total_cost_cents)::BIGINT \
+                 FROM request_logs r \
+                 WHERE r.group_id = $2 \
+                   AND r.created_at >= ( \
+                          date_trunc('day', NOW() AT TIME ZONE 'Asia/Shanghai') \
+                          - (($1::INT - 1) * INTERVAL '1 day') \
+                      ) AT TIME ZONE 'Asia/Shanghai' \
+                 GROUP BY day, r.model_name \
+                 ORDER BY day ASC, r.model_name ASC",
+            )
+            .bind(days)
+            .bind(gid)
+            .fetch_all(pool)
+            .await?
+        }
+        None => {
+            sqlx::query_as(
+                "SELECT \
+                    to_char(date_trunc('day', r.created_at AT TIME ZONE 'Asia/Shanghai'), 'YYYY-MM-DD') AS day, \
+                    r.model_name, \
+                    COUNT(*)::BIGINT, \
+                    SUM(r.prompt_tokens + r.completion_tokens)::BIGINT, \
+                    SUM(r.total_cost_cents)::BIGINT \
+                 FROM request_logs r \
+                 WHERE r.created_at >= ( \
+                          date_trunc('day', NOW() AT TIME ZONE 'Asia/Shanghai') \
+                          - (($1::INT - 1) * INTERVAL '1 day') \
+                      ) AT TIME ZONE 'Asia/Shanghai' \
+                 GROUP BY day, r.model_name \
+                 ORDER BY day ASC, r.model_name ASC",
+            )
             .bind(days)
             .fetch_all(pool)
             .await?
