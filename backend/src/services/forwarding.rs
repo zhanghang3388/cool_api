@@ -18,7 +18,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::{ChannelProvider, ChannelStatus, Model, RequestStatus};
 use crate::repo;
 use crate::services::{billing, cache, router as svc_router};
-use crate::upstream::{self, ChatRequest, ChatResponse, Usage};
+use crate::upstream::{self, ChatRequest, ChatResponse, Endpoint, Usage};
 use crate::AppState;
 
 /// Minimum balance (in cents) required to start a request. Saves an upstream
@@ -31,6 +31,7 @@ const NO_CACHE_HEADER: &str = "x-aether-no-cache";
 
 pub struct ForwardInput {
     pub provider: ChannelProvider,
+    pub endpoint: Endpoint,
     pub model_name: String,
     pub stream: bool,
     pub body: Bytes,
@@ -193,6 +194,7 @@ pub async fn forward(
             raw_body: input.body.clone(),
             model: input.model_name.clone(),
             stream: input.stream,
+            endpoint: input.endpoint,
         };
 
         match adapter

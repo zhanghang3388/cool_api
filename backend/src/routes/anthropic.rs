@@ -9,6 +9,7 @@ use crate::auth::ApiUser;
 use crate::error::{AppError, AppResult};
 use crate::models::ChannelProvider;
 use crate::services::forwarding::{forward, ForwardInput};
+use crate::upstream::Endpoint;
 use crate::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -29,6 +30,7 @@ async fn messages(
         api,
         ForwardInput {
             provider: ChannelProvider::Anthropic,
+            endpoint: Endpoint::ChatCompletions,
             model_name: parsed.model,
             stream: parsed.stream,
             body: body_bytes,

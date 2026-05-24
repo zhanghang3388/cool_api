@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use super::{
     join_url, truncate, ChatJsonResponse, ChatRequest, ChatResponse, ChatStreamResponse,
-    ModelEntry, TestReport, UpstreamAdapter, Usage, FORWARD_TIMEOUT, TEST_TIMEOUT,
+    Endpoint, ModelEntry, TestReport, UpstreamAdapter, Usage, FORWARD_TIMEOUT, TEST_TIMEOUT,
 };
 use crate::error::{AppError, AppResult};
 
@@ -106,15 +106,17 @@ impl UpstreamAdapter for OpenAiAdapter {
         api_key: &str,
         req: ChatRequest,
     ) -> AppResult<ChatResponse> {
-        let url = join_url(base_url, "/v1/chat/completions");
+        let url = match req.endpoint {
+            Endpoint::ChatCompletions => join_url(base_url, "/v1/chat/completions"),
+            Endpoint::Responses => join_url(base_url, "/v1/responses"),
+        };
 
-        // For streaming, force `stream_options.include_usage = true` so the
-        // upstream emits a final chunk with `usage`. Without it, OpenAI never
-        // sends usage on a stream and we'd bill the user 0 tokens.
-        let body_to_send: Bytes = if req.stream {
-            ensure_include_usage(&req.raw_body)
-        } else {
-            req.raw_body.clone()
+        // For streaming chat-completions, force `stream_options.include_usage`
+        // so the upstream emits a final chunk with `usage`. Responses API emits
+        // usage in `response.completed` unconditionally — no body patch needed.
+        let body_to_send: Bytes = match (req.endpoint, req.stream) {
+            (Endpoint::ChatCompletions, true) => ensure_include_usage(&req.raw_body),
+            _ => req.raw_body.clone(),
         };
 
         let resp = http
@@ -148,7 +150,10 @@ impl UpstreamAdapter for OpenAiAdapter {
                 .bytes()
                 .await
                 .map_err(|e| AppError::Upstream(format!("read body: {e}")))?;
-            let usage = extract_usage_json(&body);
+            let usage = match req.endpoint {
+                Endpoint::ChatCompletions => extract_usage_json(&body),
+                Endpoint::Responses => extract_usage_responses_json(&body),
+            };
             return Ok(ChatResponse::Json(ChatJsonResponse {
                 status: status.as_u16(),
                 body,
@@ -161,6 +166,7 @@ impl UpstreamAdapter for OpenAiAdapter {
         let (usage_tx, usage_rx) = tokio::sync::oneshot::channel::<Usage>();
         let partial = std::sync::Arc::new(std::sync::Mutex::new(Usage::default()));
         let partial_for_stream = partial.clone();
+        let endpoint = req.endpoint;
 
         let events = async_stream::try_stream! {
             let mut sse = byte_stream.eventsource();
@@ -169,34 +175,34 @@ impl UpstreamAdapter for OpenAiAdapter {
             while let Some(ev) = sse.next().await {
                 let ev = ev.map_err(|e| format!("sse parse: {e}"))?;
 
-                // OpenAI marks end-of-stream with `data: [DONE]`. The
-                // eventsource-stream crate emits it as a normal event with
-                // data "[DONE]".
+                // Chat Completions marks end-of-stream with `data: [DONE]`.
+                // Responses API doesn't — it ends naturally after `response.completed`.
                 if ev.data.trim() == "[DONE]" {
-                    // Forward the terminator verbatim and stop.
                     yield Bytes::from_static(b"data: [DONE]\n\n");
                     break;
                 }
 
-                // Try to capture usage from chunks; late chunks with
-                // `stream_options.include_usage` get a `usage` object.
-                if let Ok(chunk) = serde_json::from_str::<StreamChunk>(&ev.data) {
-                    if let Some(u) = chunk.usage {
-                        final_usage.prompt_tokens = u.prompt_tokens.unwrap_or(0);
-                        final_usage.completion_tokens = u.completion_tokens.unwrap_or(0);
-                        final_usage.cached_tokens = u
-                            .prompt_tokens_details
-                            .and_then(|d| d.cached_tokens)
-                            .unwrap_or(0);
-                        // Mirror to the shared snapshot so caller can recover
-                        // billing data if the stream is later dropped.
-                        if let Ok(mut g) = partial_for_stream.lock() {
-                            *g = final_usage;
-                        }
+                // Capture usage when present. Both endpoints send usage in
+                // their own shape; check whichever applies for this request.
+                let captured = match endpoint {
+                    Endpoint::ChatCompletions => parse_chat_chunk_usage(&ev.data),
+                    Endpoint::Responses => parse_responses_event_usage(&ev.event, &ev.data),
+                };
+                if let Some(u) = captured {
+                    final_usage = u;
+                    if let Ok(mut g) = partial_for_stream.lock() {
+                        *g = final_usage;
                     }
                 }
 
-                yield Bytes::from(format!("data: {}\n\n", ev.data));
+                // Re-emit the event verbatim. Responses uses named events
+                // (`event: response.completed\ndata: {...}\n\n`) — preserve
+                // the event name so the client SDK matches its handlers.
+                if ev.event.is_empty() {
+                    yield Bytes::from(format!("data: {}\n\n", ev.data));
+                } else {
+                    yield Bytes::from(format!("event: {}\ndata: {}\n\n", ev.event, ev.data));
+                }
             }
 
             let _ = usage_tx.send(final_usage);
@@ -273,6 +279,85 @@ fn extract_usage_json(body: &[u8]) -> Usage {
             .unwrap_or_default(),
         Err(_) => Usage::default(),
     }
+}
+
+/// Pull usage out of a Chat Completions streaming chunk. Late chunks (when
+/// `stream_options.include_usage` is set) carry a `usage` object; everything
+/// else returns `None`.
+fn parse_chat_chunk_usage(data: &str) -> Option<Usage> {
+    let chunk: StreamChunk = serde_json::from_str(data).ok()?;
+    let u = chunk.usage?;
+    Some(Usage {
+        prompt_tokens: u.prompt_tokens.unwrap_or(0),
+        completion_tokens: u.completion_tokens.unwrap_or(0),
+        cached_tokens: u
+            .prompt_tokens_details
+            .and_then(|d| d.cached_tokens)
+            .unwrap_or(0),
+        cache_creation_tokens: 0,
+    })
+}
+
+/// Pull usage out of a Responses API SSE event. Usage shows up on
+/// `response.completed` (terminal) and sometimes `response.in_progress`
+/// snapshots — both carry the same shape: `data.response.usage`.
+fn parse_responses_event_usage(_event_name: &str, data: &str) -> Option<Usage> {
+    let env: ResponsesEnvelope = serde_json::from_str(data).ok()?;
+    let resp = env.response?;
+    let u = resp.usage?;
+    Some(usage_from_responses(u))
+}
+
+fn extract_usage_responses_json(body: &[u8]) -> Usage {
+    // Non-streaming Responses API returns the response object directly.
+    #[derive(Deserialize)]
+    struct Env {
+        usage: Option<ResponsesUsageRaw>,
+    }
+    match serde_json::from_slice::<Env>(body) {
+        Ok(env) => env.usage.map(usage_from_responses).unwrap_or_default(),
+        Err(_) => Usage::default(),
+    }
+}
+
+fn usage_from_responses(u: ResponsesUsageRaw) -> Usage {
+    Usage {
+        prompt_tokens: u.input_tokens.unwrap_or(0),
+        completion_tokens: u.output_tokens.unwrap_or(0),
+        cached_tokens: u
+            .input_tokens_details
+            .and_then(|d| d.cached_tokens)
+            .unwrap_or(0),
+        cache_creation_tokens: 0,
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ResponsesEnvelope {
+    #[serde(default)]
+    response: Option<ResponsesPayload>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ResponsesPayload {
+    #[serde(default)]
+    usage: Option<ResponsesUsageRaw>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ResponsesUsageRaw {
+    #[serde(default)]
+    input_tokens: Option<i32>,
+    #[serde(default)]
+    output_tokens: Option<i32>,
+    #[serde(default)]
+    input_tokens_details: Option<ResponsesInputDetails>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ResponsesInputDetails {
+    #[serde(default)]
+    cached_tokens: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -378,5 +463,47 @@ mod tests {
         let body = b"not-json";
         let out = super::ensure_include_usage(&bytes::Bytes::copy_from_slice(body));
         assert_eq!(&out[..], body);
+    }
+
+    #[test]
+    fn responses_json_usage_extraction() {
+        let body = br#"{
+            "id":"resp_x","status":"completed",
+            "usage":{"input_tokens":42,"output_tokens":7,
+                     "input_tokens_details":{"cached_tokens":5}}
+        }"#;
+        let u = super::extract_usage_responses_json(body);
+        assert_eq!(u.prompt_tokens, 42);
+        assert_eq!(u.completion_tokens, 7);
+        assert_eq!(u.cached_tokens, 5);
+        assert_eq!(u.cache_creation_tokens, 0);
+    }
+
+    #[test]
+    fn responses_event_usage_from_completed() {
+        // The `response.completed` SSE event wraps the response under `response`.
+        let data = r#"{"type":"response.completed","response":{"id":"r","usage":{"input_tokens":11,"output_tokens":3}}}"#;
+        let u = super::parse_responses_event_usage("response.completed", data).unwrap();
+        assert_eq!(u.prompt_tokens, 11);
+        assert_eq!(u.completion_tokens, 3);
+    }
+
+    #[test]
+    fn responses_event_usage_missing_returns_none() {
+        // Mid-stream events like `response.output_text.delta` have no usage.
+        let data = r#"{"type":"response.output_text.delta","delta":"hi"}"#;
+        assert!(super::parse_responses_event_usage("response.output_text.delta", data).is_none());
+    }
+
+    #[test]
+    fn chat_chunk_usage_only_on_late_chunk() {
+        // Mid-stream chat completion chunks have no usage.
+        let chunk_no_usage = r#"{"id":"x","choices":[{"delta":{"content":"hi"}}]}"#;
+        assert!(super::parse_chat_chunk_usage(chunk_no_usage).is_none());
+
+        let chunk_with_usage = r#"{"id":"x","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2}}"#;
+        let u = super::parse_chat_chunk_usage(chunk_with_usage).unwrap();
+        assert_eq!(u.prompt_tokens, 10);
+        assert_eq!(u.completion_tokens, 2);
     }
 }

@@ -38,11 +38,27 @@ pub struct Usage {
     pub cache_creation_tokens: i32,
 }
 
+/// Which OpenAI-compatible endpoint to forward to. Both flow through the
+/// same routing/billing pipeline; only the URL and the wire format differ.
+/// Anthropic ignores this — it always hits `/v1/messages`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Endpoint {
+    /// Classic Chat Completions API: `/v1/chat/completions`. Used by the
+    /// OpenAI Python SDK's `chat.completions.create`, by older clients, and
+    /// by everything in the "OpenAI-compatible" ecosystem.
+    ChatCompletions,
+    /// Responses API: `/v1/responses`. Used by Codex CLI, the OpenAI
+    /// Agents SDK, and newer official tools. Different request/response
+    /// shape and different SSE event names (`response.completed` etc).
+    Responses,
+}
+
 /// Raw chat-completion request bytes plus parsed flags we need for routing.
 pub struct ChatRequest {
     pub raw_body: Bytes,
     pub model: String,
     pub stream: bool,
+    pub endpoint: Endpoint,
 }
 
 /// Non-streaming response.
