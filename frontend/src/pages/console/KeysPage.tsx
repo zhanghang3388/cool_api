@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, Download } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import Toggle from '@/components/ui/Toggle';
 import Spinner from '@/components/ui/Spinner';
@@ -14,6 +14,11 @@ import {
 } from '@/hooks/useApiKeys';
 import { useUserGroups, type UserGroup } from '@/hooks/useUserGroups';
 import { PROVIDER_LABELS, PROVIDER_ORDER, type GroupProvider } from '@/hooks/useGroups';
+import {
+  appForProvider,
+  buildDeeplink,
+  triggerImport,
+} from '@/lib/ccswitch';
 
 type GroupSelection = Partial<Record<GroupProvider, number>>;
 
@@ -54,6 +59,16 @@ export default function KeysPage() {
   const [editName, setEditName] = useState('');
   const [editGroups, setEditGroups] = useState<GroupSelection>({});
   const [editError, setEditError] = useState<string | null>(null);
+
+  // CC Switch import: when a token has bindings for both providers we
+  // pop a small picker so the user chooses which to send. Single-binding
+  // keys skip the picker and import directly.
+  const [ccsTarget, setCcsTarget] = useState<ApiKeyRow | null>(null);
+  const [ccsStatus, setCcsStatus] = useState<{
+    keyId: number;
+    kind: 'ok' | 'err';
+    text: string;
+  } | null>(null);
 
   // Pre-fill the create modal with the first available group per provider.
   useEffect(() => {
@@ -121,6 +136,52 @@ export default function KeysPage() {
     } catch {
       /* ignore */
     }
+  };
+
+  const sendToCcSwitch = async (k: ApiKeyRow, provider: GroupProvider) => {
+    if (!k.plaintext) {
+      setCcsStatus({
+        keyId: k.id,
+        kind: 'err',
+        text: '此令牌没有保存明文，无法导入。请删除后重新创建。',
+      });
+      return;
+    }
+    // Endpoint per CC Switch app:
+    //   Anthropic SDK → root domain (no /v1, x-api-key auth)
+    //   OpenAI SDK    → root + /v1 (Authorization: Bearer)
+    const origin = window.location.origin;
+    const endpoint = provider === 'anthropic' ? `${origin}/` : `${origin}/v1`;
+    const apiBase = origin;
+    const deeplink = buildDeeplink({
+      name: 'CoolGuy',
+      homepage: origin,
+      app: appForProvider(provider),
+      endpoint,
+      apiKey: k.plaintext,
+      apiBase,
+    });
+    const result = await triggerImport(deeplink);
+    setCcsTarget(null);
+    setCcsStatus({
+      keyId: k.id,
+      kind: result.ok ? 'ok' : 'err',
+      text: result.ok
+        ? `已发送到 CC Switch（${PROVIDER_LABELS[provider]}）`
+        : '未检测到 CC Switch。请确认应用已安装并注册了 ccswitch:// 协议。',
+    });
+    setTimeout(() => {
+      setCcsStatus((cur) => (cur && cur.keyId === k.id ? null : cur));
+    }, 4000);
+  };
+
+  const handleCcsClick = (k: ApiKeyRow) => {
+    if (k.groups.length === 0) return;
+    if (k.groups.length === 1) {
+      void sendToCcSwitch(k, k.groups[0].provider);
+      return;
+    }
+    setCcsTarget(k);
   };
 
   const openCreate = () => {
@@ -245,7 +306,22 @@ export default function KeysPage() {
                     />
                   </div>
                 </td>
-                <td className="p-4 text-center">
+                <td className="p-4 text-center whitespace-nowrap">
+                  <button
+                    onClick={() => handleCcsClick(k)}
+                    disabled={k.groups.length === 0 || !k.plaintext}
+                    title={
+                      k.groups.length === 0
+                        ? '该令牌未绑定分组，无法导入'
+                        : !k.plaintext
+                        ? '此令牌未保存明文，无法导入'
+                        : '导入到本机 CC Switch 应用'
+                    }
+                    className="text-xs text-amber-400 hover:text-amber-300 mr-3 disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center gap-1"
+                  >
+                    <Download className="w-3 h-3" />
+                    导入CCS
+                  </button>
                   <button
                     onClick={() => openEdit(k)}
                     className="text-xs text-cyan-400 hover:text-cyan-300 mr-3"
@@ -264,6 +340,15 @@ export default function KeysPage() {
                   >
                     删除
                   </button>
+                  {ccsStatus && ccsStatus.keyId === k.id && (
+                    <div
+                      className={`mt-1 text-[10px] ${
+                        ccsStatus.kind === 'ok' ? 'text-emerald-400' : 'text-rose-400'
+                      }`}
+                    >
+                      {ccsStatus.text}
+                    </div>
+                  )}
                 </td>
               </tr>
             ))}
@@ -347,6 +432,45 @@ export default function KeysPage() {
             保存
           </button>
         </div>
+      </Modal>
+
+      {/* CC Switch import picker — only shown when the key has bindings
+          for both providers and we need the user to pick one. */}
+      <Modal
+        open={!!ccsTarget}
+        onClose={() => setCcsTarget(null)}
+        title="导入到 CC Switch"
+      >
+        {ccsTarget && (
+          <div className="space-y-4">
+            <p className="text-xs text-gray-500 leading-relaxed">
+              该令牌同时绑定了 Anthropic 和 OpenAI 分组。CC Switch 把两个厂商分别管理，请选择导入到哪一个。需要两边都用就分别点击两次。
+            </p>
+            <div className="space-y-2">
+              {ccsTarget.groups.map((b) => (
+                <button
+                  key={b.provider}
+                  type="button"
+                  onClick={() => sendToCcSwitch(ccsTarget, b.provider)}
+                  className="w-full flex items-center justify-between p-3 rounded-lg bg-base-200 border border-base-300 hover:border-amber-500/50 hover:bg-base-300 transition-colors text-left"
+                >
+                  <div>
+                    <div className="text-sm text-gray-200">
+                      {PROVIDER_LABELS[b.provider]} →{' '}
+                      <span className="text-amber-400">
+                        {b.provider === 'anthropic' ? 'Claude' : 'Codex'}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-gray-500 mt-0.5">
+                      分组：{b.group_label || b.group_name}
+                    </div>
+                  </div>
+                  <Download className="w-4 h-4 text-amber-400" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
