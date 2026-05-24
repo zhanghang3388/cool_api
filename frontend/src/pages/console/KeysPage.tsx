@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Copy, Check, AlertTriangle } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import Toggle from '@/components/ui/Toggle';
@@ -10,8 +10,25 @@ import {
   useUpdateApiKey,
   useDeleteApiKey,
   type ApiKeyRow,
+  type ApiKeyGroupsPayload,
 } from '@/hooks/useApiKeys';
-import { useUserGroups } from '@/hooks/useUserGroups';
+import { useUserGroups, type UserGroup } from '@/hooks/useUserGroups';
+import { PROVIDER_LABELS, PROVIDER_ORDER, type GroupProvider } from '@/hooks/useGroups';
+
+type GroupSelection = Partial<Record<GroupProvider, number>>;
+
+function selectionToPayload(sel: GroupSelection): ApiKeyGroupsPayload {
+  const out: ApiKeyGroupsPayload = {};
+  PROVIDER_ORDER.forEach((p) => {
+    const v = sel[p];
+    if (typeof v === 'number') out[p] = v;
+  });
+  return out;
+}
+
+function selectionCount(sel: GroupSelection): number {
+  return PROVIDER_ORDER.reduce((n, p) => (typeof sel[p] === 'number' ? n + 1 : n), 0);
+}
 
 export default function KeysPage() {
   const { data: keys = [], isLoading } = useApiKeys();
@@ -20,9 +37,15 @@ export default function KeysPage() {
   const updateMut = useUpdateApiKey();
   const deleteMut = useDeleteApiKey();
 
+  const groupsByProvider = useMemo(() => {
+    const map: Record<GroupProvider, UserGroup[]> = { anthropic: [], openai: [] };
+    groups.forEach((g) => map[g.provider].push(g));
+    return map;
+  }, [groups]);
+
   const [createOpen, setCreateOpen] = useState(false);
   const [newKeyName, setNewKeyName] = useState('');
-  const [newKeyGroupId, setNewKeyGroupId] = useState<number | null>(null);
+  const [newKeyGroups, setNewKeyGroups] = useState<GroupSelection>({});
   const [createError, setCreateError] = useState<string | null>(null);
 
   const [revealed, setRevealed] = useState<{ id: number; plaintext: string; name: string } | null>(
@@ -32,30 +55,39 @@ export default function KeysPage() {
 
   const [editTarget, setEditTarget] = useState<ApiKeyRow | null>(null);
   const [editName, setEditName] = useState('');
-  const [editGroupId, setEditGroupId] = useState<number | null>(null);
+  const [editGroups, setEditGroups] = useState<GroupSelection>({});
   const [editError, setEditError] = useState<string | null>(null);
 
+  // Pre-fill the create modal with the first available group per provider.
   useEffect(() => {
-    if (createOpen && newKeyGroupId == null && groups.length > 0) {
-      setNewKeyGroupId(groups[0].id);
-    }
-  }, [createOpen, groups, newKeyGroupId]);
+    if (!createOpen) return;
+    setNewKeyGroups((prev) => {
+      const next: GroupSelection = { ...prev };
+      PROVIDER_ORDER.forEach((p) => {
+        if (next[p] == null) {
+          const first = groupsByProvider[p][0];
+          if (first) next[p] = first.id;
+        }
+      });
+      return next;
+    });
+  }, [createOpen, groupsByProvider]);
 
   const submitCreate = async () => {
     setCreateError(null);
-    if (newKeyGroupId == null) {
-      setCreateError('请选择一个分组');
+    if (selectionCount(newKeyGroups) === 0) {
+      setCreateError('至少为一个厂商选择一个分组');
       return;
     }
     try {
       const res = await createMut.mutateAsync({
         name: newKeyName.trim(),
-        group_id: newKeyGroupId,
+        groups: selectionToPayload(newKeyGroups),
       });
       setRevealed({ id: res.id, plaintext: res.plaintext, name: res.name });
       setCreateOpen(false);
       setNewKeyName('');
-      setNewKeyGroupId(null);
+      setNewKeyGroups({});
     } catch (e) {
       setCreateError(e instanceof ApiError ? e.message : '创建失败');
     }
@@ -64,8 +96,8 @@ export default function KeysPage() {
   const submitEdit = async () => {
     if (!editTarget) return;
     setEditError(null);
-    if (editGroupId == null) {
-      setEditError('请选择一个分组');
+    if (selectionCount(editGroups) === 0) {
+      setEditError('至少为一个厂商选择一个分组');
       return;
     }
     try {
@@ -73,7 +105,7 @@ export default function KeysPage() {
         id: editTarget.id,
         patch: {
           name: editName.trim(),
-          group_id: editGroupId,
+          groups: selectionToPayload(editGroups),
         },
       });
       setEditTarget(null);
@@ -93,17 +125,30 @@ export default function KeysPage() {
     }
   };
 
+  const openCreate = () => {
+    setNewKeyName('');
+    setNewKeyGroups({});
+    setCreateError(null);
+    setCreateOpen(true);
+  };
+
+  const openEdit = (k: ApiKeyRow) => {
+    setEditTarget(k);
+    setEditName(k.name);
+    const sel: GroupSelection = {};
+    k.groups.forEach((b) => {
+      sel[b.provider] = b.group_id;
+    });
+    setEditGroups(sel);
+    setEditError(null);
+  };
+
   return (
     <div className="fade-in space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">令牌管理</h2>
         <button
-          onClick={() => {
-            setNewKeyName('');
-            setNewKeyGroupId(groups[0]?.id ?? null);
-            setCreateError(null);
-            setCreateOpen(true);
-          }}
+          onClick={openCreate}
           className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-black text-sm font-medium rounded-lg transition-colors"
         >
           + 创建令牌
@@ -116,7 +161,8 @@ export default function KeysPage() {
           创建后，完整的令牌只会显示一次，请立即复制并妥善保存。之后只能看到前 10 位作为识别标识。
           丢失的令牌无法找回，只能删除并新建。
           <br />
-          每个令牌绑定一个分组，使用该令牌发起的请求只会路由到对应分组允许的渠道，并按该分组的倍率计费。
+          每个令牌可同时绑定 Anthropic 和 OpenAI 各一个分组，调用时按目标模型的厂商匹配对应分组计费。
+          只绑定一个厂商也可以，未绑定的厂商无法路由请求。
         </p>
       </div>
 
@@ -155,9 +201,20 @@ export default function KeysPage() {
               >
                 <td className="p-4 text-gray-200">{k.name || <span className="text-gray-600">(未命名)</span>}</td>
                 <td className="p-4">
-                  <span className="font-mono text-xs px-2 py-1 bg-base-200 rounded text-amber-400">
-                    {k.group_label || k.group_name}
-                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {k.groups.length === 0 ? (
+                      <span className="text-[10px] text-rose-400">未绑定</span>
+                    ) : (
+                      k.groups.map((b) => (
+                        <span
+                          key={b.provider}
+                          className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-base-200 text-amber-400"
+                        >
+                          {PROVIDER_LABELS[b.provider]}: {b.group_label || b.group_name}
+                        </span>
+                      ))
+                    )}
+                  </div>
                 </td>
                 <td className="p-4">
                   <span className="font-mono text-xs px-2 py-1 bg-base-200 rounded text-cyan-400">
@@ -184,12 +241,7 @@ export default function KeysPage() {
                 </td>
                 <td className="p-4 text-center">
                   <button
-                    onClick={() => {
-                      setEditTarget(k);
-                      setEditName(k.name);
-                      setEditGroupId(k.group_id);
-                      setEditError(null);
-                    }}
+                    onClick={() => openEdit(k)}
                     className="text-xs text-cyan-400 hover:text-cyan-300 mr-3"
                   >
                     编辑
@@ -231,25 +283,12 @@ export default function KeysPage() {
             />
             <p className="text-[10px] text-gray-600 mt-1">用于区分不同用途，不会显示给其他人</p>
           </div>
-          <div>
-            <label className="text-xs text-gray-400 block mb-1">分组</label>
-            <select
-              value={newKeyGroupId ?? ''}
-              onChange={(e) => setNewKeyGroupId(Number(e.target.value))}
-              disabled={groupsLoading || groups.length === 0}
-              className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-amber-500 disabled:opacity-50"
-            >
-              {groups.length === 0 && <option value="">暂无可用分组</option>}
-              {groups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.label} ({g.name})
-                </option>
-              ))}
-            </select>
-            <p className="text-[10px] text-gray-600 mt-1">
-              选择后，该令牌只能请求到此分组允许的模型/渠道
-            </p>
-          </div>
+          <ProviderGroupPicker
+            groupsByProvider={groupsByProvider}
+            isLoading={groupsLoading}
+            selection={newKeyGroups}
+            onChange={setNewKeyGroups}
+          />
           {createError && (
             <div className="text-xs text-rose-400 px-2 py-1.5 rounded bg-rose-500/10 border border-rose-500/20">
               {createError}
@@ -336,21 +375,12 @@ export default function KeysPage() {
               autoFocus
             />
           </div>
-          <div>
-            <label className="text-xs text-gray-400 block mb-1">分组</label>
-            <select
-              value={editGroupId ?? ''}
-              onChange={(e) => setEditGroupId(Number(e.target.value))}
-              disabled={groupsLoading || groups.length === 0}
-              className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-amber-500 disabled:opacity-50"
-            >
-              {groups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.label} ({g.name})
-                </option>
-              ))}
-            </select>
-          </div>
+          <ProviderGroupPicker
+            groupsByProvider={groupsByProvider}
+            isLoading={groupsLoading}
+            selection={editGroups}
+            onChange={setEditGroups}
+          />
           {editError && (
             <div className="text-xs text-rose-400 px-2 py-1.5 rounded bg-rose-500/10 border border-rose-500/20">
               {editError}
@@ -366,6 +396,86 @@ export default function KeysPage() {
           </button>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+interface ProviderGroupPickerProps {
+  groupsByProvider: Record<GroupProvider, UserGroup[]>;
+  isLoading: boolean;
+  selection: GroupSelection;
+  onChange: (next: GroupSelection) => void;
+}
+
+function ProviderGroupPicker({
+  groupsByProvider,
+  isLoading,
+  selection,
+  onChange,
+}: ProviderGroupPickerProps) {
+  const setForProvider = (provider: GroupProvider, value: number | null) => {
+    const next: GroupSelection = { ...selection };
+    if (value == null) delete next[provider];
+    else next[provider] = value;
+    onChange(next);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <label className="text-xs text-gray-400">分组绑定（按厂商）</label>
+        <span className="text-[10px] text-gray-600">至少绑定一个厂商</span>
+      </div>
+      {PROVIDER_ORDER.map((provider) => {
+        const list = groupsByProvider[provider];
+        const value = selection[provider];
+        return (
+          <div
+            key={provider}
+            className="rounded-lg border border-base-300 bg-base-200/40 p-3 space-y-2"
+          >
+            <div className="flex items-center justify-between">
+              <span
+                className={`px-2 py-0.5 rounded text-[11px] font-mono ${
+                  provider === 'anthropic'
+                    ? 'bg-amber-500/10 text-amber-400'
+                    : 'bg-emerald-500/10 text-emerald-400'
+                }`}
+              >
+                {PROVIDER_LABELS[provider]}
+              </span>
+              {value != null && (
+                <button
+                  type="button"
+                  onClick={() => setForProvider(provider, null)}
+                  className="text-[10px] text-gray-500 hover:text-gray-300"
+                >
+                  清除绑定
+                </button>
+              )}
+            </div>
+            {list.length === 0 ? (
+              <div className="text-[10px] text-gray-600">该厂商下暂无可用分组</div>
+            ) : (
+              <select
+                value={value ?? ''}
+                onChange={(e) =>
+                  setForProvider(provider, e.target.value === '' ? null : Number(e.target.value))
+                }
+                disabled={isLoading}
+                className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-amber-500 disabled:opacity-50"
+              >
+                <option value="">不绑定该厂商</option>
+                {list.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.label} ({g.name})
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

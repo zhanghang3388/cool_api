@@ -6,6 +6,7 @@ use axum::body::Body;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use base64::{engine::general_purpose, Engine as _};
+use bigdecimal::BigDecimal;
 use bytes::Bytes;
 use futures::StreamExt;
 use ipnetwork::IpNetwork;
@@ -75,6 +76,30 @@ pub async fn forward(
 
     let client_ip = resolve_client_ip(&input.headers);
 
+    // Resolve which pricing group applies to this call. The api key may bind
+    // a different group per provider; the call's provider picks one.
+    let group_id = *api.group_bindings.get(&input.provider).ok_or_else(|| {
+        AppError::Forbidden
+    })?;
+    let (group_multiplier, _group_name): (BigDecimal, String) = sqlx::query_as(
+        "SELECT multiplier, name FROM groups WHERE id = $1 AND enabled = TRUE",
+    )
+    .bind(group_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::Forbidden)?;
+
+    // Runtime group enforcement: even though the token binding is valid,
+    // admin may have revoked the user's access to that group afterwards.
+    // Admins bypass.
+    if api.user.role != crate::models::UserRole::Admin {
+        let effective =
+            repo::user_groups::effective_group_ids(&state.db, api.user.id, api.user.role).await?;
+        if !effective.contains(&group_id) {
+            return Err(AppError::Forbidden);
+        }
+    }
+
     let model_row: Model = repo::models::get_by_name(&state.db, &input.model_name)
         .await?
         .ok_or_else(|| {
@@ -113,8 +138,8 @@ pub async fn forward(
                     let charge_input = billing::ChargeInput {
                         user_id: api.user.id,
                         api_key_id: Some(api.api_key_id),
-                        group_id: api.group_id,
-                        group_multiplier: &api.group_multiplier,
+                        group_id,
+                        group_multiplier: &group_multiplier,
                         model: &model_row,
                         channel_id: None,
                         usage,
@@ -153,7 +178,7 @@ pub async fn forward(
         &state.db,
         input.provider,
         &input.model_name,
-        api.group_id,
+        group_id,
     )
     .await?;
 
@@ -182,8 +207,8 @@ pub async fn forward(
                 let charge_input = billing::ChargeInput {
                     user_id: api.user.id,
                     api_key_id: Some(api.api_key_id),
-                    group_id: api.group_id,
-                    group_multiplier: &api.group_multiplier,
+                    group_id,
+                    group_multiplier: &group_multiplier,
                     model: &model_row,
                     channel_id: Some(channel.id),
                     usage: resp.usage,
@@ -252,8 +277,8 @@ pub async fn forward(
                 let state_clone = state.clone();
                 let user_id = api.user.id;
                 let api_key_id = api.api_key_id;
-                let group_id = api.group_id;
-                let group_mult = api.group_multiplier.clone();
+                let stream_group_id = group_id;
+                let group_mult = group_multiplier.clone();
                 let model_clone = model_row.clone();
                 let channel_id = channel.id;
                 let final_usage_rx = stream_resp.final_usage;
@@ -271,7 +296,7 @@ pub async fn forward(
                             let charge_input = billing::ChargeInput {
                                 user_id,
                                 api_key_id: Some(api_key_id),
-                                group_id,
+                                group_id: stream_group_id,
                                 group_multiplier: &group_mult,
                                 model: &model_clone,
                                 channel_id: Some(channel_id),
@@ -308,7 +333,7 @@ pub async fn forward(
                             let charge_input = billing::ChargeInput {
                                 user_id,
                                 api_key_id: Some(api_key_id),
-                                group_id,
+                                group_id: stream_group_id,
                                 group_multiplier: &group_mult,
                                 model: &model_clone,
                                 channel_id: Some(channel_id),
@@ -359,8 +384,8 @@ pub async fn forward(
                     billing::ChargeInput {
                         user_id: api.user.id,
                         api_key_id: Some(api.api_key_id),
-                        group_id: api.group_id,
-                        group_multiplier: &api.group_multiplier,
+                        group_id,
+                        group_multiplier: &group_multiplier,
                         model: &model_row,
                         channel_id: Some(channel.id),
                         usage: Usage::default(),
@@ -385,8 +410,8 @@ pub async fn forward(
         billing::ChargeInput {
             user_id: api.user.id,
             api_key_id: Some(api.api_key_id),
-            group_id: api.group_id,
-            group_multiplier: &api.group_multiplier,
+            group_id,
+            group_multiplier: &group_multiplier,
             model: &model_row,
             channel_id: None,
             usage: Usage::default(),

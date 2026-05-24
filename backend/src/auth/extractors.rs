@@ -2,7 +2,6 @@ use async_trait::async_trait;
 use axum::extract::{FromRef, FromRequestParts};
 use axum::http::header;
 use axum::http::request::Parts;
-use bigdecimal::BigDecimal;
 use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -10,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use crate::auth::jwt::Claims;
 use crate::error::AppError;
-use crate::models::{User, UserRole, UserStatus};
+use crate::models::{ChannelProvider, User, UserRole, UserStatus};
 use crate::repo;
 use crate::AppState;
 
@@ -62,15 +61,15 @@ impl AdminUser {
 
 /// Authenticated via an API key (Authorization: Bearer sk-ag-...). Used by
 /// forwarding endpoints (/v1/*, /anthropic/*). Carries the full user record
-/// plus the pricing group **scoped to the API key** (not the user) so
-/// downstream services (router, billing) don't need to re-query.
+/// plus the per-provider group bindings so the forwarding pipeline can pick
+/// the right pricing tier for whichever provider the request targets.
 #[derive(Debug, Clone)]
 pub struct ApiUser {
     pub user: User,
-    pub group_id: i64,
-    pub group_multiplier: BigDecimal,
-    pub group_name: String,
     pub api_key_id: i64,
+    /// Map of channel provider → group id this api key is bound to. The
+    /// forwarding pipeline pulls the entry matching the request's provider.
+    pub group_bindings: HashMap<ChannelProvider, i64>,
 }
 
 /// Parse and verify the `Authorization: Bearer <jwt>` header.
@@ -186,26 +185,11 @@ where
         .await?
         .ok_or(AppError::Unauthorized)?;
 
-        let (multiplier, group_name): (BigDecimal, String) =
-            sqlx::query_as("SELECT multiplier, name FROM groups WHERE id = $1")
-                .bind(key.group_id)
-                .fetch_one(&app_state.db)
-                .await?;
-
         if user.status != UserStatus::Active {
             return Err(AppError::Forbidden);
         }
 
-        // Runtime group enforcement: even though the token was created with a
-        // valid group, admin may have revoked the user's access to that group
-        // afterwards. Admins bypass.
-        if user.role != UserRole::Admin {
-            let effective =
-                repo::user_groups::effective_group_ids(&app_state.db, user.id, user.role).await?;
-            if !effective.contains(&key.group_id) {
-                return Err(AppError::Forbidden);
-            }
-        }
+        let group_bindings = repo::api_keys::groups_for_key(&app_state.db, key.id).await?;
 
         // Fire-and-forget: bump last_used_at. Throttled so we don't spawn
         // a DB write on every single request — the UI only needs minute
@@ -220,10 +204,8 @@ where
 
         Ok(ApiUser {
             user,
-            group_id: key.group_id,
-            group_multiplier: multiplier,
-            group_name,
             api_key_id: key.id,
+            group_bindings,
         })
     }
 }

@@ -10,18 +10,28 @@ import {
   useDeleteGroup,
   multiplierAsNumber,
   formatMultiplier,
+  PROVIDER_LABELS,
+  PROVIDER_ORDER,
   type Group,
+  type GroupProvider,
 } from '@/hooks/useGroups';
 import { useModels, formatPrice, type Model } from '@/hooks/useModels';
 
 interface FormState {
+  provider: GroupProvider;
   name: string;
   label: string;
   multiplier: string;
   description: string;
 }
 
-const BLANK: FormState = { name: '', label: '', multiplier: '1.0', description: '' };
+const BLANK: FormState = {
+  provider: 'anthropic',
+  name: '',
+  label: '',
+  multiplier: '1.0',
+  description: '',
+};
 
 export default function GroupsPage() {
   const { data: groups = [], isLoading } = useGroups();
@@ -41,6 +51,12 @@ export default function GroupsPage() {
     return models.find((m) => m.id === previewModelId) ?? models[0];
   }, [models, previewModelId]);
 
+  const groupsByProvider = useMemo(() => {
+    const map: Record<GroupProvider, Group[]> = { anthropic: [], openai: [] };
+    groups.forEach((g) => map[g.provider].push(g));
+    return map;
+  }, [groups]);
+
   const openCreate = () => {
     setEditing(null);
     setForm(BLANK);
@@ -51,6 +67,7 @@ export default function GroupsPage() {
   const openEdit = (g: Group) => {
     setEditing(g);
     setForm({
+      provider: g.provider,
       name: g.name,
       label: g.label,
       multiplier: formatMultiplier(g.multiplier),
@@ -87,6 +104,7 @@ export default function GroupsPage() {
           return;
         }
         await createMut.mutateAsync({
+          provider: form.provider,
           name: form.name.trim(),
           label: form.label.trim(),
           multiplier,
@@ -125,85 +143,93 @@ export default function GroupsPage() {
       <div className="stat-card rounded-xl p-4">
         <p className="text-xs text-gray-500 leading-relaxed">
           <span className="text-amber-400">说明：</span>
-          分组用于给不同用户群体设置独立的价格倍率。模型最终价格 = 模型官方价格 × 分组倍率。
-          例如 <span className="font-mono text-gray-300">claude-opus-4-7</span> 官方价
-          {' '}<span className="font-mono">$15.00 / $75.00</span>，
-          <span className="font-mono text-gray-300">aws</span> 分组倍率
-          {' '}<span className="font-mono">0.4</span>，则实际价格为
-          {' '}<span className="font-mono text-emerald-400">￥6.00 / ￥30.00</span>。
+          每个分组属于一个厂商（Anthropic / OpenAI），同一厂商下分组标识唯一。模型最终价格 = 模型官方价格 × 分组倍率。
+          创建令牌时可为不同厂商各选一个分组，请求会按调用模型的厂商匹配对应分组计费。
         </p>
       </div>
 
-      <div className="stat-card rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-gray-500 text-xs border-b border-base-300 bg-base-200/50">
-              <th className="text-left p-4 font-medium">分组标识</th>
-              <th className="text-left p-4 font-medium">分组名称</th>
-              <th className="text-center p-4 font-medium">倍率</th>
-              <th className="text-left p-4 font-medium">描述</th>
-              <th className="text-center p-4 font-medium">启用</th>
-              <th className="text-center p-4 font-medium">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={6} className="p-8 text-center text-gray-500 text-xs">
-                  <Spinner className="mr-2" /> 加载中...
-                </td>
-              </tr>
-            )}
-            {!isLoading && groups.length === 0 && (
-              <tr>
-                <td colSpan={6} className="p-8 text-center text-gray-500 text-xs">
-                  暂无分组
-                </td>
-              </tr>
-            )}
-            {groups.map((g) => (
-              <tr
-                key={g.id}
-                className="border-b border-base-300/50 hover:bg-base-200/30 transition-colors"
-              >
-                <td className="p-4">
-                  <span className="font-mono text-xs px-2 py-1 bg-base-200 rounded text-amber-400">
-                    {g.name}
-                  </span>
-                </td>
-                <td className="p-4 text-gray-200">{g.label}</td>
-                <td className="p-4 text-center">
-                  <span className="font-mono text-sm text-amber-400">
-                    ×{formatMultiplier(g.multiplier)}
-                  </span>
-                </td>
-                <td className="p-4 text-xs text-gray-500">{g.description || '—'}</td>
-                <td className="p-4 text-center">
-                  <div className="inline-block">
-                    <Toggle active={g.enabled} onToggle={() => toggleEnabled(g)} />
-                  </div>
-                </td>
-                <td className="p-4 text-center">
-                  <button
-                    onClick={() => openEdit(g)}
-                    className="text-xs text-cyan-400 hover:text-cyan-300 mr-3"
-                  >
-                    编辑
-                  </button>
-                  {g.name !== 'default' && (
-                    <button
-                      onClick={() => remove(g)}
-                      className="text-xs text-rose-400 hover:text-rose-300"
+      {isLoading ? (
+        <div className="stat-card rounded-xl p-8 text-center text-gray-500 text-xs">
+          <Spinner className="mr-2" /> 加载中...
+        </div>
+      ) : groups.length === 0 ? (
+        <div className="stat-card rounded-xl p-8 text-center text-gray-500 text-xs">
+          暂无分组
+        </div>
+      ) : (
+        PROVIDER_ORDER.map((provider) => {
+          const list = groupsByProvider[provider];
+          if (list.length === 0) return null;
+          return (
+            <div key={provider} className="stat-card rounded-xl overflow-hidden">
+              <div className="px-4 py-2.5 bg-base-200/50 border-b border-base-300 flex items-center gap-2">
+                <span
+                  className={`px-2 py-0.5 rounded text-xs font-mono ${
+                    provider === 'anthropic'
+                      ? 'bg-amber-500/10 text-amber-400'
+                      : 'bg-emerald-500/10 text-emerald-400'
+                  }`}
+                >
+                  {PROVIDER_LABELS[provider]}
+                </span>
+                <span className="text-[10px] text-gray-500">{list.length} 个分组</span>
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-gray-500 text-xs border-b border-base-300">
+                    <th className="text-left p-4 font-medium">分组标识</th>
+                    <th className="text-left p-4 font-medium">分组名称</th>
+                    <th className="text-center p-4 font-medium">倍率</th>
+                    <th className="text-left p-4 font-medium">描述</th>
+                    <th className="text-center p-4 font-medium">启用</th>
+                    <th className="text-center p-4 font-medium">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {list.map((g) => (
+                    <tr
+                      key={g.id}
+                      className="border-b border-base-300/50 hover:bg-base-200/30 transition-colors"
                     >
-                      删除
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                      <td className="p-4">
+                        <span className="font-mono text-xs px-2 py-1 bg-base-200 rounded text-amber-400">
+                          {g.name}
+                        </span>
+                      </td>
+                      <td className="p-4 text-gray-200">{g.label}</td>
+                      <td className="p-4 text-center">
+                        <span className="font-mono text-sm text-amber-400">
+                          ×{formatMultiplier(g.multiplier)}
+                        </span>
+                      </td>
+                      <td className="p-4 text-xs text-gray-500">{g.description || '—'}</td>
+                      <td className="p-4 text-center">
+                        <div className="inline-block">
+                          <Toggle active={g.enabled} onToggle={() => toggleEnabled(g)} />
+                        </div>
+                      </td>
+                      <td className="p-4 text-center">
+                        <button
+                          onClick={() => openEdit(g)}
+                          className="text-xs text-cyan-400 hover:text-cyan-300 mr-3"
+                        >
+                          编辑
+                        </button>
+                        <button
+                          onClick={() => remove(g)}
+                          className="text-xs text-rose-400 hover:text-rose-300"
+                        >
+                          删除
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })
+      )}
 
       {previewModel && (
         <div className="stat-card rounded-xl p-5">
@@ -241,7 +267,9 @@ export default function GroupsPage() {
                     className="p-3 bg-base-200/50 rounded-lg border border-base-300/50"
                   >
                     <p className="text-[10px] text-gray-500 mb-1 flex justify-between">
-                      <span className="text-amber-400">{g.label}</span>
+                      <span className="text-amber-400">
+                        [{PROVIDER_LABELS[g.provider]}] {g.label}
+                      </span>
                       <span className="font-mono">×{formatMultiplier(g.multiplier)}</span>
                     </p>
                     <p className="font-mono text-sm text-emerald-400">
@@ -263,6 +291,32 @@ export default function GroupsPage() {
         title={editing ? '编辑分组' : '添加分组'}
       >
         <div className="space-y-4">
+          <div>
+            <label className="text-xs text-gray-400 block mb-1">所属厂商</label>
+            <div className="flex gap-2">
+              {PROVIDER_ORDER.map((p) => {
+                const active = form.provider === p;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    disabled={!!editing}
+                    onClick={() => setForm({ ...form, provider: p })}
+                    className={`flex-1 px-3 py-2 rounded-lg text-sm transition-colors border ${
+                      active
+                        ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                        : 'bg-base-200 text-gray-400 border-base-300 hover:text-gray-200'
+                    } ${editing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    {PROVIDER_LABELS[p]}
+                  </button>
+                );
+              })}
+            </div>
+            {editing && (
+              <p className="text-[10px] text-gray-600 mt-1">厂商不可修改，如需更换请新建分组。</p>
+            )}
+          </div>
           <div>
             <label className="text-xs text-gray-400 block mb-1">分组标识 (英文, a-z0-9_-)</label>
             <input

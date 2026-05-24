@@ -3,10 +3,11 @@ use axum::routing::{get, patch};
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::auth::AuthUser;
 use crate::error::{AppError, AppResult};
-use crate::models::ApiKey;
+use crate::models::{ApiKey, ChannelProvider, Group};
 use crate::repo;
 use crate::AppState;
 
@@ -16,6 +17,15 @@ pub fn router() -> Router<AppState> {
         .route("/:id", patch(update).delete(remove))
 }
 
+/// Per-provider group binding shown to the UI.
+#[derive(Debug, Serialize)]
+struct GroupBindingDto {
+    provider: ChannelProvider,
+    group_id: i64,
+    group_name: String,
+    group_label: String,
+}
+
 /// Safe response shape — never exposes the full plaintext key except on creation.
 #[derive(Debug, Serialize)]
 struct KeyDto {
@@ -23,9 +33,9 @@ struct KeyDto {
     name: String,
     prefix: String,
     enabled: bool,
-    group_id: i64,
-    group_name: String,
-    group_label: String,
+    /// One entry per provider this key is bound to. Empty = no bindings (the
+    /// key cannot route any traffic until at least one binding exists).
+    groups: Vec<GroupBindingDto>,
     last_used_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
 }
@@ -44,9 +54,11 @@ async fn list(
 ) -> AppResult<Json<Vec<KeyDto>>> {
     let rows = repo::api_keys::list_by_user(&state.db, auth.user_id).await?;
     let groups = repo::groups::list(&state.db).await?;
+    let key_ids: Vec<i64> = rows.iter().map(|k| k.id).collect();
+    let bindings = repo::api_keys::groups_for_keys(&state.db, &key_ids).await?;
     Ok(Json(
         rows.into_iter()
-            .map(|k| to_dto(k, &groups))
+            .map(|k| to_dto(k, &groups, &bindings))
             .collect(),
     ))
 }
@@ -55,7 +67,8 @@ async fn list(
 struct CreateKeyRequest {
     #[serde(default)]
     name: String,
-    group_id: i64,
+    /// Map of provider → group id. At least one entry required.
+    groups: HashMap<ChannelProvider, i64>,
 }
 
 async fn create(
@@ -67,22 +80,39 @@ async fn create(
     if name.len() > 64 {
         return Err(AppError::BadRequest("name too long (max 64)".into()));
     }
-    let group = resolve_group(&state, &auth, body.group_id).await?;
+    if body.groups.is_empty() {
+        return Err(AppError::BadRequest(
+            "at least one provider group binding required".into(),
+        ));
+    }
+
+    let mut bindings: Vec<(ChannelProvider, i64)> = Vec::with_capacity(body.groups.len());
+    for (provider, group_id) in &body.groups {
+        let group = resolve_group(&state, &auth, *group_id, *provider).await?;
+        bindings.push((*provider, group.id));
+    }
 
     let gen = repo::api_keys::generate_key();
     let plaintext = gen.plaintext.clone();
-    let saved = repo::api_keys::create(&state.db, auth.user_id, group.id, name, &gen).await?;
-    let dto = KeyDto {
-        id: saved.id,
-        name: saved.name,
-        prefix: saved.key_prefix,
-        enabled: saved.enabled,
-        group_id: group.id,
-        group_name: group.name,
-        group_label: group.label,
-        last_used_at: saved.last_used_at,
-        created_at: saved.created_at,
-    };
+    let saved = repo::api_keys::create(
+        &state.db,
+        repo::api_keys::CreateApiKey {
+            user_id: auth.user_id,
+            name,
+            groups: &bindings,
+            generated: &gen,
+        },
+    )
+    .await?;
+
+    let groups = repo::groups::list(&state.db).await?;
+    let mut all_bindings: HashMap<i64, HashMap<ChannelProvider, i64>> = HashMap::new();
+    let mut for_this: HashMap<ChannelProvider, i64> = HashMap::new();
+    for (p, g) in &bindings {
+        for_this.insert(*p, *g);
+    }
+    all_bindings.insert(saved.id, for_this);
+    let dto = to_dto(saved, &groups, &all_bindings);
     Ok(Json(CreatedKeyDto { key: dto, plaintext }))
 }
 
@@ -90,7 +120,9 @@ async fn create(
 struct UpdateKeyRequest {
     name: Option<String>,
     enabled: Option<bool>,
-    group_id: Option<i64>,
+    /// When provided, fully replaces the per-provider bindings for the key.
+    /// Empty map clears all bindings (the key becomes unusable until rebound).
+    groups: Option<HashMap<ChannelProvider, i64>>,
 }
 
 async fn update(
@@ -104,9 +136,16 @@ async fn update(
             return Err(AppError::BadRequest("name too long (max 64)".into()));
         }
     }
-    if let Some(gid) = body.group_id {
-        resolve_group(&state, &auth, gid).await?;
+
+    if let Some(ref g) = body.groups {
+        let mut bindings: Vec<(ChannelProvider, i64)> = Vec::with_capacity(g.len());
+        for (provider, group_id) in g {
+            let group = resolve_group(&state, &auth, *group_id, *provider).await?;
+            bindings.push((*provider, group.id));
+        }
+        repo::api_keys::replace_groups(&state.db, id, &bindings).await?;
     }
+
     let saved = repo::api_keys::update(
         &state.db,
         auth.user_id,
@@ -114,12 +153,13 @@ async fn update(
         repo::api_keys::UpdateKey {
             name: body.name.as_deref(),
             enabled: body.enabled,
-            group_id: body.group_id,
         },
     )
     .await?;
+
     let groups = repo::groups::list(&state.db).await?;
-    Ok(Json(to_dto(saved, &groups)))
+    let bindings = repo::api_keys::groups_for_keys(&state.db, &[saved.id]).await?;
+    Ok(Json(to_dto(saved, &groups, &bindings)))
 }
 
 async fn remove(
@@ -135,20 +175,26 @@ async fn resolve_group(
     state: &AppState,
     auth: &AuthUser,
     id: i64,
-) -> AppResult<crate::models::Group> {
+    provider: ChannelProvider,
+) -> AppResult<Group> {
     let group = repo::groups::get(&state.db, id)
         .await
         .map_err(|e| match e {
             AppError::NotFound => AppError::BadRequest("group not found".into()),
             other => other,
         })?;
+    if group.provider != provider {
+        return Err(AppError::BadRequest(format!(
+            "group '{}' does not belong to provider {:?}",
+            group.name, provider
+        )));
+    }
     if !group.enabled {
         return Err(AppError::BadRequest(format!(
             "group '{}' is disabled",
             group.name
         )));
     }
-    // Make sure this user is actually allowed to bind a key to this group.
     let effective =
         repo::user_groups::effective_group_ids(&state.db, auth.user_id, auth.role).await?;
     if !effective.contains(&group.id) {
@@ -157,20 +203,39 @@ async fn resolve_group(
     Ok(group)
 }
 
-fn to_dto(k: ApiKey, groups: &[crate::models::Group]) -> KeyDto {
-    let (group_name, group_label) = groups
-        .iter()
-        .find(|g| g.id == k.group_id)
-        .map(|g| (g.name.clone(), g.label.clone()))
-        .unwrap_or_else(|| (String::new(), String::new()));
+fn to_dto(
+    k: ApiKey,
+    groups: &[Group],
+    bindings: &HashMap<i64, HashMap<ChannelProvider, i64>>,
+) -> KeyDto {
+    let key_bindings = bindings.get(&k.id).cloned().unwrap_or_default();
+    let mut group_dtos: Vec<GroupBindingDto> = key_bindings
+        .into_iter()
+        .map(|(provider, gid)| {
+            let (group_name, group_label) = groups
+                .iter()
+                .find(|g| g.id == gid)
+                .map(|g| (g.name.clone(), g.label.clone()))
+                .unwrap_or_default();
+            GroupBindingDto {
+                provider,
+                group_id: gid,
+                group_name,
+                group_label,
+            }
+        })
+        .collect();
+    // Stable order for the UI: anthropic before openai.
+    group_dtos.sort_by_key(|g| match g.provider {
+        ChannelProvider::Anthropic => 0,
+        ChannelProvider::Openai => 1,
+    });
     KeyDto {
         id: k.id,
         name: k.name,
         prefix: k.key_prefix,
         enabled: k.enabled,
-        group_id: k.group_id,
-        group_name,
-        group_label,
+        groups: group_dtos,
         last_used_at: k.last_used_at,
         created_at: k.created_at,
     }

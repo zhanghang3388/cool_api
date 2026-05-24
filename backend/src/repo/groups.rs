@@ -2,15 +2,28 @@ use bigdecimal::BigDecimal;
 use sqlx::PgPool;
 
 use crate::error::{AppError, AppResult};
-use crate::models::Group;
+use crate::models::{ChannelProvider, Group};
 
 const COLUMNS: &str =
-    "id, name, label, multiplier, description, enabled, created_at, updated_at";
+    "id, provider, name, label, multiplier, description, enabled, created_at, updated_at";
 
 pub async fn list(pool: &PgPool) -> AppResult<Vec<Group>> {
     let rows = sqlx::query_as::<_, Group>(&format!(
-        "SELECT {COLUMNS} FROM groups ORDER BY id ASC"
+        "SELECT {COLUMNS} FROM groups ORDER BY provider ASC, id ASC"
     ))
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+pub async fn list_by_provider(
+    pool: &PgPool,
+    provider: ChannelProvider,
+) -> AppResult<Vec<Group>> {
+    let rows = sqlx::query_as::<_, Group>(&format!(
+        "SELECT {COLUMNS} FROM groups WHERE provider = $1 ORDER BY id ASC"
+    ))
+    .bind(provider)
     .fetch_all(pool)
     .await?;
     Ok(rows)
@@ -26,10 +39,15 @@ pub async fn get(pool: &PgPool, id: i64) -> AppResult<Group> {
     .ok_or(AppError::NotFound)
 }
 
-pub async fn get_by_name(pool: &PgPool, name: &str) -> AppResult<Option<Group>> {
+pub async fn get_by_provider_name(
+    pool: &PgPool,
+    provider: ChannelProvider,
+    name: &str,
+) -> AppResult<Option<Group>> {
     let row = sqlx::query_as::<_, Group>(&format!(
-        "SELECT {COLUMNS} FROM groups WHERE name = $1"
+        "SELECT {COLUMNS} FROM groups WHERE provider = $1 AND name = $2"
     ))
+    .bind(provider)
     .bind(name)
     .fetch_optional(pool)
     .await?;
@@ -37,6 +55,7 @@ pub async fn get_by_name(pool: &PgPool, name: &str) -> AppResult<Option<Group>> 
 }
 
 pub struct NewGroup<'a> {
+    pub provider: ChannelProvider,
     pub name: &'a str,
     pub label: &'a str,
     pub multiplier: BigDecimal,
@@ -45,14 +64,18 @@ pub struct NewGroup<'a> {
 }
 
 pub async fn create(pool: &PgPool, new: NewGroup<'_>) -> AppResult<Group> {
-    if get_by_name(pool, new.name).await?.is_some() {
-        return Err(AppError::Conflict(format!("group '{}' already exists", new.name)));
+    if get_by_provider_name(pool, new.provider, new.name).await?.is_some() {
+        return Err(AppError::Conflict(format!(
+            "group '{}' already exists for this provider",
+            new.name
+        )));
     }
     let row = sqlx::query_as::<_, Group>(&format!(
-        "INSERT INTO groups (name, label, multiplier, description, enabled)
-         VALUES ($1, $2, $3, $4, $5)
+        "INSERT INTO groups (provider, name, label, multiplier, description, enabled)
+         VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING {COLUMNS}"
     ))
+    .bind(new.provider)
     .bind(new.name)
     .bind(new.label)
     .bind(&new.multiplier)
@@ -95,24 +118,24 @@ pub async fn update(pool: &PgPool, id: i64, patch: UpdateGroup<'_>) -> AppResult
 
 pub async fn delete(pool: &PgPool, id: i64) -> AppResult<()> {
     get(pool, id).await?;
-    // Reject if any token currently routes through this group.
-    let token_uses: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM api_keys WHERE group_id = $1")
-        .bind(id)
-        .fetch_one(pool)
-        .await?;
+    // Reject if any token currently routes through this group via the
+    // per-provider mapping table.
+    let token_uses: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM api_key_groups WHERE group_id = $1")
+            .bind(id)
+            .fetch_one(pool)
+            .await?;
     if token_uses > 0 {
         return Err(AppError::Conflict(format!(
-            "group is in use by {token_uses} api key(s)"
+            "group is in use by {token_uses} api key binding(s)"
         )));
     }
-    // Reject if any user has an explicit add/remove override pinned to it.
     let override_uses = crate::repo::user_groups::count_overrides_for_group(pool, id).await?;
     if override_uses > 0 {
         return Err(AppError::Conflict(format!(
             "group is referenced by {override_uses} per-user override(s); clear them first"
         )));
     }
-    // Reject if it's listed in the system-wide default user groups.
     let defaults = crate::repo::user_groups::get_default_user_group_ids(pool).await?;
     if defaults.contains(&id) {
         return Err(AppError::Conflict(

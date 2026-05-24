@@ -5,7 +5,6 @@ use sqlx::FromRow;
 pub struct ApiKey {
     pub id: i64,
     pub user_id: i64,
-    pub group_id: i64,
     pub name: String,
     pub key_prefix: String,
     pub key_hash: String,

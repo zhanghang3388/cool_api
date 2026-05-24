@@ -11,6 +11,7 @@ import {
   useUpdateLandingPricingGroup,
 } from '@/hooks/useAdminSettings';
 import { useGroups } from '@/hooks/useGroups';
+import { PROVIDER_LABELS } from '@/hooks/useGroups';
 
 // Cap uploaded logos at 512 KB raw (~680 KB as base64) to keep the JSONB
 // row reasonable. Most brand marks fit well inside that budget.
@@ -272,6 +273,7 @@ function DefaultUserGroupsCard() {
                   } ${!g.enabled ? 'opacity-60' : ''}`}
                   title={!g.enabled ? '此分组已停用' : undefined}
                 >
+                  <span className="text-[9px] opacity-70 mr-1">[{PROVIDER_LABELS[g.provider]}]</span>
                   {g.label}
                   {!g.enabled && <span className="ml-1 text-[10px] text-rose-400">·停</span>}
                 </button>
@@ -354,7 +356,7 @@ function LandingPricingGroupCard() {
           <option value="">不展示</option>
           {enabledGroups.map((g) => (
             <option key={g.id} value={g.id}>
-              {g.label}（×{Number(g.multiplier).toFixed(2)}）
+              [{PROVIDER_LABELS[g.provider]}] {g.label}（×{Number(g.multiplier).toFixed(2)}）
             </option>
           ))}
         </select>

@@ -4,6 +4,7 @@ import Spinner from '@/components/ui/Spinner';
 import Toggle from '@/components/ui/Toggle';
 import { ApiError } from '@/lib/api';
 import { useGroups } from '@/hooks/useGroups';
+import { PROVIDER_LABELS, type GroupProvider } from '@/hooks/useGroups';
 import {
   useAdminUsers,
   useTopUpUser,
@@ -45,8 +46,13 @@ export default function UsersPage() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
 
   const groupById = useMemo(() => {
-    const m = new Map<number, { label: string; name: string; enabled: boolean }>();
-    groups.forEach((g) => m.set(g.id, { label: g.label, name: g.name, enabled: g.enabled }));
+    const m = new Map<
+      number,
+      { label: string; name: string; enabled: boolean; provider: GroupProvider }
+    >();
+    groups.forEach((g) =>
+      m.set(g.id, { label: g.label, name: g.name, enabled: g.enabled, provider: g.provider })
+    );
     return m;
   }, [groups]);
 
@@ -476,7 +482,7 @@ export default function UsersPage() {
 interface OverridesEditorProps {
   isLoading: boolean;
   defaults: number[];
-  allGroups: { id: number; name: string; label: string; enabled: boolean }[];
+  allGroups: { id: number; name: string; label: string; enabled: boolean; provider: GroupProvider }[];
   pendingStates: Record<number, GroupState>;
   setPendingStates: (next: Record<number, GroupState>) => void;
 }
@@ -545,7 +551,10 @@ function UserGroupOverridesEditor({
               }`}
             >
               <div className="min-w-0 mr-3">
-                <div className="text-gray-200 truncate">{g.label}</div>
+                <div className="text-gray-200 truncate">
+                  <span className="text-[10px] text-gray-500 mr-1">[{PROVIDER_LABELS[g.provider]}]</span>
+                  {g.label}
+                </div>
                 <div className="text-[10px] text-gray-600 font-mono flex items-center gap-2">
                   <span>{g.name}</span>
                   {inDefault && (

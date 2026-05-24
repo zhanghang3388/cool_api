@@ -1,8 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
+export type GroupProvider = 'anthropic' | 'openai';
+
 export interface Group {
   id: number;
+  provider: GroupProvider;
   name: string;
   label: string;
   /** multiplier is returned by backend as a string (NUMERIC) */
@@ -14,6 +17,7 @@ export interface Group {
 }
 
 export interface CreateGroupPayload {
+  provider: GroupProvider;
   name: string;
   label: string;
   multiplier: number;
@@ -73,3 +77,10 @@ export function multiplierAsNumber(m: string | number): number {
   const n = typeof m === 'string' ? parseFloat(m) : m;
   return Number.isNaN(n) ? 1 : n;
 }
+
+export const PROVIDER_LABELS: Record<GroupProvider, string> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+};
+
+export const PROVIDER_ORDER: GroupProvider[] = ['anthropic', 'openai'];

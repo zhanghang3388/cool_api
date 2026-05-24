@@ -429,7 +429,16 @@ export default function ChannelsPage() {
                 value={form.provider}
                 onChange={(e) => {
                   const p = e.target.value as ChannelProvider;
-                  setForm({ ...form, provider: p, base_url: editing ? form.base_url : PROVIDER_DEFAULTS[p] });
+                  setForm({
+                    ...form,
+                    provider: p,
+                    base_url: editing ? form.base_url : PROVIDER_DEFAULTS[p],
+                    // Drop allowed_group_ids that don't match the new provider —
+                    // a channel only ever routes to its own provider's groups.
+                    allowed_group_ids: form.allowed_group_ids.filter((id) =>
+                      groups.find((g) => g.id === id)?.provider === p
+                    ),
+                  });
                 }}
                 disabled={!!editing}
                 className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-amber-500 disabled:opacity-50"
@@ -658,26 +667,31 @@ export default function ChannelsPage() {
 
           <div>
             <label className="text-xs text-gray-400 block mb-1">
-              允许分组 <span className="text-gray-600">(不选则全部分组可用)</span>
+              允许分组 <span className="text-gray-600">(不选则该厂商全部分组可用)</span>
             </label>
             <div className="flex flex-wrap gap-2">
-              {groups.map((g) => {
-                const active = form.allowed_group_ids.includes(g.id);
-                return (
-                  <button
-                    key={g.id}
-                    type="button"
-                    onClick={() => toggleGroupId(g.id)}
-                    className={`px-2.5 py-1 rounded text-xs transition-colors ${
-                      active
-                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                        : 'bg-base-200 text-gray-400 border border-base-300 hover:text-gray-200'
-                    }`}
-                  >
-                    {g.label}
-                  </button>
-                );
-              })}
+              {groups
+                .filter((g) => g.provider === form.provider)
+                .map((g) => {
+                  const active = form.allowed_group_ids.includes(g.id);
+                  return (
+                    <button
+                      key={g.id}
+                      type="button"
+                      onClick={() => toggleGroupId(g.id)}
+                      className={`px-2.5 py-1 rounded text-xs transition-colors ${
+                        active
+                          ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                          : 'bg-base-200 text-gray-400 border border-base-300 hover:text-gray-200'
+                      }`}
+                    >
+                      {g.label}
+                    </button>
+                  );
+                })}
+              {groups.filter((g) => g.provider === form.provider).length === 0 && (
+                <span className="text-[10px] text-gray-600">该厂商暂无分组</span>
+              )}
             </div>
           </div>
 

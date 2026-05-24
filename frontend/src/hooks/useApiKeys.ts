@@ -1,14 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import type { GroupProvider } from './useGroups';
+
+export interface ApiKeyGroupBinding {
+  provider: GroupProvider;
+  group_id: number;
+  group_name: string;
+  group_label: string;
+}
 
 export interface ApiKeyRow {
   id: number;
   name: string;
   prefix: string;
   enabled: boolean;
-  group_id: number;
-  group_name: string;
-  group_label: string;
+  groups: ApiKeyGroupBinding[];
   last_used_at: string | null;
   created_at: string;
 }
@@ -18,15 +24,19 @@ export interface CreatedKey extends ApiKeyRow {
   plaintext: string;
 }
 
+/** Per-provider bindings: map provider → group_id. At least one entry required. */
+export type ApiKeyGroupsPayload = Partial<Record<GroupProvider, number>>;
+
 export interface CreateKeyPayload {
   name: string;
-  group_id: number;
+  groups: ApiKeyGroupsPayload;
 }
 
 export interface UpdateKeyPayload {
   name?: string;
   enabled?: boolean;
-  group_id?: number;
+  /** Provide to fully replace the per-provider bindings. */
+  groups?: ApiKeyGroupsPayload;
 }
 
 const KEY = ['user-api-keys'] as const;

@@ -1,4 +1,4 @@
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::routing::{get, patch};
 use axum::{Json, Router};
 use bigdecimal::BigDecimal;
@@ -7,7 +7,7 @@ use std::str::FromStr;
 
 use crate::auth::AdminUser;
 use crate::error::{AppError, AppResult};
-use crate::models::Group;
+use crate::models::{ChannelProvider, Group};
 use crate::repo;
 use crate::AppState;
 
@@ -17,15 +17,26 @@ pub fn router() -> Router<AppState> {
         .route("/:id", patch(update).delete(remove))
 }
 
+#[derive(Debug, Deserialize)]
+struct ListQuery {
+    provider: Option<ChannelProvider>,
+}
+
 async fn list(
     State(state): State<AppState>,
     _admin: AdminUser,
+    Query(q): Query<ListQuery>,
 ) -> AppResult<Json<Vec<Group>>> {
-    Ok(Json(repo::groups::list(&state.db).await?))
+    let groups = match q.provider {
+        Some(p) => repo::groups::list_by_provider(&state.db, p).await?,
+        None => repo::groups::list(&state.db).await?,
+    };
+    Ok(Json(groups))
 }
 
 #[derive(Debug, Deserialize)]
 struct CreateGroupRequest {
+    provider: ChannelProvider,
     name: String,
     label: String,
     multiplier: f64,
@@ -57,6 +68,7 @@ async fn create(
     let group = repo::groups::create(
         &state.db,
         repo::groups::NewGroup {
+            provider: body.provider,
             name: &body.name,
             label: &body.label,
             multiplier,
