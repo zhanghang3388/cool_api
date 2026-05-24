@@ -437,6 +437,88 @@ pub async fn daily_by_group_for_user(
         .collect())
 }
 
+/// Per-model token usage per day (per user). Optionally restricted to a
+/// single group. When `group_id` is None, identical model names across
+/// different groups are merged into one series — this is by design so the
+/// "All groups" view gives a clean per-model picture without duplicates.
+#[derive(Debug, Serialize)]
+pub struct DailyModelPoint {
+    pub day: String,
+    pub model_name: String,
+    pub requests: i64,
+    pub tokens: i64,
+    pub cost_cents: i64,
+}
+
+pub async fn daily_by_model_for_user(
+    pool: &PgPool,
+    user_id: i64,
+    days: i32,
+    group_id: Option<i64>,
+) -> AppResult<Vec<DailyModelPoint>> {
+    // Two paths: with / without the group filter. Keeping the SQL static
+    // (rather than building a dynamic WHERE) keeps the query plan stable
+    // and easy to reason about.
+    let rows: Vec<(String, String, i64, i64, i64)> = match group_id {
+        Some(gid) => {
+            sqlx::query_as(
+                "SELECT \
+                    to_char(date_trunc('day', r.created_at AT TIME ZONE 'Asia/Shanghai'), 'YYYY-MM-DD') AS day, \
+                    r.model_name, \
+                    COUNT(*)::BIGINT, \
+                    SUM(r.prompt_tokens + r.completion_tokens)::BIGINT, \
+                    SUM(r.total_cost_cents)::BIGINT \
+                 FROM request_logs r \
+                 WHERE r.user_id = $1 \
+                   AND r.group_id = $3 \
+                   AND r.created_at >= ( \
+                          date_trunc('day', NOW() AT TIME ZONE 'Asia/Shanghai') \
+                          - (($2::INT - 1) * INTERVAL '1 day') \
+                      ) AT TIME ZONE 'Asia/Shanghai' \
+                 GROUP BY day, r.model_name \
+                 ORDER BY day ASC, r.model_name ASC",
+            )
+            .bind(user_id)
+            .bind(days)
+            .bind(gid)
+            .fetch_all(pool)
+            .await?
+        }
+        None => {
+            sqlx::query_as(
+                "SELECT \
+                    to_char(date_trunc('day', r.created_at AT TIME ZONE 'Asia/Shanghai'), 'YYYY-MM-DD') AS day, \
+                    r.model_name, \
+                    COUNT(*)::BIGINT, \
+                    SUM(r.prompt_tokens + r.completion_tokens)::BIGINT, \
+                    SUM(r.total_cost_cents)::BIGINT \
+                 FROM request_logs r \
+                 WHERE r.user_id = $1 \
+                   AND r.created_at >= ( \
+                          date_trunc('day', NOW() AT TIME ZONE 'Asia/Shanghai') \
+                          - (($2::INT - 1) * INTERVAL '1 day') \
+                      ) AT TIME ZONE 'Asia/Shanghai' \
+                 GROUP BY day, r.model_name \
+                 ORDER BY day ASC, r.model_name ASC",
+            )
+            .bind(user_id)
+            .bind(days)
+            .fetch_all(pool)
+            .await?
+        }
+    };
+    Ok(rows
+        .into_iter()
+        .map(|(day, model_name, requests, tokens, cost_cents)| DailyModelPoint {
+            day,
+            model_name,
+            requests,
+            tokens,
+            cost_cents,
+        })
+        .collect())
+}
+
 /// Per-group request health for the past `minutes` minutes (per user).
 /// `status` is computed at the SQL layer: idle when no requests; degraded
 /// when error_rate ≥ 5%; down when error_rate ≥ 30%; healthy otherwise.

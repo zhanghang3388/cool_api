@@ -114,6 +114,31 @@ export function useDailyByGroup(days = 7) {
   });
 }
 
+export interface DailyModelPoint {
+  day: string;
+  model_name: string;
+  requests: number;
+  tokens: number;
+  cost_cents: number;
+}
+
+/**
+ * Per-model token usage. `groupId === null` means "all groups merged" — the
+ * backend collapses identical model names across groups into one series, so
+ * the same model used under two different groups won't show up twice.
+ */
+export function useDailyByModel(days = 7, groupId: number | null = null) {
+  return useQuery<DailyModelPoint[]>({
+    queryKey: ['user-usage-daily-by-model', days, groupId],
+    queryFn: () => {
+      const qs = new URLSearchParams({ days: String(days) });
+      if (groupId != null) qs.set('group_id', String(groupId));
+      return api.get<DailyModelPoint[]>(`/user/usage/daily-by-model?${qs.toString()}`);
+    },
+    staleTime: 60 * 1000,
+  });
+}
+
 export type GroupHealthStatus = 'healthy' | 'degraded' | 'down' | 'idle';
 
 export interface GroupHealth {

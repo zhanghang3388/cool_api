@@ -3,12 +3,14 @@ import { Link } from 'react-router-dom';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import {
   useUsageSummary,
-  useDailyByGroup,
+  useDailyByModel,
   useGroupHealth,
-  type DailyGroupPoint,
+  type DailyModelPoint,
   type GroupHealth,
   type GroupHealthStatus,
 } from '@/hooks/useUsage';
+import { useUserGroups, type UserGroup } from '@/hooks/useUserGroups';
+import { PROVIDER_LABELS } from '@/hooks/useGroups';
 
 function formatYuan(cents: number): string {
   return `¥${(cents / 10000).toFixed(2)}`;
@@ -17,7 +19,10 @@ function formatYuan(cents: number): string {
 export default function ConsoleDashboardPage() {
   const { data: user } = useCurrentUser();
   const { data: summary, isLoading } = useUsageSummary();
-  const { data: daily = [] } = useDailyByGroup(7);
+  const { data: groups = [] } = useUserGroups();
+  // null = "all groups" (server merges identical model names)
+  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
+  const { data: daily = [] } = useDailyByModel(7, selectedGroupId);
   const { data: health = [] } = useGroupHealth(60);
 
   if (!user) return null;
@@ -58,14 +63,17 @@ export default function ConsoleDashboardPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         <div className="lg:col-span-3 stat-card rounded-xl p-5">
-          <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
             <h3 className="text-sm font-medium text-gray-300">近 7 天分组用量</h3>
             <span className="text-[10px] text-gray-600 font-mono tracking-wider">tokens / day</span>
           </div>
-          <p className="text-[10px] text-gray-500 mb-4">
-            按令牌所属分组聚合每日 token 消耗，鼠标悬停查看具体数值。
+          <p className="text-[10px] text-gray-500 mb-3">
+            顶部按分组切换；下方按该分组下的模型展开 token 消耗。「全部分组」会把不同分组里同名的模型合并成一条线。
           </p>
-          <DailyByGroupChart points={daily} />
+          <GroupTabs groups={groups} value={selectedGroupId} onChange={setSelectedGroupId} />
+          <div className="mt-3">
+            <DailyByModelChart points={daily} />
+          </div>
         </div>
 
         <div className="stat-card rounded-xl p-5">
@@ -79,6 +87,38 @@ export default function ConsoleDashboardPage() {
           <GroupHealthList items={health} />
         </div>
       </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Group selector tabs above the chart.                                       */
+/* -------------------------------------------------------------------------- */
+
+interface GroupTabsProps {
+  groups: UserGroup[];
+  value: number | null;
+  onChange: (next: number | null) => void;
+}
+
+function GroupTabs({ groups, value, onChange }: GroupTabsProps) {
+  const tabClass = (active: boolean) =>
+    `px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-1.5 ${
+      active
+        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+        : 'bg-base-200 text-gray-400 border border-base-300 hover:text-gray-200'
+    }`;
+  return (
+    <div className="flex gap-2 flex-wrap">
+      <button onClick={() => onChange(null)} className={tabClass(value === null)}>
+        全部分组
+      </button>
+      {groups.map((g) => (
+        <button key={g.id} onClick={() => onChange(g.id)} className={tabClass(value === g.id)}>
+          <span className="text-[9px] opacity-70">[{PROVIDER_LABELS[g.provider]}]</span>
+          {g.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -100,7 +140,8 @@ const CHART_PALETTE = [
 ];
 
 interface PivotedSeries {
-  group_id: number;
+  /** Stable identifier for the series — model name. */
+  key: string;
   label: string;
   values: number[];
   color: string;
@@ -113,19 +154,14 @@ interface PivotResult {
   totalByDay: number[];
 }
 
-function pivot(points: DailyGroupPoint[]): PivotResult {
+function pivot(points: DailyModelPoint[]): PivotResult {
   if (points.length === 0) {
     return { days: [], series: [], yMax: 0, totalByDay: [] };
   }
-  // Build the canonical 7 days (or however many were requested) from "today
-  // back". Backend may omit days that had zero traffic, so we manufacture
-  // them here so the X-axis stays consistent regardless of activity.
-  //
-  // We use **local** Y/M/D components (not toISOString — that converts to
-  // UTC and silently drops a day for users east of UTC, which made today
-  // disappear from the chart for CN users). Backend buckets in
-  // Asia/Shanghai, so as long as we format dates locally for CN users they
-  // line up.
+  // Build the canonical 7 days from "today back". Use **local** Y/M/D
+  // components (not toISOString — that converts to UTC and silently drops a
+  // day east of UTC). Backend buckets in Asia/Shanghai, so this lines up
+  // for CN users.
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const dayKeys: string[] = [];
@@ -138,28 +174,24 @@ function pivot(points: DailyGroupPoint[]): PivotResult {
     dayKeys.push(`${y}-${m}-${day}`);
   }
 
-  // Collect groups in stable order (id ascending).
-  const groupMeta = new Map<number, { label: string }>();
-  points.forEach((p) => {
-    if (!groupMeta.has(p.group_id)) {
-      groupMeta.set(p.group_id, { label: p.group_label || p.group_name || `#${p.group_id}` });
-    }
-  });
-  const groupIds = Array.from(groupMeta.keys()).sort((a, b) => a - b);
+  // Collect models in stable order (alphabetical by name).
+  const modelNames = Array.from(new Set(points.map((p) => p.model_name))).sort();
 
-  // Quick lookup: groupId → dayKey → tokens. Backend now returns `day` as a
-  // plain `YYYY-MM-DD` string already aligned to Asia/Shanghai.
-  const lookup = new Map<number, Map<string, number>>();
+  // Quick lookup: model → dayKey → tokens.
+  const lookup = new Map<string, Map<string, number>>();
   points.forEach((p) => {
-    if (!lookup.has(p.group_id)) lookup.set(p.group_id, new Map());
-    lookup.get(p.group_id)!.set(p.day, p.tokens);
+    if (!lookup.has(p.model_name)) lookup.set(p.model_name, new Map());
+    const byDay = lookup.get(p.model_name)!;
+    // Same model name might appear twice on the same day if the backend
+    // ever returns un-merged rows — fold them defensively.
+    byDay.set(p.day, (byDay.get(p.day) ?? 0) + p.tokens);
   });
 
-  const series: PivotedSeries[] = groupIds.map((id, i) => ({
-    group_id: id,
-    label: groupMeta.get(id)!.label,
+  const series: PivotedSeries[] = modelNames.map((name, i) => ({
+    key: name,
+    label: name,
     color: CHART_PALETTE[i % CHART_PALETTE.length],
-    values: dayKeys.map((d) => lookup.get(id)?.get(d) ?? 0),
+    values: dayKeys.map((d) => lookup.get(name)?.get(d) ?? 0),
   }));
 
   const totalByDay = dayKeys.map((_, di) =>
@@ -184,7 +216,7 @@ function formatDayShort(iso: string): string {
   return `${parseInt(m, 10)}/${parseInt(d, 10)}`;
 }
 
-function DailyByGroupChart({ points }: { points: DailyGroupPoint[] }) {
+function DailyByModelChart({ points }: { points: DailyModelPoint[] }) {
   const { days, series, yMax, totalByDay } = useMemo(() => pivot(points), [points]);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
@@ -316,7 +348,14 @@ function DailyByGroupChart({ points }: { points: DailyGroupPoint[] }) {
         {/* series — area gradient + smoothed line */}
         <defs>
           {series.map((s) => (
-            <linearGradient key={s.group_id} id={`g${s.group_id}`} x1="0" x2="0" y1="0" y2="1">
+            <linearGradient
+              key={s.key}
+              id={`g-${cssId(s.key)}`}
+              x1="0"
+              x2="0"
+              y1="0"
+              y2="1"
+            >
               <stop offset="0%" stopColor={s.color} stopOpacity={0.25} />
               <stop offset="100%" stopColor={s.color} stopOpacity={0} />
             </linearGradient>
@@ -329,8 +368,8 @@ function DailyByGroupChart({ points }: { points: DailyGroupPoint[] }) {
           const firstX = xAt(0);
           const areaPath = `${linePath} L ${lastX} ${yAt(0)} L ${firstX} ${yAt(0)} Z`;
           return (
-            <g key={s.group_id}>
-              <path d={areaPath} fill={`url(#g${s.group_id})`} />
+            <g key={s.key}>
+              <path d={areaPath} fill={`url(#g-${cssId(s.key)})`} />
               <path
                 d={linePath}
                 fill="none"
@@ -376,35 +415,44 @@ function DailyByGroupChart({ points }: { points: DailyGroupPoint[] }) {
       {/* legend */}
       <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
         {series.map((s) => (
-          <div key={s.group_id} className="flex items-center gap-1.5 text-[10px] text-gray-400">
+          <div key={s.key} className="flex items-center gap-1.5 text-[10px] text-gray-400">
             <span
               className="w-2.5 h-2.5 rounded-sm"
               style={{ background: s.color }}
             />
-            {s.label}
+            <span className="font-mono">{s.label}</span>
           </div>
         ))}
       </div>
 
       {/* tooltip */}
       {hoverIdx !== null && (
-        <div className="absolute top-1 right-1 stat-card rounded-md border border-base-300 bg-base-200/95 px-3 py-2 text-[10px] font-mono text-gray-300 pointer-events-none min-w-[140px]">
+        <div className="absolute top-1 right-1 stat-card rounded-md border border-base-300 bg-base-200/95 px-3 py-2 text-[10px] font-mono text-gray-300 pointer-events-none min-w-[160px]">
           <div className="text-gray-500 mb-1">
             {formatDayShort(days[hoverIdx])} · 总 {formatTokens(totalByDay[hoverIdx])}
           </div>
           {series.map((s) => (
-            <div key={s.group_id} className="flex items-center justify-between gap-3">
-              <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-sm" style={{ background: s.color }} />
-                {s.label}
+            <div key={s.key} className="flex items-center justify-between gap-3">
+              <span className="flex items-center gap-1.5 truncate">
+                <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: s.color }} />
+                <span className="truncate" title={s.label}>{s.label}</span>
               </span>
-              <span className="text-gray-200">{formatTokens(s.values[hoverIdx])}</span>
+              <span className="text-gray-200 shrink-0">{formatTokens(s.values[hoverIdx])}</span>
             </div>
           ))}
         </div>
       )}
     </div>
   );
+}
+
+/**
+ * Sanitize an arbitrary string into something safe to embed in an SVG id /
+ * url(#id) ref. Model names contain dots, slashes etc. that are technically
+ * valid in `id` per HTML5 but fail in `url(#…)` references.
+ */
+function cssId(s: string): string {
+  return s.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
 /* -------------------------------------------------------------------------- */

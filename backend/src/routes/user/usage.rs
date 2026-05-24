@@ -15,6 +15,7 @@ pub fn router() -> Router<AppState> {
         .route("/logs", get(logs))
         .route("/summary", get(summary))
         .route("/daily-by-group", get(daily_by_group))
+        .route("/daily-by-model", get(daily_by_model))
         .route("/group-health", get(group_health))
 }
 
@@ -84,6 +85,31 @@ async fn daily_by_group(
 ) -> AppResult<Json<Vec<repo::request_logs::DailyGroupPoint>>> {
     let days = q.days.unwrap_or(7).clamp(1, 30);
     let rows = repo::request_logs::daily_by_group_for_user(&state.db, auth.user_id, days).await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Deserialize)]
+struct DailyByModelQuery {
+    /// How many trailing days to include (clamped 1..=30). Defaults to 7.
+    days: Option<i32>,
+    /// Optional: restrict to one group. Omitting it (or sending `all`)
+    /// merges identical model names across all the user's groups.
+    group_id: Option<i64>,
+}
+
+async fn daily_by_model(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Query(q): Query<DailyByModelQuery>,
+) -> AppResult<Json<Vec<repo::request_logs::DailyModelPoint>>> {
+    let days = q.days.unwrap_or(7).clamp(1, 30);
+    let rows = repo::request_logs::daily_by_model_for_user(
+        &state.db,
+        auth.user_id,
+        days,
+        q.group_id,
+    )
+    .await?;
     Ok(Json(rows))
 }
 
