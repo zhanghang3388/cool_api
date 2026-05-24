@@ -40,6 +40,10 @@ export default function UsagePage() {
   const [model, setModel] = useState('');
   const [groupId, setGroupId] = useState<number | ''>('');
   const [status, setStatus] = useState<RequestStatus | ''>('');
+  // YYYY-MM-DD strings; empty = no bound on that side. Two separate inputs
+  // (from / to) keep the markup native and dependency-free.
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const { data: groups = [] } = useUserGroups();
@@ -53,6 +57,23 @@ export default function UsagePage() {
     return Array.from(names).sort();
   }, [models]);
 
+  // Convert local YYYY-MM-DD to UTC ISO. `from` is the local midnight at the
+  // start of that day; `to` is the local midnight at the start of the day
+  // *after* the picked date so the backend's `created_at < $to` matches the
+  // entire end day inclusively.
+  const fromIso = useMemo(() => {
+    if (!fromDate) return undefined;
+    const d = new Date(`${fromDate}T00:00:00`);
+    return Number.isFinite(d.getTime()) ? d.toISOString() : undefined;
+  }, [fromDate]);
+  const toIso = useMemo(() => {
+    if (!toDate) return undefined;
+    const d = new Date(`${toDate}T00:00:00`);
+    if (!Number.isFinite(d.getTime())) return undefined;
+    d.setDate(d.getDate() + 1);
+    return d.toISOString();
+  }, [toDate]);
+
   const filter: UsageLogsFilter = useMemo(
     () => ({
       page,
@@ -60,8 +81,10 @@ export default function UsagePage() {
       model: model || undefined,
       group_id: groupId === '' ? undefined : groupId,
       status: status || undefined,
+      from: fromIso,
+      to: toIso,
     }),
-    [page, model, groupId, status]
+    [page, model, groupId, status, fromIso, toIso]
   );
   const { data, isLoading, isFetching } = useUsageLogs(filter);
   const { data: summary } = useUsageSummary();
@@ -69,7 +92,12 @@ export default function UsagePage() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
 
   const resetPage = () => setPage(1);
-  const hasFilter = !!(model || groupId !== '' || status);
+  const hasFilter = !!(model || groupId !== '' || status || fromDate || toDate);
+  const dateOrderError = !!(
+    fromDate &&
+    toDate &&
+    new Date(fromDate) > new Date(toDate)
+  );
 
   return (
     <div className="fade-in space-y-4">
@@ -137,12 +165,40 @@ export default function UsagePage() {
             <option value="error">失败</option>
           </select>
         </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] text-gray-500">起始日期</label>
+          <input
+            type="date"
+            value={fromDate}
+            max={toDate || undefined}
+            onChange={(e) => {
+              setFromDate(e.target.value);
+              resetPage();
+            }}
+            className="bg-base-200 border border-base-300 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-amber-500"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] text-gray-500">结束日期</label>
+          <input
+            type="date"
+            value={toDate}
+            min={fromDate || undefined}
+            onChange={(e) => {
+              setToDate(e.target.value);
+              resetPage();
+            }}
+            className="bg-base-200 border border-base-300 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-amber-500"
+          />
+        </div>
         {hasFilter && (
           <button
             onClick={() => {
               setModel('');
               setGroupId('');
               setStatus('');
+              setFromDate('');
+              setToDate('');
               resetPage();
             }}
             className="ml-auto text-xs text-gray-400 hover:text-gray-200"
@@ -151,6 +207,11 @@ export default function UsagePage() {
           </button>
         )}
       </div>
+      {dateOrderError && (
+        <div className="text-xs text-rose-400 px-2 py-1.5 rounded bg-rose-500/10 border border-rose-500/20">
+          起始日期不能晚于结束日期
+        </div>
+      )}
 
       <div className="stat-card rounded-xl overflow-hidden">
         <table className="w-full text-sm">
