@@ -165,46 +165,38 @@ export default function DateRangePicker({
       </button>
 
       {open && (
-        <div className="absolute z-50 mt-2 right-0 stat-card rounded-lg border border-base-300 bg-base-100/98 backdrop-blur p-3 shadow-2xl">
-          <div className="flex items-center justify-between mb-2">
+        <div className="absolute z-50 mt-2 right-0 stat-card rounded-lg border border-base-300 bg-base-100/98 backdrop-blur p-5 shadow-2xl w-[340px]">
+          <div className="flex items-center justify-between mb-3">
             <button
               type="button"
               onClick={() => setLeftMonth(addMonths(leftMonth, -1))}
-              className="px-2 py-0.5 rounded text-gray-400 hover:text-amber-400 hover:bg-base-200 text-sm"
+              className="w-7 h-7 rounded text-gray-400 hover:text-amber-400 hover:bg-base-200 text-base flex items-center justify-center"
+              aria-label="上个月"
             >
               ‹
             </button>
-            <div className="text-[11px] text-gray-400 font-mono">
-              {monthLabel(leftMonth)} · {monthLabel(addMonths(leftMonth, 1))}
+            <div className="text-sm text-gray-200 font-medium">
+              {monthLabel(leftMonth)}
             </div>
             <button
               type="button"
               onClick={() => setLeftMonth(addMonths(leftMonth, 1))}
-              className="px-2 py-0.5 rounded text-gray-400 hover:text-amber-400 hover:bg-base-200 text-sm"
+              className="w-7 h-7 rounded text-gray-400 hover:text-amber-400 hover:bg-base-200 text-base flex items-center justify-center"
+              aria-label="下个月"
             >
               ›
             </button>
           </div>
-          <div className="flex gap-4">
-            <MonthGrid
-              month={leftMonth}
-              from={pendingFrom}
-              to={pendingTo}
-              hover={hover}
-              onClick={handleDayClick}
-              onHover={setHover}
-            />
-            <MonthGrid
-              month={addMonths(leftMonth, 1)}
-              from={pendingFrom}
-              to={pendingTo}
-              hover={hover}
-              onClick={handleDayClick}
-              onHover={setHover}
-            />
-          </div>
-          <div className="flex justify-between items-center mt-3 pt-3 border-t border-base-300">
-            <div className="text-[10px] text-gray-500 font-mono">
+          <MonthGrid
+            month={leftMonth}
+            from={pendingFrom}
+            to={pendingTo}
+            hover={hover}
+            onClick={handleDayClick}
+            onHover={setHover}
+          />
+          <div className="flex justify-between items-center mt-4 pt-3 border-t border-base-300">
+            <div className="text-xs text-gray-400 font-mono">
               {pendingFrom ? fmt(pendingFrom) : '—'}
               {' → '}
               {pendingTo
@@ -217,7 +209,7 @@ export default function DateRangePicker({
               <button
                 type="button"
                 onClick={reset}
-                className="text-[11px] text-gray-400 hover:text-gray-200 px-2"
+                className="text-xs text-gray-400 hover:text-gray-200 px-2 py-1"
               >
                 重置
               </button>
@@ -225,7 +217,7 @@ export default function DateRangePicker({
                 type="button"
                 onClick={apply}
                 disabled={!pendingFrom}
-                className="text-[11px] px-3 py-1 rounded bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-black font-medium transition-colors"
+                className="text-xs px-3 py-1.5 rounded bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-black font-medium transition-colors"
               >
                 确定
               </button>
@@ -254,13 +246,10 @@ function MonthGrid({ month, from, to, hover, onClick, onHover }: MonthGridProps)
   const effectiveTo = to ?? (from && hover && hover >= from ? hover : null);
 
   return (
-    <div>
-      <div className="text-[10px] text-gray-500 font-mono mb-1 text-center">
-        {monthLabel(month)}
-      </div>
-      <div className="grid grid-cols-7 gap-0.5">
+    <div className="w-full">
+      <div className="grid grid-cols-7 gap-1">
         {WEEK.map((w) => (
-          <div key={w} className="text-[10px] text-gray-600 text-center py-1 w-8">
+          <div key={w} className="text-[11px] text-gray-500 text-center py-1.5 font-medium">
             {w}
           </div>
         ))}
@@ -273,7 +262,7 @@ function MonthGrid({ month, from, to, hover, onClick, onHover }: MonthGridProps)
             !!from && !!effectiveTo && d > from && d < effectiveTo && !isFrom && !isTo;
 
           const base =
-            'w-8 h-7 text-[11px] font-mono flex items-center justify-center rounded transition-colors';
+            'h-9 w-full text-sm font-mono flex items-center justify-center rounded-md transition-colors';
           let cls = base;
           if (!inMonth) {
             cls += ' text-gray-700 cursor-default';
