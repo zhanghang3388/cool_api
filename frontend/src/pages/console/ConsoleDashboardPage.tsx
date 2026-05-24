@@ -256,32 +256,66 @@ function DailyByModelChart({ points }: { points: DailyModelPoint[] }) {
     Math.round((yMaxPadded * i) / gridSteps)
   );
 
-  // Smoothed cubic spline (Catmull-Rom → Bezier conversion). Each segment's
-  // control points are derived from the slope at its endpoints rather than
-  // a fixed midpoint, so the line flows through all data points without
-  // kinks. Tension 0.4 is a slightly tamer Catmull-Rom (full = 0.5) — keeps
-  // bumps visible but avoids the curve overshooting deep below zero
-  // between two big-then-small samples.
+  // Monotonic cubic interpolation (Fritsch–Carlson). Unlike Catmull-Rom this
+  // guarantees the curve stays within the [min, max] of each segment's
+  // endpoints, so a sequence like [0, 0, 0, 0, 0, big] won't dip below zero
+  // before the spike. Standard pick for monotone-or-flat data series.
   const smoothPath = (vals: number[]) => {
     if (vals.length === 0) return '';
     const pts = vals.map((v, i) => [xAt(i), yAt(v)] as const);
-    if (pts.length === 1) return `M ${pts[0][0]} ${pts[0][1]}`;
-    if (pts.length === 2) {
-      return `M ${pts[0][0]} ${pts[0][1]} L ${pts[1][0]} ${pts[1][1]}`;
+    const n = pts.length;
+    if (n === 1) return `M ${pts[0][0]} ${pts[0][1]}`;
+    if (n === 2) return `M ${pts[0][0]} ${pts[0][1]} L ${pts[1][0]} ${pts[1][1]}`;
+
+    // Secant slopes between consecutive points.
+    const secants: number[] = new Array(n - 1);
+    for (let i = 0; i < n - 1; i++) {
+      const dx = pts[i + 1][0] - pts[i][0];
+      const dy = pts[i + 1][1] - pts[i][1];
+      secants[i] = dy / dx;
     }
 
-    const tension = 0.4;
+    // Tangent at each point: weighted average of adjacent secants, zeroed
+    // when adjacent secants disagree in sign so the spline can't overshoot
+    // a local extremum.
+    const tangents: number[] = new Array(n);
+    tangents[0] = secants[0];
+    tangents[n - 1] = secants[n - 2];
+    for (let i = 1; i < n - 1; i++) {
+      if (secants[i - 1] * secants[i] <= 0) {
+        tangents[i] = 0;
+      } else {
+        tangents[i] = (secants[i - 1] + secants[i]) / 2;
+      }
+    }
+
+    // Fritsch–Carlson clamp: keep |α|² + |β|² ≤ 9 so each segment stays
+    // monotonic. Without this the slope-averaging step above can still
+    // produce small overshoots on uneven data.
+    for (let i = 0; i < n - 1; i++) {
+      if (secants[i] === 0) {
+        tangents[i] = 0;
+        tangents[i + 1] = 0;
+        continue;
+      }
+      const a = tangents[i] / secants[i];
+      const b = tangents[i + 1] / secants[i];
+      const s = a * a + b * b;
+      if (s > 9) {
+        const t = 3 / Math.sqrt(s);
+        tangents[i] = t * a * secants[i];
+        tangents[i + 1] = t * b * secants[i];
+      }
+    }
+
     let d = `M ${pts[0][0]} ${pts[0][1]}`;
-    for (let i = 0; i < pts.length - 1; i++) {
-      const p0 = pts[i - 1] ?? pts[i];
-      const p1 = pts[i];
-      const p2 = pts[i + 1];
-      const p3 = pts[i + 2] ?? p2;
-      const c1x = p1[0] + ((p2[0] - p0[0]) * tension) / 3;
-      const c1y = p1[1] + ((p2[1] - p0[1]) * tension) / 3;
-      const c2x = p2[0] - ((p3[0] - p1[0]) * tension) / 3;
-      const c2y = p2[1] - ((p3[1] - p1[1]) * tension) / 3;
-      d += ` C ${c1x} ${c1y} ${c2x} ${c2y} ${p2[0]} ${p2[1]}`;
+    for (let i = 0; i < n - 1; i++) {
+      const dx = pts[i + 1][0] - pts[i][0];
+      const c1x = pts[i][0] + dx / 3;
+      const c1y = pts[i][1] + (tangents[i] * dx) / 3;
+      const c2x = pts[i + 1][0] - dx / 3;
+      const c2y = pts[i + 1][1] - (tangents[i + 1] * dx) / 3;
+      d += ` C ${c1x} ${c1y} ${c2x} ${c2y} ${pts[i + 1][0]} ${pts[i + 1][1]}`;
     }
     return d;
   };
