@@ -13,16 +13,15 @@ export interface ApiKeyRow {
   id: number;
   name: string;
   prefix: string;
+  /** Full plaintext token, or null for legacy rows without a stored plaintext. */
+  plaintext: string | null;
   enabled: boolean;
   groups: ApiKeyGroupBinding[];
   last_used_at: string | null;
   created_at: string;
 }
 
-export interface CreatedKey extends ApiKeyRow {
-  /** Only present on the creation response. */
-  plaintext: string;
-}
+export type CreatedKey = ApiKeyRow;
 
 /** Per-provider bindings: map provider → group_id. At least one entry required. */
 export type ApiKeyGroupsPayload = Partial<Record<GroupProvider, number>>;

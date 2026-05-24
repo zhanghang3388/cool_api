@@ -32,6 +32,9 @@ struct KeyDto {
     id: i64,
     name: String,
     prefix: String,
+    /// Full plaintext token, persisted at creation time. May be null for
+    /// keys created before plaintext storage was enabled.
+    plaintext: Option<String>,
     enabled: bool,
     /// One entry per provider this key is bound to. Empty = no bindings (the
     /// key cannot route any traffic until at least one binding exists).
@@ -44,8 +47,6 @@ struct KeyDto {
 struct CreatedKeyDto {
     #[serde(flatten)]
     key: KeyDto,
-    /// Plaintext key — only returned once, when the key is created.
-    plaintext: String,
 }
 
 async fn list(
@@ -93,7 +94,6 @@ async fn create(
     }
 
     let gen = repo::api_keys::generate_key();
-    let plaintext = gen.plaintext.clone();
     let saved = repo::api_keys::create(
         &state.db,
         repo::api_keys::CreateApiKey {
@@ -113,7 +113,7 @@ async fn create(
     }
     all_bindings.insert(saved.id, for_this);
     let dto = to_dto(saved, &groups, &all_bindings);
-    Ok(Json(CreatedKeyDto { key: dto, plaintext }))
+    Ok(Json(CreatedKeyDto { key: dto }))
 }
 
 #[derive(Debug, Deserialize)]
@@ -234,6 +234,7 @@ fn to_dto(
         id: k.id,
         name: k.name,
         prefix: k.key_prefix,
+        plaintext: k.key_plaintext,
         enabled: k.enabled,
         groups: group_dtos,
         last_used_at: k.last_used_at,

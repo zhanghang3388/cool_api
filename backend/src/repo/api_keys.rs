@@ -9,7 +9,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::{ApiKey, ChannelProvider};
 
 const COLUMNS: &str =
-    "id, user_id, name, key_prefix, key_hash, enabled, last_used_at, created_at";
+    "id, user_id, name, key_prefix, key_hash, key_plaintext, enabled, last_used_at, created_at";
 
 /// Full plaintext key shown to the user exactly once. Format: `sk-ag-<32 chars>`.
 pub struct GeneratedKey {
@@ -114,14 +114,15 @@ pub struct CreateApiKey<'a> {
 pub async fn create(pool: &PgPool, input: CreateApiKey<'_>) -> AppResult<ApiKey> {
     let mut tx: Transaction<'_, Postgres> = pool.begin().await?;
     let row = sqlx::query_as::<_, ApiKey>(&format!(
-        "INSERT INTO api_keys (user_id, name, key_prefix, key_hash, enabled)
-         VALUES ($1, $2, $3, $4, TRUE)
+        "INSERT INTO api_keys (user_id, name, key_prefix, key_hash, key_plaintext, enabled)
+         VALUES ($1, $2, $3, $4, $5, TRUE)
          RETURNING {COLUMNS}"
     ))
     .bind(input.user_id)
     .bind(input.name)
     .bind(&input.generated.prefix)
     .bind(&input.generated.hash_hex)
+    .bind(&input.generated.plaintext)
     .fetch_one(&mut *tx)
     .await?;
 

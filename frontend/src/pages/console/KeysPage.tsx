@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Copy, Check, AlertTriangle } from 'lucide-react';
+import { Copy, Check } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import Toggle from '@/components/ui/Toggle';
 import Spinner from '@/components/ui/Spinner';
@@ -48,10 +48,7 @@ export default function KeysPage() {
   const [newKeyGroups, setNewKeyGroups] = useState<GroupSelection>({});
   const [createError, setCreateError] = useState<string | null>(null);
 
-  const [revealed, setRevealed] = useState<{ id: number; plaintext: string; name: string } | null>(
-    null
-  );
-  const [copied, setCopied] = useState(false);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
 
   const [editTarget, setEditTarget] = useState<ApiKeyRow | null>(null);
   const [editName, setEditName] = useState('');
@@ -80,11 +77,10 @@ export default function KeysPage() {
       return;
     }
     try {
-      const res = await createMut.mutateAsync({
+      await createMut.mutateAsync({
         name: newKeyName.trim(),
         groups: selectionToPayload(newKeyGroups),
       });
-      setRevealed({ id: res.id, plaintext: res.plaintext, name: res.name });
       setCreateOpen(false);
       setNewKeyName('');
       setNewKeyGroups({});
@@ -114,12 +110,14 @@ export default function KeysPage() {
     }
   };
 
-  const copyPlaintext = async () => {
-    if (!revealed) return;
+  const copyToken = async (k: ApiKeyRow) => {
+    const text = k.plaintext ?? `${k.prefix}...`;
     try {
-      await navigator.clipboard.writeText(revealed.plaintext);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      await navigator.clipboard.writeText(text);
+      setCopiedId(k.id);
+      setTimeout(() => {
+        setCopiedId((cur) => (cur === k.id ? null : cur));
+      }, 1500);
     } catch {
       /* ignore */
     }
@@ -158,11 +156,8 @@ export default function KeysPage() {
       <div className="stat-card rounded-xl p-4">
         <p className="text-xs text-gray-500 leading-relaxed">
           <span className="text-amber-400">说明：</span>
-          创建后，完整的令牌只会显示一次，请立即复制并妥善保存。之后只能看到前 10 位作为识别标识。
-          丢失的令牌无法找回，只能删除并新建。
-          <br />
           每个令牌可同时绑定 Anthropic 和 OpenAI 各一个分组，调用时按目标模型的厂商匹配对应分组计费。
-          只绑定一个厂商也可以，未绑定的厂商无法路由请求。
+          只绑定一个厂商也可以，未绑定的厂商无法路由请求。点击令牌列表里的复制按钮可随时复制完整令牌。
         </p>
       </div>
 
@@ -172,7 +167,7 @@ export default function KeysPage() {
             <tr className="text-gray-500 text-xs border-b border-base-300 bg-base-200/50">
               <th className="text-left p-4 font-medium">名称</th>
               <th className="text-left p-4 font-medium">分组</th>
-              <th className="text-left p-4 font-medium">令牌前缀</th>
+              <th className="text-left p-4 font-medium">令牌</th>
               <th className="text-left p-4 font-medium">最近使用</th>
               <th className="text-left p-4 font-medium">创建时间</th>
               <th className="text-center p-4 font-medium">启用</th>
@@ -217,9 +212,20 @@ export default function KeysPage() {
                   </div>
                 </td>
                 <td className="p-4">
-                  <span className="font-mono text-xs px-2 py-1 bg-base-200 rounded text-cyan-400">
-                    {k.prefix}...
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => copyToken(k)}
+                    title={k.plaintext ? '点击复制完整令牌' : '此令牌无法复制（创建于明文存储启用之前）'}
+                    disabled={!k.plaintext}
+                    className="inline-flex items-center gap-1.5 font-mono text-xs px-2 py-1 bg-base-200 rounded text-cyan-400 hover:bg-base-300 hover:text-cyan-300 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <span>{k.prefix}...</span>
+                    {copiedId === k.id ? (
+                      <Check className="w-3 h-3 text-emerald-400" />
+                    ) : (
+                      <Copy className="w-3 h-3" />
+                    )}
+                  </button>
                 </td>
                 <td className="p-4 text-xs text-gray-500 font-mono">
                   {k.last_used_at
@@ -303,60 +309,6 @@ export default function KeysPage() {
             创建
           </button>
         </div>
-      </Modal>
-
-      {/* One-time reveal modal */}
-      <Modal
-        open={!!revealed}
-        onClose={() => setRevealed(null)}
-        title="令牌已创建"
-        maxWidth="max-w-xl"
-      >
-        {revealed && (
-          <div className="space-y-4">
-            <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
-              <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
-              <p className="text-xs text-amber-400 leading-relaxed">
-                这是「{revealed.name || '(未命名)'}」的完整令牌。
-                <span className="font-medium">关闭此窗口后将无法再次查看</span>，
-                请立即复制并妥善保存。
-              </p>
-            </div>
-
-            <div>
-              <label className="text-xs text-gray-400 block mb-1">令牌</label>
-              <div className="flex items-stretch gap-2">
-                <code className="flex-1 font-mono text-sm bg-base-200 border border-base-300 rounded-lg px-3 py-2 break-all">
-                  {revealed.plaintext}
-                </code>
-                <button
-                  onClick={copyPlaintext}
-                  className="px-3 rounded-lg bg-amber-500 hover:bg-amber-600 text-black text-xs font-medium flex items-center gap-1.5 shrink-0"
-                >
-                  {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  {copied ? '已复制' : '复制'}
-                </button>
-              </div>
-            </div>
-
-            <div className="pt-2 border-t border-base-300 text-[11px] text-gray-500">
-              用法示例：
-              <pre className="mt-2 bg-base-200 rounded-lg p-3 font-mono text-gray-300 overflow-x-auto">
-{`curl ${window.location.origin}/v1/chat/completions \\
-  -H "Authorization: Bearer ${revealed.plaintext}" \\
-  -H "Content-Type: application/json" \\
-  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}'`}
-              </pre>
-            </div>
-
-            <button
-              onClick={() => setRevealed(null)}
-              className="w-full py-2 bg-base-300 hover:bg-base-400 text-gray-200 text-sm rounded-lg transition-colors"
-            >
-              我已妥善保存，关闭
-            </button>
-          </div>
-        )}
       </Modal>
 
       {/* Edit modal */}
