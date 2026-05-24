@@ -8,6 +8,9 @@ import {
   type UsageLogRow,
   type UsageLogsFilter,
 } from '@/hooks/useUsage';
+import { useUserGroups } from '@/hooks/useUserGroups';
+import { useUserModels } from '@/hooks/useUserModels';
+import { PROVIDER_LABELS } from '@/hooks/useGroups';
 
 const PAGE_SIZE = 20;
 
@@ -35,17 +38,30 @@ function formatIp(raw: string | null): string {
 export default function UsagePage() {
   const [page, setPage] = useState(1);
   const [model, setModel] = useState('');
+  const [groupId, setGroupId] = useState<number | ''>('');
   const [status, setStatus] = useState<RequestStatus | ''>('');
   const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  const { data: groups = [] } = useUserGroups();
+  const { data: models = [] } = useUserModels();
+
+  // Stable, deduped model list for the dropdown. The user-models hook gives
+  // us only enabled models — exactly what we want to surface as filters.
+  const modelOptions = useMemo(() => {
+    const names = new Set<string>();
+    models.forEach((m) => names.add(m.name));
+    return Array.from(names).sort();
+  }, [models]);
 
   const filter: UsageLogsFilter = useMemo(
     () => ({
       page,
       page_size: PAGE_SIZE,
-      model: model.trim() || undefined,
+      model: model || undefined,
+      group_id: groupId === '' ? undefined : groupId,
       status: status || undefined,
     }),
-    [page, model, status]
+    [page, model, groupId, status]
   );
   const { data, isLoading, isFetching } = useUsageLogs(filter);
   const { data: summary } = useUsageSummary();
@@ -53,6 +69,7 @@ export default function UsagePage() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
 
   const resetPage = () => setPage(1);
+  const hasFilter = !!(model || groupId !== '' || status);
 
   return (
     <div className="fade-in space-y-4">
@@ -69,17 +86,40 @@ export default function UsagePage() {
 
       <div className="stat-card rounded-xl p-4 flex flex-wrap items-end gap-3">
         <div className="flex flex-col gap-1">
-          <label className="text-[10px] text-gray-500">模型名</label>
-          <input
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            onBlur={resetPage}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') resetPage();
+          <label className="text-[10px] text-gray-500">分组</label>
+          <select
+            value={groupId === '' ? '' : String(groupId)}
+            onChange={(e) => {
+              setGroupId(e.target.value === '' ? '' : Number(e.target.value));
+              resetPage();
             }}
-            placeholder="gpt-4o"
-            className="bg-base-200 border border-base-300 rounded-lg px-3 py-1.5 text-xs font-mono text-gray-200 focus:outline-none focus:border-amber-500 w-48"
-          />
+            className="bg-base-200 border border-base-300 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-amber-500 min-w-[180px]"
+          >
+            <option value="">全部分组</option>
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>
+                [{PROVIDER_LABELS[g.provider]}] {g.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-[10px] text-gray-500">模型</label>
+          <select
+            value={model}
+            onChange={(e) => {
+              setModel(e.target.value);
+              resetPage();
+            }}
+            className="bg-base-200 border border-base-300 rounded-lg px-3 py-1.5 text-xs font-mono text-gray-200 focus:outline-none focus:border-amber-500 min-w-[200px]"
+          >
+            <option value="">全部模型</option>
+            {modelOptions.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="flex flex-col gap-1">
           <label className="text-[10px] text-gray-500">状态</label>
@@ -89,18 +129,19 @@ export default function UsagePage() {
               setStatus(e.target.value as RequestStatus | '');
               resetPage();
             }}
-            className="bg-base-200 border border-base-300 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-amber-500"
+            className="bg-base-200 border border-base-300 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-amber-500 min-w-[120px]"
           >
-            <option value="">全部</option>
+            <option value="">全部状态</option>
             <option value="success">成功</option>
             <option value="cached">缓存</option>
             <option value="error">失败</option>
           </select>
         </div>
-        {(model || status) && (
+        {hasFilter && (
           <button
             onClick={() => {
               setModel('');
+              setGroupId('');
               setStatus('');
               resetPage();
             }}

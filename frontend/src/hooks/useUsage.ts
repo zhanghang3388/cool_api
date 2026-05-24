@@ -61,6 +61,7 @@ export interface UsageLogsFilter {
   page?: number;
   page_size?: number;
   model?: string;
+  group_id?: number;
   status?: RequestStatus | '';
   from?: string;
   to?: string;
@@ -71,6 +72,7 @@ function buildQuery(f: UsageLogsFilter): string {
   if (f.page) p.set('page', String(f.page));
   if (f.page_size) p.set('page_size', String(f.page_size));
   if (f.model) p.set('model', f.model);
+  if (f.group_id != null) p.set('group_id', String(f.group_id));
   if (f.status) p.set('status', f.status);
   if (f.from) p.set('from', f.from);
   if (f.to) p.set('to', f.to);

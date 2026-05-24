@@ -11,6 +11,7 @@ use crate::models::RequestStatus;
 pub struct LogFilter<'a> {
     pub user_id: Option<i64>,
     pub model: Option<&'a str>,
+    pub group_id: Option<i64>,
     pub status: Option<RequestStatus>,
     pub from: Option<DateTime<Utc>>,
     pub to: Option<DateTime<Utc>>,
@@ -84,6 +85,10 @@ pub async fn list(
         clauses.push(format!("r.model_name = ${idx}"));
         idx += 1;
     }
+    if filter.group_id.is_some() {
+        clauses.push(format!("r.group_id = ${idx}"));
+        idx += 1;
+    }
     if filter.status.is_some() {
         clauses.push(format!("r.status = ${idx}"));
         idx += 1;
@@ -140,6 +145,10 @@ pub async fn list(
         count_q = count_q.bind(v);
     }
     if let Some(v) = filter.model {
+        list_q = list_q.bind(v);
+        count_q = count_q.bind(v);
+    }
+    if let Some(v) = filter.group_id {
         list_q = list_q.bind(v);
         count_q = count_q.bind(v);
     }

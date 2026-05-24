@@ -26,6 +26,7 @@ struct LogsQuery {
     #[serde(default)]
     page_size: Option<i64>,
     model: Option<String>,
+    group_id: Option<i64>,
     status: Option<RequestStatus>,
     from: Option<DateTime<Utc>>,
     to: Option<DateTime<Utc>>,
@@ -51,6 +52,7 @@ async fn logs(
     let filter = repo::request_logs::LogFilter {
         user_id: Some(auth.user_id),
         model: q.model.as_deref(),
+        group_id: q.group_id,
         status: q.status,
         from: q.from,
         to: q.to,
