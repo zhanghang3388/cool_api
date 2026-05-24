@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import Spinner from '@/components/ui/Spinner';
+import DateRangePicker from '@/components/ui/DateRangePicker';
 import {
   useUsageLogs,
   useUsageSummary,
@@ -93,11 +94,6 @@ export default function UsagePage() {
 
   const resetPage = () => setPage(1);
   const hasFilter = !!(model || groupId !== '' || status || fromDate || toDate);
-  const dateOrderError = !!(
-    fromDate &&
-    toDate &&
-    new Date(fromDate) > new Date(toDate)
-  );
 
   return (
     <div className="fade-in space-y-4">
@@ -166,29 +162,14 @@ export default function UsagePage() {
           </select>
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-[10px] text-gray-500">起始日期</label>
-          <input
-            type="date"
-            value={fromDate}
-            max={toDate || undefined}
-            onChange={(e) => {
-              setFromDate(e.target.value);
+          <label className="text-[10px] text-gray-500">时间</label>
+          <DateRangePicker
+            value={{ from: fromDate, to: toDate }}
+            onChange={(r) => {
+              setFromDate(r.from);
+              setToDate(r.to);
               resetPage();
             }}
-            className="bg-base-200 border border-base-300 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-amber-500"
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-[10px] text-gray-500">结束日期</label>
-          <input
-            type="date"
-            value={toDate}
-            min={fromDate || undefined}
-            onChange={(e) => {
-              setToDate(e.target.value);
-              resetPage();
-            }}
-            className="bg-base-200 border border-base-300 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-amber-500"
           />
         </div>
         {hasFilter && (
@@ -207,11 +188,6 @@ export default function UsagePage() {
           </button>
         )}
       </div>
-      {dateOrderError && (
-        <div className="text-xs text-rose-400 px-2 py-1.5 rounded bg-rose-500/10 border border-rose-500/20">
-          起始日期不能晚于结束日期
-        </div>
-      )}
 
       <div className="stat-card rounded-xl overflow-hidden">
         <table className="w-full text-sm">
