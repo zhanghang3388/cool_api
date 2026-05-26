@@ -2,6 +2,7 @@ use axum::extract::{Path, Query, State};
 use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 use crate::auth::AdminUser;
 use crate::error::{AppError, AppResult};
@@ -217,23 +218,67 @@ async fn set_overrides(
     Path(id): Path<i64>,
     Json(body): Json<SetOverridesRequest>,
 ) -> AppResult<Json<OverridesResponse>> {
+    let groups = repo::groups::list(&state.db).await?;
+    let valid_group_ids: HashSet<i64> = groups.into_iter().map(|g| g.id).collect();
+    let added_group_ids =
+        clean_group_ids("added_group_ids", body.added_group_ids, &valid_group_ids)?;
+    let removed_group_ids = clean_group_ids(
+        "removed_group_ids",
+        body.removed_group_ids,
+        &valid_group_ids,
+    )?;
+
     // Sanity: a single group can't be both added and removed.
-    let dup = body
-        .added_group_ids
+    let dup = added_group_ids
         .iter()
-        .any(|a| body.removed_group_ids.contains(a));
+        .any(|a| removed_group_ids.contains(a));
     if dup {
         return Err(AppError::BadRequest(
             "a group cannot appear in both added and removed".into(),
         ));
     }
     repo::users::get(&state.db, id).await?; // 404 if user gone
-    repo::user_groups::replace_overrides(
-        &state.db,
-        id,
-        &body.added_group_ids,
-        &body.removed_group_ids,
-    )
-    .await?;
+    repo::user_groups::replace_overrides(&state.db, id, &added_group_ids, &removed_group_ids)
+        .await?;
     get_overrides(State(state), admin, Path(id)).await
+}
+
+fn clean_group_ids(
+    field: &str,
+    ids: Vec<i64>,
+    valid_group_ids: &HashSet<i64>,
+) -> AppResult<Vec<i64>> {
+    let mut seen = HashSet::new();
+    let mut cleaned = Vec::with_capacity(ids.len());
+    for id in ids {
+        if !valid_group_ids.contains(&id) {
+            return Err(AppError::BadRequest(format!(
+                "{field} contains unknown group id {id}"
+            )));
+        }
+        if seen.insert(id) {
+            cleaned.push(id);
+        }
+    }
+    Ok(cleaned)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clean_group_ids;
+    use std::collections::HashSet;
+
+    #[test]
+    fn clean_group_ids_dedupes_preserving_order() {
+        let valid = HashSet::from([1, 2, 3]);
+        let cleaned = clean_group_ids("added_group_ids", vec![2, 1, 2, 3], &valid).unwrap();
+        assert_eq!(cleaned, vec![2, 1, 3]);
+    }
+
+    #[test]
+    fn clean_group_ids_rejects_unknown_ids() {
+        let valid = HashSet::from([1, 2]);
+        let err = clean_group_ids("removed_group_ids", vec![1, 9], &valid).unwrap_err();
+        assert!(err.to_string().contains("unknown group id 9"));
+    }
 }
