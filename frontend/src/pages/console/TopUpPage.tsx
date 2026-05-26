@@ -46,7 +46,6 @@ export default function TopUpPage() {
   const presets = info?.presets_cents ?? [10000, 50000, 100000, 200000, 500000, 1000000];
   const [selectedPreset, setSelectedPreset] = useState<number | 'custom'>(presets[0]);
   const [customYuan, setCustomYuan] = useState('');
-  const [payType, setPayType] = useState<'alipay' | 'wxpay'>('alipay');
   const [error, setError] = useState<string | null>(null);
 
   // Returning from the payment provider: show a banner + force-refresh balance.
@@ -76,7 +75,7 @@ export default function TopUpPage() {
       const notifyUrl = `${window.location.origin}/payment/epay/notify`;
       const res = await createMut.mutateAsync({
         amount_cents: amountCents,
-        pay_type: payType,
+        pay_type: 'alipay',
         return_url: returnUrl,
         notify_url: notifyUrl,
       });
@@ -197,24 +196,10 @@ export default function TopUpPage() {
             <label className="text-xs text-gray-400 block mb-1">支付渠道</label>
             <div className="flex gap-2">
               <button
-                onClick={() => setPayType('alipay')}
-                className={`flex-1 py-2 rounded-lg text-sm border ${
-                  payType === 'alipay'
-                    ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/40'
-                    : 'bg-base-200 border-base-300 text-gray-400'
-                }`}
+                className="flex-1 py-2 rounded-lg text-sm border bg-cyan-500/20 text-cyan-400 border-cyan-500/40"
+                disabled
               >
                 支付宝
-              </button>
-              <button
-                onClick={() => setPayType('wxpay')}
-                className={`flex-1 py-2 rounded-lg text-sm border ${
-                  payType === 'wxpay'
-                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
-                    : 'bg-base-200 border-base-300 text-gray-400'
-                }`}
-              >
-                微信支付
               </button>
             </div>
           </div>
