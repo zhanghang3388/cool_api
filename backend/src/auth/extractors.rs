@@ -107,11 +107,7 @@ fn bearer_token(parts: &Parts) -> Result<String, AppError> {
             }
         }
     }
-    if let Some(key) = parts
-        .headers
-        .get("x-api-key")
-        .and_then(|v| v.to_str().ok())
-    {
+    if let Some(key) = parts.headers.get("x-api-key").and_then(|v| v.to_str().ok()) {
         let trimmed = key.trim();
         if !trimmed.is_empty() {
             return Ok(trimmed.to_string());
@@ -129,10 +125,25 @@ where
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let app_state = AppState::from_ref(state);
         let claims = parse_claims::<S>(parts, state)?;
+        let row: Option<(UserRole, UserStatus)> =
+            sqlx::query_as("SELECT role, status FROM users WHERE id = $1")
+                .bind(claims.sub)
+                .fetch_optional(&app_state.db)
+                .await?;
+        let Some((role, status)) = row else {
+            return Err(AppError::Unauthorized);
+        };
+        if status != UserStatus::Active {
+            return Err(AppError::Forbidden);
+        }
+        if role != claims.role {
+            return Err(AppError::Unauthorized);
+        }
         Ok(AuthUser {
             user_id: claims.sub,
-            role: claims.role,
+            role,
             claims,
         })
     }

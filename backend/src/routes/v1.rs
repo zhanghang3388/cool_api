@@ -9,16 +9,106 @@ use serde::Serialize;
 
 use crate::auth::ApiUser;
 use crate::error::{AppError, AppResult};
-use crate::models::ChannelProvider;
+use crate::models::{ChannelProvider, UserRole};
+use crate::repo;
 use crate::services::forwarding::{forward, ForwardInput};
 use crate::upstream::Endpoint;
 use crate::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/models", get(models))
         .route("/chat/completions", post(chat_completions))
         .route("/responses", post(responses))
         .route("/usage", get(usage))
+}
+
+#[derive(Debug, Serialize)]
+struct ModelsResponse {
+    object: &'static str,
+    data: Vec<ModelItem>,
+}
+
+#[derive(Debug, Serialize)]
+struct ModelItem {
+    id: String,
+    object: &'static str,
+    created: i64,
+    owned_by: String,
+}
+
+async fn models(State(state): State<AppState>, api: ApiUser) -> AppResult<Json<ModelsResponse>> {
+    let provider = ChannelProvider::Openai;
+    let group_id = *api
+        .group_bindings
+        .get(&provider)
+        .ok_or(AppError::Forbidden)?;
+
+    let group_enabled: Option<(i64,)> =
+        sqlx::query_as("SELECT id FROM groups WHERE id = $1 AND enabled = TRUE")
+            .bind(group_id)
+            .fetch_optional(&state.db)
+            .await?;
+    if group_enabled.is_none() {
+        return Err(AppError::Forbidden);
+    }
+
+    if api.user.role != UserRole::Admin {
+        let effective =
+            repo::user_groups::effective_group_ids(&state.db, api.user.id, api.user.role).await?;
+        if !effective.contains(&group_id) {
+            return Err(AppError::Forbidden);
+        }
+    }
+
+    let catalog = repo::models::list(&state.db).await?;
+    let routable = routable_openai_models_for_group(&state.db, group_id).await?;
+    let data = catalog
+        .into_iter()
+        .filter(|m| m.enabled)
+        .filter(|m| m.provider.eq_ignore_ascii_case("openai"))
+        .filter(|m| routable.iter().any(|name| name == "*" || name == &m.name))
+        .map(|m| ModelItem {
+            id: m.name,
+            object: "model",
+            created: 0,
+            owned_by: "aethergate".to_string(),
+        })
+        .collect();
+
+    Ok(Json(ModelsResponse {
+        object: "list",
+        data,
+    }))
+}
+
+async fn routable_openai_models_for_group(
+    pool: &sqlx::PgPool,
+    group_id: i64,
+) -> AppResult<Vec<String>> {
+    let rows: Vec<(Vec<String>,)> = sqlx::query_as(
+        "SELECT allowed_models
+           FROM channels
+          WHERE enabled = TRUE
+            AND provider = $1
+            AND status IN ('active','warning','error')
+            AND (cardinality(allowed_group_ids) = 0 OR $2 = ANY(allowed_group_ids))",
+    )
+    .bind(ChannelProvider::Openai)
+    .bind(group_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut out = Vec::new();
+    for (allowed_models,) in rows {
+        if allowed_models.is_empty() {
+            return Ok(vec!["*".to_string()]);
+        }
+        out.extend(allowed_models);
+    }
+    out.sort();
+    out.dedup();
+    Ok(out)
 }
 
 async fn chat_completions(
@@ -101,11 +191,10 @@ async fn usage(api: ApiUser) -> AppResult<Json<UsageResponse>> {
     let cents = api.user.balance_cents.max(0);
     let yuan = (cents as f64) / 10_000.0;
     // round to 4 decimal places so we don't print noise
-    let yuan_rounded =
-        (bigdecimal::BigDecimal::try_from(yuan).unwrap_or_default())
-            .with_scale(4)
-            .to_f64()
-            .unwrap_or(yuan);
+    let yuan_rounded = (bigdecimal::BigDecimal::try_from(yuan).unwrap_or_default())
+        .with_scale(4)
+        .to_f64()
+        .unwrap_or(yuan);
     Ok(Json(UsageResponse {
         remaining: yuan_rounded,
         balance: yuan_rounded,

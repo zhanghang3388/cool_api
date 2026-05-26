@@ -76,12 +76,11 @@ pub async fn groups_for_key(
     pool: &PgPool,
     api_key_id: i64,
 ) -> AppResult<HashMap<ChannelProvider, i64>> {
-    let rows: Vec<(ChannelProvider, i64)> = sqlx::query_as(
-        "SELECT provider, group_id FROM api_key_groups WHERE api_key_id = $1",
-    )
-    .bind(api_key_id)
-    .fetch_all(pool)
-    .await?;
+    let rows: Vec<(ChannelProvider, i64)> =
+        sqlx::query_as("SELECT provider, group_id FROM api_key_groups WHERE api_key_id = $1")
+            .bind(api_key_id)
+            .fetch_all(pool)
+            .await?;
     Ok(rows.into_iter().collect())
 }
 
@@ -174,10 +173,22 @@ pub async fn update(
 /// full new state — anything not listed is removed.
 pub async fn replace_groups(
     pool: &PgPool,
+    user_id: i64,
     api_key_id: i64,
     bindings: &[(ChannelProvider, i64)],
 ) -> AppResult<()> {
     let mut tx: Transaction<'_, Postgres> = pool.begin().await?;
+    let exists: Option<(i64,)> =
+        sqlx::query_as("SELECT id FROM api_keys WHERE id = $1 AND user_id = $2 FOR UPDATE")
+            .bind(api_key_id)
+            .bind(user_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if exists.is_none() {
+        tx.rollback().await.ok();
+        return Err(AppError::NotFound);
+    }
+
     sqlx::query("DELETE FROM api_key_groups WHERE api_key_id = $1")
         .bind(api_key_id)
         .execute(&mut *tx)

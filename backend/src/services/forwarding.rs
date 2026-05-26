@@ -62,11 +62,7 @@ fn resolve_client_ip(headers: &HeaderMap) -> Option<IpNetwork> {
     Some(IpNetwork::from(from_header))
 }
 
-pub async fn forward(
-    state: AppState,
-    api: ApiUser,
-    input: ForwardInput,
-) -> AppResult<Response> {
+pub async fn forward(state: AppState, api: ApiUser, input: ForwardInput) -> AppResult<Response> {
     if input.model_name.trim().is_empty() {
         return Err(AppError::BadRequest("missing model".into()));
     }
@@ -79,16 +75,16 @@ pub async fn forward(
 
     // Resolve which pricing group applies to this call. The api key may bind
     // a different group per provider; the call's provider picks one.
-    let group_id = *api.group_bindings.get(&input.provider).ok_or_else(|| {
-        AppError::Forbidden
-    })?;
-    let (group_multiplier, _group_name): (BigDecimal, String) = sqlx::query_as(
-        "SELECT multiplier, name FROM groups WHERE id = $1 AND enabled = TRUE",
-    )
-    .bind(group_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::Forbidden)?;
+    let group_id = *api
+        .group_bindings
+        .get(&input.provider)
+        .ok_or_else(|| AppError::Forbidden)?;
+    let (group_multiplier, _group_name): (BigDecimal, String) =
+        sqlx::query_as("SELECT multiplier, name FROM groups WHERE id = $1 AND enabled = TRUE")
+            .bind(group_id)
+            .fetch_optional(&state.db)
+            .await?
+            .ok_or(AppError::Forbidden)?;
 
     // Runtime group enforcement: even though the token binding is valid,
     // admin may have revoked the user's access to that group afterwards.
@@ -103,26 +99,55 @@ pub async fn forward(
 
     let model_row: Model = repo::models::get_by_name(&state.db, &input.model_name)
         .await?
-        .ok_or_else(|| {
-            AppError::BadRequest(format!("unknown model '{}'", input.model_name))
-        })?;
+        .ok_or_else(|| AppError::BadRequest(format!("unknown model '{}'", input.model_name)))?;
     if !model_row.enabled {
         return Err(AppError::BadRequest(format!(
             "model '{}' is disabled",
             input.model_name
         )));
     }
+    if input.stream {
+        if let Some(max_output_tokens) = declared_max_output_tokens(&input.body) {
+            let estimated_prompt_tokens = input.body.len().min(i32::MAX as usize) as i32;
+            let estimate = billing::ChargeInput {
+                user_id: api.user.id,
+                api_key_id: Some(api.api_key_id),
+                group_id,
+                group_multiplier: &group_multiplier,
+                model: &model_row,
+                channel_id: None,
+                usage: Usage {
+                    prompt_tokens: estimated_prompt_tokens,
+                    completion_tokens: max_output_tokens,
+                    cached_tokens: 0,
+                    cache_creation_tokens: 0,
+                },
+                latency_ms: 0,
+                status: RequestStatus::Success,
+                error_message: None,
+                client_ip,
+            };
+            let (_, _, estimated_cost) = billing::compute_cost(&estimate);
+            if !billing::has_balance(
+                &state.db,
+                api.user.id,
+                estimated_cost.max(MIN_BALANCE_TO_START),
+            )
+            .await?
+            {
+                return Err(AppError::InsufficientBalance);
+            }
+        }
+    }
 
     // -------- cache lookup (non-streaming, no opt-out header) --------
     let cache_cfg = repo::system_settings::get_cache_config(&state.db).await?;
     let cache_bypass = input.headers.contains_key(NO_CACHE_HEADER);
-    let cacheable = cache_cfg.enabled
-        && !input.stream
-        && !cache_bypass
-        && is_body_cacheable(&input.body);
+    let cacheable =
+        cache_cfg.enabled && !input.stream && !cache_bypass && is_body_cacheable(&input.body);
 
-    let cache_hash = cacheable
-        .then(|| cache::make_key(api.api_key_id, &input.model_name, &input.body));
+    let cache_hash =
+        cacheable.then(|| cache::make_key(api.api_key_id, &input.model_name, &input.body));
 
     if let (Some(ref hash), Some(mut redis)) = (cache_hash.as_ref(), state.redis.clone()) {
         if let Ok(Some(entry)) = cache::get(&mut redis, hash).await {
@@ -154,9 +179,7 @@ pub async fn forward(
                     let saved_cents = (full_cost - cached_cost).max(0);
                     let tokens = (usage.prompt_tokens + usage.completion_tokens) as i64;
 
-                    if let Err(e) = billing::charge(&state.db, charge_input).await {
-                        tracing::error!(error = ?e, "charge failed on cache hit");
-                    }
+                    billing::charge(&state.db, charge_input).await?;
                     cache::record_hit(&mut redis, tokens, saved_cents).await;
 
                     return Ok(build_json_response(entry.status, Bytes::from(cached_body)));
@@ -175,13 +198,7 @@ pub async fn forward(
         }
     }
 
-    let plan = svc_router::plan(
-        &state.db,
-        input.provider,
-        &input.model_name,
-        group_id,
-    )
-    .await?;
+    let plan = svc_router::plan(&state.db, input.provider, &input.model_name, group_id).await?;
 
     let mut last_err: Option<String> = None;
 
@@ -202,10 +219,7 @@ pub async fn forward(
             .await
         {
             Ok(ChatResponse::Json(resp)) => {
-                let latency_ms = started
-                    .elapsed()
-                    .as_millis()
-                    .min(i32::MAX as u128) as i32;
+                let latency_ms = started.elapsed().as_millis().min(i32::MAX as u128) as i32;
                 let charge_input = billing::ChargeInput {
                     user_id: api.user.id,
                     api_key_id: Some(api.api_key_id),
@@ -219,26 +233,18 @@ pub async fn forward(
                     error_message: None,
                     client_ip,
                 };
-                if let Err(e) = billing::charge(&state.db, charge_input).await {
-                    tracing::error!(error = ?e, "charge failed after json response");
-                }
+                billing::charge(&state.db, charge_input).await?;
 
                 // Successful forward — clear any prior error/warning state.
-                if let Err(e) = repo::channels::mark_healthy(
-                    &state.db,
-                    channel.id,
-                    chrono::Utc::now(),
-                )
-                .await
+                if let Err(e) =
+                    repo::channels::mark_healthy(&state.db, channel.id, chrono::Utc::now()).await
                 {
                     tracing::warn!(channel_id = channel.id, error = ?e, "mark_healthy failed");
                 }
 
                 // Store a cacheable successful response before we reply, so a
                 // parallel second request can hit the cache.
-                if let (Some(hash), Some(mut redis)) =
-                    (cache_hash.clone(), state.redis.clone())
-                {
+                if let (Some(hash), Some(mut redis)) = (cache_hash.clone(), state.redis.clone()) {
                     let status = resp.status;
                     let body_b64 = general_purpose::STANDARD.encode(&resp.body);
                     let entry = cache::CachedEntry {
@@ -266,12 +272,8 @@ pub async fn forward(
             }
             Ok(ChatResponse::Stream(stream_resp)) => {
                 // Headers were already received successfully — channel is up.
-                if let Err(e) = repo::channels::mark_healthy(
-                    &state.db,
-                    channel.id,
-                    chrono::Utc::now(),
-                )
-                .await
+                if let Err(e) =
+                    repo::channels::mark_healthy(&state.db, channel.id, chrono::Utc::now()).await
                 {
                     tracing::warn!(channel_id = channel.id, error = ?e, "mark_healthy failed");
                 }
@@ -289,10 +291,7 @@ pub async fn forward(
                 let ip_for_task = client_ip;
 
                 tokio::spawn(async move {
-                    let latency_ms = started
-                        .elapsed()
-                        .as_millis()
-                        .min(i32::MAX as u128) as i32;
+                    let latency_ms = started.elapsed().as_millis().min(i32::MAX as u128) as i32;
                     match final_usage_rx.await {
                         Ok(usage) => {
                             let charge_input = billing::ChargeInput {
@@ -308,9 +307,7 @@ pub async fn forward(
                                 error_message: None,
                                 client_ip: ip_for_task,
                             };
-                            if let Err(e) =
-                                billing::charge(&state_clone.db, charge_input).await
-                            {
+                            if let Err(e) = billing::charge(&state_clone.db, charge_input).await {
                                 tracing::error!(error = ?e, "charge failed after stream");
                             }
                         }
@@ -324,10 +321,7 @@ pub async fn forward(
                             // upstream already counted. If the snapshot is
                             // empty (disconnect happened before any chunk
                             // arrived) the row is logged with cost 0.
-                            let usage = partial_usage
-                                .lock()
-                                .map(|g| *g)
-                                .unwrap_or_default();
+                            let usage = partial_usage.lock().map(|g| *g).unwrap_or_default();
                             let has_usage = usage.prompt_tokens > 0
                                 || usage.completion_tokens > 0
                                 || usage.cached_tokens > 0
@@ -377,10 +371,7 @@ pub async fn forward(
                 // The request itself was rejected (e.g. bad model / oversized
                 // prompt). Channel is fine — log against the user, do NOT
                 // failover, do NOT mark the channel unhealthy.
-                let latency_ms = started
-                    .elapsed()
-                    .as_millis()
-                    .min(i32::MAX as u128) as i32;
+                let latency_ms = started.elapsed().as_millis().min(i32::MAX as u128) as i32;
                 let _ = billing::charge(
                     &state.db,
                     billing::ChargeInput {
@@ -445,7 +436,7 @@ fn is_body_cacheable(raw: &[u8]) -> bool {
     };
 
     let temperature_ok = match obj.get("temperature") {
-        None => true, // provider defaults are typically > 0 — conservative? keep true so unspecified still caches
+        None => false,
         Some(t) => t.as_f64().map(|f| f.abs() < f64::EPSILON).unwrap_or(false),
     };
     if !temperature_ok {
@@ -457,6 +448,19 @@ fn is_body_cacheable(raw: &[u8]) -> bool {
     }
 
     true
+}
+
+fn declared_max_output_tokens(raw: &[u8]) -> Option<i32> {
+    let v = serde_json::from_slice::<serde_json::Value>(raw).ok()?;
+    let obj = v.as_object()?;
+    ["max_tokens", "max_completion_tokens", "max_output_tokens"]
+        .iter()
+        .find_map(|key| {
+            obj.get(*key)
+                .and_then(|v| v.as_i64())
+                .filter(|n| *n > 0)
+                .map(|n| n.min(i32::MAX as i64) as i32)
+        })
 }
 
 /// Only 2xx responses are cached — a 4xx / 5xx would poison the cache.
@@ -492,4 +496,43 @@ fn build_stream_response(
     let body = Body::from_stream(byte_stream);
 
     (StatusCode::OK, headers, body).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{declared_max_output_tokens, is_body_cacheable};
+
+    #[test]
+    fn cache_requires_explicit_zero_temperature() {
+        assert!(!is_body_cacheable(br#"{"messages":[]}"#));
+        assert!(is_body_cacheable(br#"{"messages":[],"temperature":0}"#));
+        assert!(!is_body_cacheable(br#"{"messages":[],"temperature":0.7}"#));
+    }
+
+    #[test]
+    fn cache_rejects_tool_calling_requests() {
+        assert!(!is_body_cacheable(
+            br#"{"messages":[],"temperature":0,"tools":[]}"#
+        ));
+        assert!(!is_body_cacheable(
+            br#"{"messages":[],"temperature":0,"tool_choice":"auto"}"#
+        ));
+    }
+
+    #[test]
+    fn reads_common_max_output_token_fields() {
+        assert_eq!(
+            declared_max_output_tokens(br#"{"max_tokens":128}"#),
+            Some(128)
+        );
+        assert_eq!(
+            declared_max_output_tokens(br#"{"max_completion_tokens":256}"#),
+            Some(256)
+        );
+        assert_eq!(
+            declared_max_output_tokens(br#"{"max_output_tokens":512}"#),
+            Some(512)
+        );
+        assert_eq!(declared_max_output_tokens(br#"{"max_tokens":0}"#), None);
+    }
 }

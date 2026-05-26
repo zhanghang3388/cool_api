@@ -49,10 +49,7 @@ struct CreatedKeyDto {
     key: KeyDto,
 }
 
-async fn list(
-    State(state): State<AppState>,
-    auth: AuthUser,
-) -> AppResult<Json<Vec<KeyDto>>> {
+async fn list(State(state): State<AppState>, auth: AuthUser) -> AppResult<Json<Vec<KeyDto>>> {
     let rows = repo::api_keys::list_by_user(&state.db, auth.user_id).await?;
     let groups = repo::groups::list(&state.db).await?;
     let key_ids: Vec<i64> = rows.iter().map(|k| k.id).collect();
@@ -143,7 +140,7 @@ async fn update(
             let group = resolve_group(&state, &auth, *group_id, *provider).await?;
             bindings.push((*provider, group.id));
         }
-        repo::api_keys::replace_groups(&state.db, id, &bindings).await?;
+        repo::api_keys::replace_groups(&state.db, auth.user_id, id, &bindings).await?;
     }
 
     let saved = repo::api_keys::update(
