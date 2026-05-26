@@ -74,6 +74,44 @@ export function useUpdatePaymentConfig() {
   });
 }
 
+/* ---- Email (Resend) ---- */
+
+export interface EmailConfigView {
+  enabled: boolean;
+  provider: string;
+  key_masked: string;
+  key_configured: boolean;
+  from_email: string;
+  from_name: string;
+}
+
+export interface PatchEmail {
+  enabled?: boolean;
+  provider?: string;
+  /** Plaintext API key; empty string = keep existing. */
+  api_key?: string;
+  from_email?: string;
+  from_name?: string;
+}
+
+const EMAIL_KEY = ['admin-settings', 'email'] as const;
+
+export function useEmailConfig() {
+  return useQuery<EmailConfigView>({
+    queryKey: EMAIL_KEY,
+    queryFn: () => api.get<EmailConfigView>('/admin/settings/email'),
+  });
+}
+
+export function useUpdateEmailConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: PatchEmail) =>
+      api.patch<EmailConfigView>('/admin/settings/email', patch),
+    onSuccess: (data) => qc.setQueryData(EMAIL_KEY, data),
+  });
+}
+
 /** Public (unauthenticated) site metadata — used by login/register pages. */
 export function usePublicSiteConfig() {
   return useQuery<SiteConfig>({

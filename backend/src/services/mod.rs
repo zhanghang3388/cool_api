@@ -1,6 +1,8 @@
 //! Business services.
 pub mod billing;
 pub mod cache;
+pub mod email;
+pub mod email_codes;
 pub mod epay;
 pub mod forwarding;
 pub mod pricing_oracle;

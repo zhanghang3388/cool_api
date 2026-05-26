@@ -8,6 +8,7 @@ use crate::error::AppResult;
 pub const CACHE_KEY: &str = "cache";
 pub const SITE_KEY: &str = "site";
 pub const PAYMENT_KEY: &str = "payment";
+pub const EMAIL_KEY: &str = "email";
 pub const LANDING_PRICING_GROUP_KEY: &str = "landing_pricing_group_id";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,6 +135,52 @@ pub async fn get_payment_config(pool: &PgPool) -> AppResult<PaymentConfig> {
 
 pub async fn update_payment_config(pool: &PgPool, cfg: &PaymentConfig) -> AppResult<()> {
     put_typed(pool, PAYMENT_KEY, cfg).await
+}
+
+/// Resend (https://resend.com/) provider config. The API key is stored
+/// encrypted at rest using the shared AES cipher, mirroring `PaymentConfig`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmailConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_email_provider")]
+    pub provider: String,
+    /// ciphertext from `crypto::Cipher::encrypt`. Empty means "unset".
+    #[serde(default)]
+    pub api_key_encrypted: String,
+    /// Sender address shown to recipients. Must be from a Resend-verified
+    /// domain or `onboarding@resend.dev` for testing.
+    #[serde(default)]
+    pub from_email: String,
+    #[serde(default = "default_from_name")]
+    pub from_name: String,
+}
+
+fn default_email_provider() -> String {
+    "resend".into()
+}
+fn default_from_name() -> String {
+    "AetherGate".into()
+}
+
+impl Default for EmailConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: default_email_provider(),
+            api_key_encrypted: String::new(),
+            from_email: String::new(),
+            from_name: default_from_name(),
+        }
+    }
+}
+
+pub async fn get_email_config(pool: &PgPool) -> AppResult<EmailConfig> {
+    get_typed(pool, EMAIL_KEY).await
+}
+
+pub async fn update_email_config(pool: &PgPool, cfg: &EmailConfig) -> AppResult<()> {
+    put_typed(pool, EMAIL_KEY, cfg).await
 }
 
 /// Group ID whose pricing is showcased on the public landing page. `None`

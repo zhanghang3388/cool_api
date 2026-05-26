@@ -20,6 +20,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/site", get(get_site).patch(patch_site))
         .route("/payment", get(get_payment).patch(patch_payment))
+        .route("/email", get(get_email).patch(patch_email))
         .route(
             "/default-user-groups",
             get(get_default_user_groups).put(put_default_user_groups),
@@ -150,6 +151,94 @@ async fn patch_payment(
     }
     repo::system_settings::update_payment_config(&state.db, &cfg).await?;
     Ok(Json(view(&cfg, &state.cipher)))
+}
+
+#[derive(Debug, Serialize)]
+struct EmailView {
+    enabled: bool,
+    provider: String,
+    key_masked: String,
+    key_configured: bool,
+    from_email: String,
+    from_name: String,
+}
+
+fn email_view(
+    cfg: &repo::system_settings::EmailConfig,
+    cipher: &crate::crypto::Cipher,
+) -> EmailView {
+    let key_masked = if cfg.api_key_encrypted.is_empty() {
+        String::new()
+    } else {
+        cipher
+            .decrypt(&cfg.api_key_encrypted)
+            .map(|k| mask_secret(&k))
+            .unwrap_or_else(|_| "****".into())
+    };
+    EmailView {
+        enabled: cfg.enabled,
+        provider: cfg.provider.clone(),
+        key_configured: !cfg.api_key_encrypted.is_empty(),
+        key_masked,
+        from_email: cfg.from_email.clone(),
+        from_name: cfg.from_name.clone(),
+    }
+}
+
+async fn get_email(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+) -> AppResult<Json<EmailView>> {
+    let cfg = repo::system_settings::get_email_config(&state.db).await?;
+    Ok(Json(email_view(&cfg, &state.cipher)))
+}
+
+#[derive(Debug, Deserialize)]
+struct PatchEmail {
+    enabled: Option<bool>,
+    provider: Option<String>,
+    /// plaintext API key; empty string = keep existing; None = keep existing
+    api_key: Option<String>,
+    from_email: Option<String>,
+    from_name: Option<String>,
+}
+
+async fn patch_email(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Json(body): Json<PatchEmail>,
+) -> AppResult<Json<EmailView>> {
+    let mut cfg = repo::system_settings::get_email_config(&state.db).await?;
+    if let Some(v) = body.enabled {
+        cfg.enabled = v;
+    }
+    if let Some(v) = body.provider {
+        let v = v.trim().to_string();
+        if v.is_empty() {
+            return Err(AppError::BadRequest("provider cannot be empty".into()));
+        }
+        cfg.provider = v;
+    }
+    if let Some(k) = body.api_key {
+        let k = k.trim();
+        if !k.is_empty() {
+            cfg.api_key_encrypted = state.cipher.encrypt(k)?;
+        }
+    }
+    if let Some(v) = body.from_email {
+        let v = v.trim().to_string();
+        // Cheap sanity check — full RFC validation lives in the email
+        // provider; this only catches obvious typos before saving.
+        if !v.is_empty() && !v.contains('@') {
+            return Err(AppError::BadRequest("from_email 看起来不是有效的邮箱".into()));
+        }
+        cfg.from_email = v;
+    }
+    if let Some(v) = body.from_name {
+        cfg.from_name = v.trim().to_string();
+    }
+    repo::system_settings::update_email_config(&state.db, &cfg).await?;
+    Ok(Json(email_view(&cfg, &state.cipher)))
 }
 
 #[derive(Debug, Serialize)]

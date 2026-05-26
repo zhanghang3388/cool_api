@@ -9,11 +9,13 @@ use crate::models::{User, UserRole, UserStatus};
 use crate::routes::shared::{
     authenticate, fetch_user_info, LoginRequest, LoginResponse, UserInfo, USER_COLUMNS,
 };
+use crate::services::{email as email_svc, email_codes};
 use crate::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/register", post(register))
+        .route("/email-code", post(send_email_code))
         .route("/login", post(login))
         .route("/me", get(me).patch(update_me))
 }
@@ -32,12 +34,89 @@ async fn registration_enabled(state: &AppState) -> AppResult<bool> {
         .unwrap_or(true))
 }
 
+fn validate_email(raw: &str) -> AppResult<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::BadRequest("邮箱不能为空".into()));
+    }
+    if trimmed.len() > 254 {
+        return Err(AppError::BadRequest("邮箱过长".into()));
+    }
+    // Cheapest workable check — one '@', non-empty local part, dotted domain.
+    let (local, domain) = trimmed
+        .split_once('@')
+        .ok_or_else(|| AppError::BadRequest("邮箱格式不正确".into()))?;
+    if local.is_empty() || !domain.contains('.') {
+        return Err(AppError::BadRequest("邮箱格式不正确".into()));
+    }
+    Ok(trimmed.to_string())
+}
+
+#[derive(Debug, Deserialize)]
+struct SendEmailCodeRequest {
+    email: String,
+}
+
+async fn send_email_code(
+    State(state): State<AppState>,
+    Json(req): Json<SendEmailCodeRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    if !registration_enabled(&state).await? {
+        return Err(AppError::Forbidden);
+    }
+    let email = validate_email(&req.email)?;
+
+    // Reject up front if the email is already taken — sending a code in that
+    // case lets attackers probe the user table.
+    let taken: Option<(i64,)> = sqlx::query_as("SELECT id FROM users WHERE email = $1")
+        .bind(&email)
+        .fetch_optional(&state.db)
+        .await?;
+    if taken.is_some() {
+        return Err(AppError::Conflict("该邮箱已被注册".into()));
+    }
+
+    let mut redis = state.redis.clone().ok_or_else(|| {
+        AppError::Internal("redis unavailable; cannot store verification code".into())
+    })?;
+
+    let code = email_codes::generate_code();
+    email_codes::issue(&mut redis, email_codes::Scene::Register, &email, &code).await?;
+
+    let site = crate::repo::system_settings::get_site_config(&state.db).await?;
+    let html = email_svc::render_register_code(
+        &code,
+        email_codes::TTL_SECONDS / 60,
+        &site.site_name,
+    );
+    if let Err(e) = email_svc::send_html(&state, &email, "您的注册验证码", &html).await {
+        // Roll back the issued code so the user can try again immediately;
+        // otherwise the cooldown would lock them out for 60s after a Resend
+        // outage they didn't cause.
+        let lower = email.to_ascii_lowercase();
+        let _ = redis
+            .send_packed_command(
+                redis::cmd("DEL")
+                    .arg(format!("ec:register:{}", lower))
+                    .arg(format!("ec:register:{}:cool", lower)),
+            )
+            .await;
+        return Err(e);
+    }
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "ttl_seconds": email_codes::TTL_SECONDS,
+        "cooldown_seconds": email_codes::COOLDOWN_SECONDS,
+    })))
+}
+
 #[derive(Debug, Deserialize)]
 struct RegisterRequest {
     username: String,
     password: String,
-    #[serde(default)]
-    email: Option<String>,
+    email: String,
+    code: String,
 }
 
 async fn register(
@@ -64,7 +143,11 @@ async fn register(
         return Err(AppError::BadRequest("password must be >= 6 chars".into()));
     }
 
-    let email = req.email.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let email = validate_email(&req.email)?;
+    let code = req.code.trim();
+    if code.is_empty() {
+        return Err(AppError::BadRequest("验证码不能为空".into()));
+    }
 
     // Check collisions up front so we can return a friendlier error than a
     // Postgres unique-violation.
@@ -76,16 +159,19 @@ async fn register(
     if exists.is_some() {
         return Err(AppError::Conflict("username already taken".into()));
     }
-    if let Some(e) = email {
-        let email_taken: Option<(i64,)> =
-            sqlx::query_as("SELECT id FROM users WHERE email = $1")
-                .bind(e)
-                .fetch_optional(&state.db)
-                .await?;
-        if email_taken.is_some() {
-            return Err(AppError::Conflict("email already registered".into()));
-        }
+    let email_taken: Option<(i64,)> =
+        sqlx::query_as("SELECT id FROM users WHERE email = $1")
+            .bind(&email)
+            .fetch_optional(&state.db)
+            .await?;
+    if email_taken.is_some() {
+        return Err(AppError::Conflict("email already registered".into()));
     }
+
+    let mut redis = state.redis.clone().ok_or_else(|| {
+        AppError::Internal("redis unavailable; cannot verify registration code".into())
+    })?;
+    email_codes::verify(&mut redis, email_codes::Scene::Register, &email, code).await?;
 
     let hash = password::hash_password(&req.password)?;
     let user = sqlx::query_as::<_, User>(&format!(
@@ -94,7 +180,7 @@ async fn register(
          RETURNING {USER_COLUMNS}"
     ))
     .bind(username)
-    .bind(email)
+    .bind(&email)
     .bind(&hash)
     .bind(UserRole::User)
     .fetch_one(&state.db)

@@ -28,15 +28,21 @@ export async function login(username: string, password: string): Promise<UserInf
 export async function register(
   username: string,
   password: string,
-  email?: string
+  email: string,
+  code: string
 ): Promise<UserInfo> {
   const res = await api.post<LoginResponse>('/user/auth/register', {
     username,
     password,
-    email: email || undefined,
+    email,
+    code,
   });
   setToken(res.token);
   return res.user;
+}
+
+export async function requestEmailCode(email: string): Promise<void> {
+  await api.post<unknown>('/user/auth/email-code', { email });
 }
 
 export function logout() {
