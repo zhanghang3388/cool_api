@@ -127,7 +127,10 @@ async fn group_health(
     Query(q): Query<GroupHealthQuery>,
 ) -> AppResult<Json<Vec<repo::request_logs::GroupHealth>>> {
     let minutes = q.minutes.unwrap_or(60).clamp(5, 1440);
+    let group_ids =
+        repo::user_groups::effective_group_ids(&state.db, auth.user_id, auth.role).await?;
     let rows =
-        repo::request_logs::group_health_for_user(&state.db, auth.user_id, minutes).await?;
+        repo::request_logs::group_health_for_user(&state.db, auth.user_id, &group_ids, minutes)
+            .await?;
     Ok(Json(rows))
 }

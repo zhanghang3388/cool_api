@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import Spinner from '@/components/ui/Spinner';
 import DateRangePicker from '@/components/ui/DateRangePicker';
@@ -37,13 +38,40 @@ function formatIp(raw: string | null): string {
 }
 
 export default function UsagePage() {
+  // Allow other pages (e.g. the dashboard health card) to deep-link in with
+  // pre-applied filters via the query string. Read once on mount; subsequent
+  // edits live in local state so the inputs stay snappy.
+  const [searchParams] = useSearchParams();
+  const initialGroupId = (() => {
+    const raw = searchParams.get('group_id');
+    if (!raw) return '' as const;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : ('' as const);
+  })();
+  const initialStatus: RequestStatus | '' = (() => {
+    const raw = searchParams.get('status');
+    return raw === 'success' || raw === 'error' || raw === 'cached' ? raw : '';
+  })();
+  const initialFromDate = (() => {
+    const raw = searchParams.get('from');
+    if (!raw) return '';
+    const d = new Date(raw);
+    if (!Number.isFinite(d.getTime())) return '';
+    // Convert UTC ISO to a local YYYY-MM-DD so the date picker shows the
+    // user's local day, matching the existing fromDate semantics.
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  })();
+
   const [page, setPage] = useState(1);
   const [model, setModel] = useState('');
-  const [groupId, setGroupId] = useState<number | ''>('');
-  const [status, setStatus] = useState<RequestStatus | ''>('');
+  const [groupId, setGroupId] = useState<number | ''>(initialGroupId);
+  const [status, setStatus] = useState<RequestStatus | ''>(initialStatus);
   // YYYY-MM-DD strings; empty = no bound on that side. Two separate inputs
   // (from / to) keep the markup native and dependency-free.
-  const [fromDate, setFromDate] = useState('');
+  const [fromDate, setFromDate] = useState(initialFromDate);
   const [toDate, setToDate] = useState('');
   const [expandedId, setExpandedId] = useState<number | null>(null);
 

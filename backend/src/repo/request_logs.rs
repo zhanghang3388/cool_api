@@ -603,8 +603,25 @@ pub async fn daily_by_model_global(
 }
 
 /// Per-group request health for the past `minutes` minutes (per user).
-/// `status` is computed at the SQL layer: idle when no requests; degraded
-/// when error_rate ≥ 5%; down when error_rate ≥ 30%; healthy otherwise.
+///
+/// Status decision (worst case wins):
+///  - `idle` — no requests in the window
+///  - `down` — error rate ≥ 30%
+///  - `degraded` — error rate ≥ 5% OR p95 latency ≥ 10s
+///  - `healthy` — otherwise
+///
+/// Returns one row per group in `group_ids` so groups with zero traffic
+/// still appear (as `idle`). Buckets are evenly spaced across the window
+/// for a sparkline; oldest first, length `BUCKET_COUNT`.
+pub const HEALTH_BUCKET_COUNT: i32 = 30;
+
+#[derive(Debug, Serialize)]
+pub struct HealthBucket {
+    pub idx: i32,
+    pub total: i64,
+    pub error: i64,
+}
+
 #[derive(Debug, Serialize)]
 pub struct GroupHealth {
     pub group_id: i64,
@@ -615,53 +632,139 @@ pub struct GroupHealth {
     pub error: i64,
     pub cached: i64,
     pub avg_latency_ms: i64,
+    pub p95_latency_ms: i64,
+    pub last_error_at: Option<DateTime<Utc>>,
     pub status: &'static str,
+    pub buckets: Vec<HealthBucket>,
+    pub bucket_count: i32,
 }
 
 pub async fn group_health_for_user(
     pool: &PgPool,
     user_id: i64,
+    group_ids: &[i64],
     minutes: i32,
 ) -> AppResult<Vec<GroupHealth>> {
-    let rows: Vec<(i64, String, String, i64, i64, i64, i64, Option<f64>)> = sqlx::query_as(
-        "SELECT \
-            r.group_id, \
-            COALESCE(g.name, ''), \
-            COALESCE(g.label, ''), \
-            COUNT(*)::BIGINT, \
-            COUNT(*) FILTER (WHERE r.status = 'success')::BIGINT, \
-            COUNT(*) FILTER (WHERE r.status = 'error')::BIGINT, \
-            COUNT(*) FILTER (WHERE r.status = 'cached')::BIGINT, \
-            AVG(r.latency_ms)::DOUBLE PRECISION \
-         FROM request_logs r \
-         LEFT JOIN groups g ON g.id = r.group_id \
-         WHERE r.user_id = $1 \
-           AND r.created_at >= NOW() - ($2::INT * INTERVAL '1 minute') \
-         GROUP BY r.group_id, g.name, g.label \
-         ORDER BY total DESC",
+    if group_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Aggregate row per group. LEFT JOIN from the user's accessible groups
+    // so 0-traffic groups still appear in the result as "idle".
+    let agg_rows: Vec<(
+        i64,
+        String,
+        String,
+        i64,
+        i64,
+        i64,
+        i64,
+        Option<f64>,
+        Option<f64>,
+        Option<DateTime<Utc>>,
+    )> = sqlx::query_as(
+        "WITH gids AS (SELECT UNNEST($1::BIGINT[]) AS id) \
+         SELECT \
+            gids.id, \
+            COALESCE(g.name, '') AS group_name, \
+            COALESCE(g.label, '') AS group_label, \
+            COUNT(r.*)::BIGINT AS total, \
+            COUNT(*) FILTER (WHERE r.status = 'success')::BIGINT AS success, \
+            COUNT(*) FILTER (WHERE r.status = 'error')::BIGINT AS error, \
+            COUNT(*) FILTER (WHERE r.status = 'cached')::BIGINT AS cached, \
+            AVG(r.latency_ms)::DOUBLE PRECISION AS avg_latency, \
+            PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY r.latency_ms)::DOUBLE PRECISION AS p95_latency, \
+            MAX(r.created_at) FILTER (WHERE r.status = 'error') AS last_error_at \
+         FROM gids \
+         LEFT JOIN groups g ON g.id = gids.id \
+         LEFT JOIN request_logs r \
+            ON r.group_id = gids.id \
+           AND r.user_id = $2 \
+           AND r.created_at >= NOW() - ($3::INT * INTERVAL '1 minute') \
+         GROUP BY gids.id, g.name, g.label \
+         ORDER BY total DESC, gids.id ASC",
     )
+    .bind(group_ids)
     .bind(user_id)
     .bind(minutes)
     .fetch_all(pool)
     .await?;
 
-    Ok(rows
+    // Per-bucket counts. Bucket index 0 is the oldest slice of the window;
+    // BUCKET_COUNT-1 is the most recent.
+    let bucket_rows: Vec<(i64, i32, i64, i64)> = sqlx::query_as(
+        "SELECT \
+            r.group_id, \
+            LEAST( \
+                $4::INT - 1, \
+                FLOOR( \
+                    EXTRACT(EPOCH FROM (r.created_at - (NOW() - ($3::INT * INTERVAL '1 minute')))) \
+                    / (($3::DOUBLE PRECISION * 60.0) / $4::DOUBLE PRECISION) \
+                )::INT \
+            ) AS idx, \
+            COUNT(*)::BIGINT, \
+            COUNT(*) FILTER (WHERE r.status = 'error')::BIGINT \
+         FROM request_logs r \
+         WHERE r.user_id = $2 \
+           AND r.group_id = ANY($1::BIGINT[]) \
+           AND r.created_at >= NOW() - ($3::INT * INTERVAL '1 minute') \
+         GROUP BY r.group_id, idx",
+    )
+    .bind(group_ids)
+    .bind(user_id)
+    .bind(minutes)
+    .bind(HEALTH_BUCKET_COUNT)
+    .fetch_all(pool)
+    .await?;
+
+    use std::collections::HashMap;
+    let mut by_group: HashMap<i64, Vec<HealthBucket>> = HashMap::new();
+    for (gid, idx, total, error) in bucket_rows {
+        let slot = by_group.entry(gid).or_insert_with(|| {
+            (0..HEALTH_BUCKET_COUNT)
+                .map(|i| HealthBucket { idx: i, total: 0, error: 0 })
+                .collect()
+        });
+        if idx >= 0 && (idx as usize) < slot.len() {
+            slot[idx as usize].total = total;
+            slot[idx as usize].error = error;
+        }
+    }
+
+    Ok(agg_rows
         .into_iter()
         .map(
-            |(group_id, group_name, group_label, total, success, error, cached, avg_latency)| {
+            |(
+                group_id,
+                group_name,
+                group_label,
+                total,
+                success,
+                error,
+                cached,
+                avg_latency,
+                p95_latency,
+                last_error_at,
+            )| {
                 let avg_latency_ms = avg_latency.unwrap_or(0.0).round() as i64;
+                let p95_latency_ms = p95_latency.unwrap_or(0.0).round() as i64;
                 let status = if total == 0 {
                     "idle"
                 } else {
                     let error_rate = error as f64 / total as f64;
                     if error_rate >= 0.30 {
                         "down"
-                    } else if error_rate >= 0.05 {
+                    } else if error_rate >= 0.05 || p95_latency_ms >= 10_000 {
                         "degraded"
                     } else {
                         "healthy"
                     }
                 };
+                let buckets = by_group.remove(&group_id).unwrap_or_else(|| {
+                    (0..HEALTH_BUCKET_COUNT)
+                        .map(|i| HealthBucket { idx: i, total: 0, error: 0 })
+                        .collect()
+                });
                 GroupHealth {
                     group_id,
                     group_name,
@@ -671,7 +774,11 @@ pub async fn group_health_for_user(
                     error,
                     cached,
                     avg_latency_ms,
+                    p95_latency_ms,
+                    last_error_at,
                     status,
+                    buckets,
+                    bucket_count: HEALTH_BUCKET_COUNT,
                 }
             },
         )

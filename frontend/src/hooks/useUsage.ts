@@ -143,6 +143,12 @@ export function useDailyByModel(days = 7, groupId: number | null = null) {
 
 export type GroupHealthStatus = 'healthy' | 'degraded' | 'down' | 'idle';
 
+export interface HealthBucket {
+  idx: number;
+  total: number;
+  error: number;
+}
+
 export interface GroupHealth {
   group_id: number;
   group_name: string;
@@ -152,7 +158,13 @@ export interface GroupHealth {
   error: number;
   cached: number;
   avg_latency_ms: number;
+  p95_latency_ms: number;
+  /** ISO timestamp of the most recent error in the window, or null. */
+  last_error_at: string | null;
   status: GroupHealthStatus;
+  /** Length === bucket_count, oldest first. Slots with no traffic are zero. */
+  buckets: HealthBucket[];
+  bucket_count: number;
 }
 
 export function useGroupHealth(minutes = 60) {
