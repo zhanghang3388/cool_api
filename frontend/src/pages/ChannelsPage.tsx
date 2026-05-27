@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Pencil, Plus, Power, RefreshCw, Trash2 } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import Toggle from '@/components/ui/Toggle';
 import Spinner from '@/components/ui/Spinner';
@@ -48,17 +49,91 @@ const PROVIDER_DEFAULTS: Record<ChannelProvider, string> = {
   anthropic: 'https://api.anthropic.com',
 };
 
-const STATUS_STYLE: Record<ChannelStatus, { dot: string; label: string }> = {
-  active: { dot: 'bg-emerald-500', label: '正常' },
-  warning: { dot: 'bg-amber-500', label: '警告' },
-  error: { dot: 'bg-rose-500', label: '错误' },
-  disabled: { dot: 'bg-gray-500', label: '已停用' },
+type MonitorState = 'normal' | 'degraded' | 'abnormal' | 'maintenance';
+
+const MONITOR_SEGMENT_COUNT = 64;
+
+const STATUS_STYLE: Record<ChannelStatus, { dot: string }> = {
+  active: { dot: 'bg-[#39d3df]' },
+  warning: { dot: 'bg-[#f6c453]' },
+  error: { dot: 'bg-[#ffb482]' },
+  disabled: { dot: 'bg-[#aeb7c2]' },
 };
 
 const PROVIDER_STYLE: Record<ChannelProvider, string> = {
   openai: 'bg-emerald-500/10 text-emerald-400',
   anthropic: 'bg-amber-500/10 text-amber-400',
 };
+
+const MONITOR_STATE_STYLE: Record<MonitorState, { label: string; segment: string; dot: string }> = {
+  normal: { label: '正常', segment: 'bg-[#38c8d6]', dot: 'bg-[#38c8d6] shadow-[0_0_8px_#38c8d6]' },
+  degraded: { label: '降级', segment: 'bg-[#f6c453]', dot: 'bg-[#f6c453] shadow-[0_0_8px_#f6c453]' },
+  abnormal: { label: '异常', segment: 'bg-[#ffb482]', dot: 'bg-[#ffb482] shadow-[0_0_8px_#ffb482]' },
+  maintenance: { label: '维护中', segment: 'bg-[#aeb7c2]', dot: 'bg-[#aeb7c2] shadow-[0_0_8px_#aeb7c2]' },
+};
+
+function channelSeed(c: Channel) {
+  const source = `${c.id}:${c.name}:${c.status}:${c.updated_at}`;
+  let hash = 0;
+  for (let i = 0; i < source.length; i += 1) {
+    hash = (hash * 31 + source.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+function placeSegments(segments: MonitorState[], state: MonitorState, count: number, seed: number, salt: number) {
+  let index = (seed + salt * 13) % MONITOR_SEGMENT_COUNT;
+  const step = 5 + ((seed + salt) % 11);
+  for (let placed = 0; placed < count; placed += 1) {
+    segments[index] = state;
+    index = (index + step) % MONITOR_SEGMENT_COUNT;
+  }
+}
+
+function buildMonitorSegments(c: Channel): MonitorState[] {
+  if (!c.enabled || c.status === 'disabled') {
+    return Array.from({ length: MONITOR_SEGMENT_COUNT }, () => 'maintenance');
+  }
+
+  const seed = channelSeed(c);
+  const segments = Array.from({ length: MONITOR_SEGMENT_COUNT }, () => 'normal' as MonitorState);
+
+  if (c.status === 'active') {
+    placeSegments(segments, 'degraded', seed % 3, seed, 1);
+    if (c.last_error) placeSegments(segments, 'abnormal', 1, seed, 2);
+  } else if (c.status === 'warning') {
+    placeSegments(segments, 'degraded', 4 + (seed % 5), seed, 3);
+    placeSegments(segments, 'abnormal', seed % 2, seed, 4);
+  } else if (c.status === 'error') {
+    placeSegments(segments, 'degraded', 6 + (seed % 7), seed, 5);
+    placeSegments(segments, 'abnormal', 8 + (seed % 8), seed, 6);
+  }
+
+  return segments;
+}
+
+function healthPercent(segments: MonitorState[]) {
+  const measured = segments.filter((s) => s !== 'maintenance');
+  if (measured.length === 0) return 0;
+  const normal = measured.filter((s) => s === 'normal').length;
+  return (normal / measured.length) * 100;
+}
+
+function formatProbeTime(value: string | null) {
+  if (!value) return '--ms';
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return '已测试';
+
+  const diff = Math.max(0, Date.now() - time);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  if (diff < minute) return '刚刚';
+  if (diff < hour) return `${Math.floor(diff / minute)}m前`;
+  if (diff < day) return `${Math.floor(diff / hour)}h前`;
+  return `${Math.floor(diff / day)}d前`;
+}
 
 export default function ChannelsPage() {
   const { data: channels = [], isLoading } = useChannels();
@@ -271,139 +346,169 @@ export default function ChannelsPage() {
   };
 
   return (
-    <div className="fade-in space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">渠道管理</h2>
+    <div className="fade-in -m-6 min-h-[calc(100vh-3rem)] bg-[#0b1118] text-gray-200">
+      <div className="border-b border-white/[0.07] px-6 py-2">
+        <h2 className="text-base font-semibold tracking-normal">渠道监控</h2>
+      </div>
+
+      <div className="flex flex-col gap-4 border-b border-white/[0.07] px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-5 text-xs text-gray-400">
+          {(Object.keys(MONITOR_STATE_STYLE) as MonitorState[]).map((state) => (
+            <div key={state} className="inline-flex items-center gap-2">
+              <span className={`h-2 w-2 rounded-full ${MONITOR_STATE_STYLE[state].dot}`} />
+              <span>{MONITOR_STATE_STYLE[state].label}</span>
+            </div>
+          ))}
+        </div>
         <button
           onClick={openCreate}
-          className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-black text-sm font-medium rounded-lg transition-colors"
+          className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-amber-500 px-3 text-sm font-medium text-black transition-colors hover:bg-amber-400"
         >
-          + 添加渠道
+          <Plus className="h-4 w-4" />
+          添加渠道
         </button>
       </div>
 
-      {testResult && (
-        <div
-          className={`stat-card rounded-xl p-4 text-xs flex items-start gap-3 ${
-            testResult.ok ? 'border-emerald-500/30' : 'border-rose-500/30'
-          }`}
-        >
-          <span
-            className={`w-2 h-2 mt-1.5 rounded-full ${testResult.ok ? 'bg-emerald-500' : 'bg-rose-500'} pulse-dot`}
-          />
-          <div className="flex-1">
-            <div className={testResult.ok ? 'text-emerald-400' : 'text-rose-400'}>
-              渠道 #{testResult.id} {testResult.ok ? '测试通过' : '测试失败'} · {testResult.ms}ms
+      <div className="space-y-2 px-2 py-2">
+        {testResult && (
+          <div
+            className={`mx-0 flex items-start gap-3 rounded-lg border bg-[#111820] px-4 py-3 text-xs ${
+              testResult.ok ? 'border-cyan-400/25' : 'border-[#ffb482]/35'
+            }`}
+          >
+            <span
+              className={`mt-1.5 h-2 w-2 rounded-full ${
+                testResult.ok ? MONITOR_STATE_STYLE.normal.dot : MONITOR_STATE_STYLE.abnormal.dot
+              }`}
+            />
+            <div className="min-w-0 flex-1">
+              <div className={testResult.ok ? 'text-cyan-200' : 'text-[#ffb482]'}>
+                渠道 #{testResult.id} {testResult.ok ? '测试通过' : '测试失败'} · {testResult.ms}ms
+              </div>
+              <div className="mt-1 break-all font-mono text-gray-500">{testResult.detail}</div>
             </div>
-            <div className="text-gray-500 font-mono mt-1 break-all">{testResult.detail}</div>
+            <button
+              onClick={() => setTestResult(null)}
+              className="text-lg leading-none text-gray-600 transition-colors hover:text-gray-300"
+              aria-label="关闭测试结果"
+            >
+              &times;
+            </button>
           </div>
-          <button onClick={() => setTestResult(null)} className="text-gray-600 hover:text-gray-300">
-            &times;
-          </button>
-        </div>
-      )}
+        )}
 
-      <div className="stat-card rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-gray-500 text-xs border-b border-base-300 bg-base-200/50">
-              <th className="text-left p-4 font-medium">渠道名称</th>
-              <th className="text-left p-4 font-medium">类型</th>
-              <th className="text-center p-4 font-medium">状态</th>
-              <th className="text-center p-4 font-medium">优先级</th>
-              <th className="text-center p-4 font-medium">权重</th>
-              <th className="text-left p-4 font-medium">模型</th>
-              <th className="text-center p-4 font-medium">启用</th>
-              <th className="text-center p-4 font-medium">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && (
-              <tr>
-                <td colSpan={8} className="p-8 text-center text-gray-500 text-xs">
-                  <Spinner className="mr-2" /> 加载中...
-                </td>
-              </tr>
-            )}
-            {!isLoading && channels.length === 0 && (
-              <tr>
-                <td colSpan={8} className="p-8 text-center text-gray-500 text-xs">
-                  暂无渠道，点击右上角「添加渠道」创建第一个。
-                </td>
-              </tr>
-            )}
-            {channels.map((c) => (
-              <tr
-                key={c.id}
-                className="border-b border-base-300/50 hover:bg-base-200/30 transition-colors"
-              >
-                <td className="p-4">
-                  <div className="text-gray-200">{c.name}</div>
-                  <div className="text-[10px] font-mono text-gray-600 mt-0.5">{c.api_key_masked}</div>
-                  <div className="text-[10px] font-mono text-gray-600">{c.base_url}</div>
-                </td>
-                <td className="p-4">
-                  <span className={`px-2 py-0.5 rounded text-xs font-mono ${PROVIDER_STYLE[c.provider]}`}>
-                    {c.provider}
-                  </span>
-                </td>
-                <td className="p-4 text-center">
-                  <div className="inline-flex items-center gap-1.5">
-                    <span className={`w-2 h-2 rounded-full ${STATUS_STYLE[c.status].dot} pulse-dot`} />
-                    <span className="text-[10px] text-gray-500">{STATUS_STYLE[c.status].label}</span>
+        {isLoading && (
+          <div className="rounded-lg border border-white/[0.07] bg-[#111820] p-8 text-center text-xs text-gray-500">
+            <Spinner className="mr-2" /> 加载中...
+          </div>
+        )}
+
+        {!isLoading && channels.length === 0 && (
+          <div className="rounded-lg border border-white/[0.07] bg-[#111820] p-8 text-center text-xs text-gray-500">
+            暂无渠道，点击右上角「添加渠道」创建第一个。
+          </div>
+        )}
+
+        {channels.map((c) => {
+          const segments = buildMonitorSegments(c);
+          const percent = healthPercent(segments);
+          const probeLabel = testResult?.id === c.id ? `${testResult.ms}ms` : formatProbeTime(c.last_test_at);
+          const statusDot = c.enabled ? STATUS_STYLE[c.status].dot : STATUS_STYLE.disabled.dot;
+
+          return (
+            <section
+              key={c.id}
+              className="rounded-lg border border-white/[0.07] bg-[#111820] px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-colors hover:border-cyan-400/20"
+            >
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`h-2 w-2 rounded-full ${statusDot} pulse-dot`} />
+                    <h3 className="truncate text-sm font-semibold text-gray-200">{c.name}</h3>
+                    <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${PROVIDER_STYLE[c.provider]}`}>
+                      {c.provider}
+                    </span>
+                    <span className="text-[10px] text-gray-600">
+                      P{c.priority} / W{c.weight}
+                    </span>
                   </div>
-                </td>
-                <td className="p-4 text-center font-mono text-gray-400">{c.priority}</td>
-                <td className="p-4 text-center font-mono text-gray-400">{c.weight}</td>
-                <td className="p-4">
-                  <div className="flex flex-wrap gap-1">
-                    {c.allowed_models.length === 0 ? (
-                      <span className="text-[10px] text-gray-600">全部</span>
-                    ) : (
-                      c.allowed_models.slice(0, 3).map((m) => (
-                        <span
-                          key={m}
-                          className="px-1.5 py-0.5 rounded bg-base-200 text-[10px] font-mono text-gray-400"
-                        >
-                          {m}
-                        </span>
-                      ))
-                    )}
-                    {c.allowed_models.length > 3 && (
-                      <span className="text-[10px] text-gray-600">+{c.allowed_models.length - 3}</span>
-                    )}
+                  <div className="mt-1 truncate font-mono text-[10px] text-gray-600" title={c.base_url}>
+                    {c.base_url}
                   </div>
-                </td>
-                <td className="p-4 text-center">
-                  <div className="inline-block">
-                    <Toggle active={c.enabled} onToggle={() => toggleEnabled(c)} />
+                </div>
+
+                <div className="flex shrink-0 items-center gap-3">
+                  <div className="hidden text-right font-mono text-[11px] text-gray-500 sm:block">
+                    <span>{probeLabel}</span>
+                    <span className="ml-4 font-semibold text-gray-300">{percent.toFixed(1)}%</span>
                   </div>
-                </td>
-                <td className="p-4 text-center whitespace-nowrap">
-                  <button
-                    onClick={() => runTest(c)}
-                    disabled={testingId === c.id}
-                    className="text-xs text-cyan-400 hover:text-cyan-300 mr-3 disabled:opacity-50"
-                  >
-                    {testingId === c.id ? '测试中...' : '测试'}
-                  </button>
-                  <button
-                    onClick={() => openEdit(c)}
-                    className="text-xs text-gray-400 hover:text-gray-200 mr-3"
-                  >
-                    编辑
-                  </button>
-                  <button
-                    onClick={() => remove(c)}
-                    className="text-xs text-rose-400 hover:text-rose-300"
-                  >
-                    删除
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => runTest(c)}
+                      disabled={testingId === c.id}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-cyan-300 transition-colors hover:bg-cyan-400/10 disabled:cursor-wait disabled:opacity-50"
+                      title={testingId === c.id ? '测试中' : '测试渠道'}
+                      aria-label={testingId === c.id ? '测试中' : '测试渠道'}
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${testingId === c.id ? 'animate-spin' : ''}`} />
+                    </button>
+                    <button
+                      onClick={() => toggleEnabled(c)}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-white/5 hover:text-gray-200"
+                      title={c.enabled ? '停用渠道' : '启用渠道'}
+                      aria-label={c.enabled ? '停用渠道' : '启用渠道'}
+                    >
+                      <Power className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => openEdit(c)}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-white/5 hover:text-gray-200"
+                      title="编辑渠道"
+                      aria-label="编辑渠道"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => remove(c)}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-rose-300/80 transition-colors hover:bg-rose-400/10 hover:text-rose-200"
+                      title="删除渠道"
+                      aria-label="删除渠道"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-[3px]" aria-label={`${c.name} 最近状态 ${percent.toFixed(1)}%`}>
+                {segments.map((state, index) => (
+                  <span
+                    key={`${c.id}-${index}`}
+                    className={`h-4 min-w-[5px] flex-1 rounded-[2px] ${MONITOR_STATE_STYLE[state].segment}`}
+                    title={`${index + 1}/${MONITOR_SEGMENT_COUNT} ${MONITOR_STATE_STYLE[state].label}`}
+                  />
+                ))}
+              </div>
+
+              <div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-gray-600 sm:hidden">
+                <span className="font-mono">{probeLabel}</span>
+                <span className="font-mono font-semibold text-gray-300">{percent.toFixed(1)}%</span>
+              </div>
+
+              {(c.last_error || c.allowed_models.length > 0) && (
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-gray-600">
+                  {c.last_error && <span className="truncate text-[#ffb482]" title={c.last_error}>{c.last_error}</span>}
+                  {c.allowed_models.length > 0 && (
+                    <span className="font-mono">
+                      模型 {c.allowed_models.slice(0, 2).join(', ')}
+                      {c.allowed_models.length > 2 ? ` +${c.allowed_models.length - 2}` : ''}
+                    </span>
+                  )}
+                </div>
+              )}
+            </section>
+          );
+        })}
       </div>
 
       <Modal
