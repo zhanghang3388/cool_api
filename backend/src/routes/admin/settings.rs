@@ -13,7 +13,9 @@ use serde::{Deserialize, Serialize};
 use crate::auth::AdminUser;
 use crate::crypto::mask_secret;
 use crate::error::{AppError, AppResult};
+use crate::models::ChannelProvider;
 use crate::repo;
+use crate::repo::system_settings::LandingPricingGroups;
 use crate::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -288,38 +290,58 @@ async fn put_default_user_groups(
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct LandingPricingGroup {
-    /// `None` (== `null` in JSON) hides the landing-page pricing section.
-    group_id: Option<i64>,
+struct LandingPricingGroupsBody {
+    /// Group id used for the OpenAI section. `None` hides that section.
+    #[serde(default)]
+    openai: Option<i64>,
+    /// Group id used for the Anthropic section. `None` hides that section.
+    #[serde(default)]
+    anthropic: Option<i64>,
+}
+
+impl From<LandingPricingGroups> for LandingPricingGroupsBody {
+    fn from(c: LandingPricingGroups) -> Self {
+        Self { openai: c.openai, anthropic: c.anthropic }
+    }
 }
 
 async fn get_landing_pricing(
     State(state): State<AppState>,
     _admin: AdminUser,
-) -> AppResult<Json<LandingPricingGroup>> {
-    let id = repo::system_settings::get_landing_pricing_group_id(&state.db).await?;
-    Ok(Json(LandingPricingGroup { group_id: id }))
+) -> AppResult<Json<LandingPricingGroupsBody>> {
+    let cfg = repo::system_settings::get_landing_pricing_groups(&state.db).await?;
+    Ok(Json(cfg.into()))
 }
 
 async fn put_landing_pricing(
     State(state): State<AppState>,
     _admin: AdminUser,
-    Json(body): Json<LandingPricingGroup>,
-) -> AppResult<Json<LandingPricingGroup>> {
-    if let Some(gid) = body.group_id {
-        // Validate the group exists and is enabled — saving a hidden group
-        // would silently break the showcase.
+    Json(body): Json<LandingPricingGroupsBody>,
+) -> AppResult<Json<LandingPricingGroupsBody>> {
+    let mut cfg = LandingPricingGroups::default();
+    for (slot, gid) in [
+        (ChannelProvider::Openai, body.openai),
+        (ChannelProvider::Anthropic, body.anthropic),
+    ] {
+        let Some(gid) = gid else { continue };
         let g = repo::groups::get(&state.db, gid).await.map_err(|e| match e {
             AppError::NotFound => AppError::BadRequest("group not found".into()),
             other => other,
         })?;
+        if g.provider != slot {
+            return Err(AppError::BadRequest(format!(
+                "group '{}' belongs to a different provider",
+                g.name
+            )));
+        }
         if !g.enabled {
             return Err(AppError::BadRequest(format!(
                 "group '{}' is disabled",
                 g.name
             )));
         }
+        cfg.set(slot, Some(gid));
     }
-    repo::system_settings::set_landing_pricing_group_id(&state.db, body.group_id).await?;
-    Ok(Json(body))
+    repo::system_settings::set_landing_pricing_groups(&state.db, &cfg).await?;
+    Ok(Json(cfg.into()))
 }

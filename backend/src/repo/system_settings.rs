@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
 use crate::error::AppResult;
+use crate::models::ChannelProvider;
 
 pub const CACHE_KEY: &str = "cache";
 pub const SITE_KEY: &str = "site";
@@ -183,29 +184,40 @@ pub async fn update_email_config(pool: &PgPool, cfg: &EmailConfig) -> AppResult<
     put_typed(pool, EMAIL_KEY, cfg).await
 }
 
-/// Group ID whose pricing is showcased on the public landing page. `None`
-/// hides the showcase section.
-pub async fn get_landing_pricing_group_id(pool: &PgPool) -> AppResult<Option<i64>> {
-    let row: Option<(serde_json::Value,)> =
-        sqlx::query_as("SELECT value FROM system_settings WHERE key = $1")
-            .bind(LANDING_PRICING_GROUP_KEY)
-            .fetch_optional(pool)
-            .await?;
-    Ok(row.and_then(|(v,)| v.as_i64()))
+/// Group IDs whose pricing is showcased on the public landing page, keyed by
+/// provider. Each slot is independent — admins can showcase only OpenAI, only
+/// Anthropic, both, or neither (in which case the section is hidden).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LandingPricingGroups {
+    #[serde(default)]
+    pub openai: Option<i64>,
+    #[serde(default)]
+    pub anthropic: Option<i64>,
 }
 
-pub async fn set_landing_pricing_group_id(pool: &PgPool, id: Option<i64>) -> AppResult<()> {
-    let value = match id {
-        Some(n) => serde_json::Value::from(n),
-        None => serde_json::Value::Null,
-    };
-    sqlx::query(
-        "INSERT INTO system_settings (key, value) VALUES ($1, $2) \
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
-    )
-    .bind(LANDING_PRICING_GROUP_KEY)
-    .bind(value)
-    .execute(pool)
-    .await?;
-    Ok(())
+impl LandingPricingGroups {
+    pub fn get(&self, provider: ChannelProvider) -> Option<i64> {
+        match provider {
+            ChannelProvider::Openai => self.openai,
+            ChannelProvider::Anthropic => self.anthropic,
+        }
+    }
+
+    pub fn set(&mut self, provider: ChannelProvider, id: Option<i64>) {
+        match provider {
+            ChannelProvider::Openai => self.openai = id,
+            ChannelProvider::Anthropic => self.anthropic = id,
+        }
+    }
+}
+
+pub async fn get_landing_pricing_groups(pool: &PgPool) -> AppResult<LandingPricingGroups> {
+    get_typed(pool, LANDING_PRICING_GROUP_KEY).await
+}
+
+pub async fn set_landing_pricing_groups(
+    pool: &PgPool,
+    cfg: &LandingPricingGroups,
+) -> AppResult<()> {
+    put_typed(pool, LANDING_PRICING_GROUP_KEY, cfg).await
 }

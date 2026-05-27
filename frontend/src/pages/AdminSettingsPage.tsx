@@ -6,13 +6,13 @@ import {
   useUpdateSiteConfig,
   useDefaultUserGroups,
   useUpdateDefaultUserGroups,
-  useLandingPricingGroup,
-  useUpdateLandingPricingGroup,
+  useLandingPricingGroups,
+  useUpdateLandingPricingGroups,
   useEmailConfig,
   useUpdateEmailConfig,
 } from '@/hooks/useAdminSettings';
 import { useGroups } from '@/hooks/useGroups';
-import { PROVIDER_LABELS } from '@/hooks/useGroups';
+import { PROVIDER_LABELS, PROVIDER_ORDER, type GroupProvider } from '@/hooks/useGroups';
 
 export default function AdminSettingsPage() {
   const { data: site } = useSiteConfig();
@@ -224,16 +224,30 @@ function DefaultUserGroupsCard() {
 
 function LandingPricingGroupCard() {
   const { data: groups = [] } = useGroups();
-  const { data: current } = useLandingPricingGroup();
-  const updateMut = useUpdateLandingPricingGroup();
-  const [selected, setSelected] = useState<number | null>(null);
+  const { data: current } = useLandingPricingGroups();
+  const updateMut = useUpdateLandingPricingGroups();
+  const [selected, setSelected] = useState<Record<GroupProvider, number | null>>({
+    openai: null,
+    anthropic: null,
+  });
   const [status, setStatus] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   useEffect(() => {
-    if (current !== undefined) setSelected(current?.group_id ?? null);
+    if (current) {
+      setSelected({
+        openai: current.openai ?? null,
+        anthropic: current.anthropic ?? null,
+      });
+    }
   }, [current]);
 
-  const enabledGroups = useMemo(() => groups.filter((g) => g.enabled), [groups]);
+  const groupsByProvider = useMemo(() => {
+    const map: Record<GroupProvider, typeof groups> = { openai: [], anthropic: [] };
+    for (const g of groups) {
+      if (g.enabled) map[g.provider].push(g);
+    }
+    return map;
+  }, [groups]);
 
   const save = async () => {
     setStatus(null);
@@ -250,30 +264,43 @@ function LandingPricingGroupCard() {
       <div>
         <h3 className="text-sm font-medium text-gray-300">首页定价展示分组</h3>
         <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
-          选一个分组作为公开首页"模型定价"区的展示样本。访客会看到该分组的折扣价（base × 倍率）与官网价（base × 1.0）的对比。选"不展示"则首页隐藏整个定价区。
+          为每种上游协议各选一个分组作为公开首页"模型定价"的展示样本。访客会看到该分组的折扣价（base × 倍率）与官网价（base × 1.0）的对比。某个协议选"不展示"则首页隐藏对应区段。
         </p>
       </div>
 
-      <div>
-        <label className="text-xs text-gray-400 block mb-1">展示分组</label>
-        <select
-          value={selected == null ? '' : String(selected)}
-          onChange={(e) =>
-            setSelected(e.target.value === '' ? null : Number(e.target.value))
-          }
-          className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-amber-500"
-        >
-          <option value="">不展示</option>
-          {enabledGroups.map((g) => (
-            <option key={g.id} value={g.id}>
-              [{PROVIDER_LABELS[g.provider]}] {g.label}（×{Number(g.multiplier).toFixed(2)}）
-            </option>
-          ))}
-        </select>
-        {enabledGroups.length === 0 && (
-          <p className="text-[10px] text-gray-600 mt-1">还没有启用的分组。</p>
-        )}
-      </div>
+      {PROVIDER_ORDER.map((provider) => {
+        const list = groupsByProvider[provider];
+        const value = selected[provider];
+        return (
+          <div key={provider}>
+            <label className="text-xs text-gray-400 block mb-1">
+              {PROVIDER_LABELS[provider]} 展示分组
+            </label>
+            <select
+              value={value == null ? '' : String(value)}
+              onChange={(e) =>
+                setSelected((prev) => ({
+                  ...prev,
+                  [provider]: e.target.value === '' ? null : Number(e.target.value),
+                }))
+              }
+              className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-amber-500"
+            >
+              <option value="">不展示</option>
+              {list.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.label}（×{Number(g.multiplier).toFixed(2)}）
+                </option>
+              ))}
+            </select>
+            {list.length === 0 && (
+              <p className="text-[10px] text-gray-600 mt-1">
+                还没有启用的 {PROVIDER_LABELS[provider]} 分组。
+              </p>
+            )}
+          </div>
+        );
+      })}
 
       {status && (
         <div

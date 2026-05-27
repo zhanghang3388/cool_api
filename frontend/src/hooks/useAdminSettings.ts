@@ -149,30 +149,29 @@ export function useUpdateDefaultUserGroups() {
   });
 }
 
-/* ---- Landing-page pricing showcase group ---- */
+/* ---- Landing-page pricing showcase groups (one slot per provider) ---- */
 
-export interface LandingPricingGroup {
-  group_id: number | null;
+export interface LandingPricingGroups {
+  openai: number | null;
+  anthropic: number | null;
 }
 
 const LANDING_PRICING_KEY = ['admin-settings', 'landing-pricing-group'] as const;
 
-export function useLandingPricingGroup() {
-  return useQuery<LandingPricingGroup>({
+export function useLandingPricingGroups() {
+  return useQuery<LandingPricingGroups>({
     queryKey: LANDING_PRICING_KEY,
-    queryFn: () => api.get<LandingPricingGroup>('/admin/settings/landing-pricing-group'),
+    queryFn: () => api.get<LandingPricingGroups>('/admin/settings/landing-pricing-group'),
   });
 }
 
-export function useUpdateLandingPricingGroup() {
+export function useUpdateLandingPricingGroups() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (group_id: number | null) =>
-      api.put<LandingPricingGroup>('/admin/settings/landing-pricing-group', { group_id }),
+    mutationFn: (groups: LandingPricingGroups) =>
+      api.put<LandingPricingGroups>('/admin/settings/landing-pricing-group', groups),
     onSuccess: (data) => {
       qc.setQueryData(LANDING_PRICING_KEY, data);
-      // Public landing-page query also reflects this — invalidate it so the
-      // page rerenders if it's currently mounted somewhere.
       qc.invalidateQueries({ queryKey: ['public-pricing-showcase'] });
     },
   });
@@ -195,9 +194,14 @@ export interface PricingShowcaseModel {
   cache_write_price_cents: number | null;
 }
 
-export interface PricingShowcaseResponse {
-  group: PricingShowcaseGroup | null;
+export interface PricingShowcaseSection {
+  provider: 'openai' | 'anthropic';
+  group: PricingShowcaseGroup;
   models: PricingShowcaseModel[];
+}
+
+export interface PricingShowcaseResponse {
+  sections: PricingShowcaseSection[];
 }
 
 export function usePublicPricingShowcase() {

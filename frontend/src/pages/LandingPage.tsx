@@ -4,9 +4,15 @@ import {
   usePublicSiteConfig,
   usePublicPricingShowcase,
   type PricingShowcaseModel,
+  type PricingShowcaseSection,
 } from '@/hooks/useAdminSettings';
 import { landingPath } from '@/lib/auth';
 import SiteLogo from '@/components/SiteLogo';
+
+const PROVIDER_LABEL: Record<PricingShowcaseSection['provider'], string> = {
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+};
 
 export default function LandingPage() {
   const { data: site } = usePublicSiteConfig();
@@ -377,14 +383,10 @@ function ClientPill({ label, sub }: { label: string; sub: string }) {
 
 function Pricing() {
   const { data, isLoading } = usePublicPricingShowcase();
-  // Hide entire section when admin hasn't picked a showcase group, or the
-  // backend returned an empty group (group disabled / deleted).
+  // Hide entire section while loading or when no provider has a valid
+  // showcase group (admin hasn't picked anything, or every pick was disabled).
   if (isLoading) return null;
-  if (!data || !data.group) return null;
-
-  const multiplier = parseFloat(data.group.multiplier);
-  if (!Number.isFinite(multiplier) || multiplier <= 0) return null;
-  if (data.models.length === 0) return null;
+  if (!data || data.sections.length === 0) return null;
 
   // 1 storage unit = 0.01 unit per 1M tokens. Project policy 1 USD = 1 ¥,
   // so the same numeric value is displayed as `$` for the official price
@@ -399,17 +401,43 @@ function Pricing() {
     >
       <SectionLabel kicker="// 计费" title="模型定价" />
 
-      <div className="mt-6 mb-4 flex flex-wrap items-baseline gap-x-6 gap-y-2">
+      <div className="mt-6 mb-4 flex items-center justify-end">
+        <div className="text-[10px] text-gray-600 font-mono">
+          官网价 $ · 本站价 ¥ · 单价 / 1M tokens
+        </div>
+      </div>
+
+      <div className="space-y-8">
+        {data.sections.map((section) => (
+          <PricingSection key={section.provider} section={section} fmt={fmt} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+interface PricingSectionProps {
+  section: PricingShowcaseSection;
+  fmt: (cents: number | null | undefined) => string | null;
+}
+
+function PricingSection({ section, fmt }: PricingSectionProps) {
+  const multiplier = parseFloat(section.group.multiplier);
+  if (!Number.isFinite(multiplier) || multiplier <= 0) return null;
+
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-baseline gap-x-6 gap-y-2">
         <div className="text-sm text-gray-300">
-          当前展示分组：
+          <span className="px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 font-mono text-xs">
+            {PROVIDER_LABEL[section.provider]}
+          </span>
+          <span className="ml-3">展示分组：</span>
           <span className="ml-2 px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 font-mono text-xs">
-            {data.group.label}
+            {section.group.label}
           </span>
         </div>
         <div className="text-xs text-gray-500 font-mono">倍率 ×{multiplier.toFixed(2)}</div>
-        <div className="ml-auto text-[10px] text-gray-600 font-mono">
-          官网价 $ · 本站价 ¥ · 单价 / 1M tokens
-        </div>
       </div>
 
       <div className="stat-card rounded-xl overflow-hidden">
@@ -425,7 +453,7 @@ function Pricing() {
               </tr>
             </thead>
             <tbody className="divide-y divide-base-300/50">
-              {data.models.map((m) => (
+              {section.models.map((m) => (
                 <PriceRow key={m.name} model={m} multiplier={multiplier} fmt={fmt} />
               ))}
             </tbody>
@@ -433,10 +461,10 @@ function Pricing() {
         </div>
       </div>
 
-      <p className="mt-4 text-[11px] text-gray-500 font-mono">
+      <p className="mt-3 text-[11px] text-gray-500 font-mono">
         // 官网价 $（base）；本站价 ¥ = base × 倍率（{multiplier.toFixed(2)}）
       </p>
-    </section>
+    </div>
   );
 }
 

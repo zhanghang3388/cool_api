@@ -7,6 +7,7 @@ use bigdecimal::BigDecimal;
 use serde::Serialize;
 
 use crate::error::AppResult;
+use crate::models::ChannelProvider;
 use crate::repo;
 use crate::AppState;
 
@@ -47,61 +48,68 @@ struct ShowcaseModel {
 }
 
 #[derive(Debug, Serialize)]
-struct PricingShowcase {
-    /// `None` when admin hasn't picked a group, or the picked group is
-    /// disabled / deleted. Frontend hides the whole section in that case.
-    group: Option<ShowcaseGroup>,
+struct ShowcaseSection {
+    /// `openai` | `anthropic` — frontend uses this to label the section.
+    provider: ChannelProvider,
+    group: ShowcaseGroup,
     models: Vec<ShowcaseModel>,
 }
 
-/// Public price catalog used on the landing page. Returns the group whose
-/// pricing the admin has chosen to showcase, plus every enabled model. The
-/// frontend computes `effective = base × multiplier` and shows it next to
-/// the base price for comparison.
+#[derive(Debug, Serialize)]
+struct PricingShowcase {
+    /// One entry per provider whose showcase group has been picked and is
+    /// still enabled. Empty list = nothing to show, frontend hides the section.
+    sections: Vec<ShowcaseSection>,
+}
+
+/// Public price catalog used on the landing page. Returns one section per
+/// provider that the admin has picked a (still-enabled) group for. Models in
+/// each section are filtered to that provider so the multiplier always matches.
 async fn pricing_showcase(
     State(state): State<AppState>,
 ) -> AppResult<Json<PricingShowcase>> {
-    let group_id = repo::system_settings::get_landing_pricing_group_id(&state.db).await?;
-    let Some(group_id) = group_id else {
-        return Ok(Json(PricingShowcase {
-            group: None,
-            models: Vec::new(),
-        }));
-    };
+    let cfg = repo::system_settings::get_landing_pricing_groups(&state.db).await?;
+    let all_models = repo::models::list(&state.db).await?;
 
-    // Resolve group; if the admin picked one and then disabled/deleted it,
-    // fall back to "hide the section" instead of leaking a stale group.
-    let group = match repo::groups::get(&state.db, group_id).await {
-        Ok(g) if g.enabled => g,
-        _ => {
-            return Ok(Json(PricingShowcase {
-                group: None,
-                models: Vec::new(),
-            }));
+    let mut sections = Vec::new();
+    for provider in [ChannelProvider::Openai, ChannelProvider::Anthropic] {
+        let Some(gid) = cfg.get(provider) else { continue };
+        let group = match repo::groups::get(&state.db, gid).await {
+            Ok(g) if g.enabled && g.provider == provider => g,
+            // Picked group was disabled / deleted / reassigned — skip the
+            // section instead of leaking a stale or mismatched group.
+            _ => continue,
+        };
+        let provider_name = match provider {
+            ChannelProvider::Openai => "openai",
+            ChannelProvider::Anthropic => "anthropic",
+        };
+        let models = all_models
+            .iter()
+            .filter(|m| m.enabled && m.provider.eq_ignore_ascii_case(provider_name))
+            .map(|m| ShowcaseModel {
+                name: m.name.clone(),
+                provider: m.provider.clone(),
+                input_price_cents: m.input_price_cents,
+                output_price_cents: m.output_price_cents,
+                cache_read_price_cents: m.cache_read_price_cents,
+                cache_write_price_cents: m.cache_write_price_cents,
+            })
+            .collect::<Vec<_>>();
+        if models.is_empty() {
+            continue;
         }
-    };
+        sections.push(ShowcaseSection {
+            provider,
+            group: ShowcaseGroup {
+                id: group.id,
+                name: group.name,
+                label: group.label,
+                multiplier: group.multiplier,
+            },
+            models,
+        });
+    }
 
-    let models = repo::models::list(&state.db)
-        .await?
-        .into_iter()
-        .filter(|m| m.enabled)
-        .map(|m| ShowcaseModel {
-            name: m.name,
-            provider: m.provider,
-            input_price_cents: m.input_price_cents,
-            output_price_cents: m.output_price_cents,
-            cache_read_price_cents: m.cache_read_price_cents,
-            cache_write_price_cents: m.cache_write_price_cents,
-        })
-        .collect();
-
-    Ok(Json(PricingShowcase {
-        group: Some(ShowcaseGroup {
-            id: group.id,
-            name: group.name,
-            label: group.label,
-            multiplier: group.multiplier,
-        }),
-        models,
-    }))
+    Ok(Json(PricingShowcase { sections }))
 }
