@@ -149,11 +149,11 @@ export function useUpdateDefaultUserGroups() {
   });
 }
 
-/* ---- Landing-page pricing showcase groups (one slot per provider) ---- */
+/* ---- Landing-page pricing showcase groups (multi-select per provider) ---- */
 
 export interface LandingPricingGroups {
-  openai: number | null;
-  anthropic: number | null;
+  openai: number[];
+  anthropic: number[];
 }
 
 const LANDING_PRICING_KEY = ['admin-settings', 'landing-pricing-group'] as const;
@@ -177,14 +177,6 @@ export function useUpdateLandingPricingGroups() {
   });
 }
 
-export interface PricingShowcaseGroup {
-  id: number;
-  name: string;
-  label: string;
-  /** NUMERIC arrives as a string from the backend. */
-  multiplier: string;
-}
-
 export interface PricingShowcaseModel {
   name: string;
   provider: string;
@@ -194,10 +186,18 @@ export interface PricingShowcaseModel {
   cache_write_price_cents: number | null;
 }
 
+export interface PricingShowcaseGroup {
+  id: number;
+  name: string;
+  label: string;
+  /** NUMERIC arrives as a string from the backend. */
+  multiplier: string;
+  models: PricingShowcaseModel[];
+}
+
 export interface PricingShowcaseSection {
   provider: 'openai' | 'anthropic';
-  group: PricingShowcaseGroup;
-  models: PricingShowcaseModel[];
+  groups: PricingShowcaseGroup[];
 }
 
 export interface PricingShowcaseResponse {

@@ -33,9 +33,12 @@ struct ShowcaseGroup {
     name: String,
     label: String,
     multiplier: BigDecimal,
+    /// Models priced under this group (always the provider's full enabled
+    /// list — duplicated here per group so the frontend stays dumb).
+    models: Vec<ShowcaseModel>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct ShowcaseModel {
     name: String,
     provider: String,
@@ -51,20 +54,21 @@ struct ShowcaseModel {
 struct ShowcaseSection {
     /// `openai` | `anthropic` — frontend uses this to label the section.
     provider: ChannelProvider,
-    group: ShowcaseGroup,
-    models: Vec<ShowcaseModel>,
+    /// One entry per admin-picked group still resolvable and enabled, in the
+    /// admin's chosen display order.
+    groups: Vec<ShowcaseGroup>,
 }
 
 #[derive(Debug, Serialize)]
 struct PricingShowcase {
-    /// One entry per provider whose showcase group has been picked and is
-    /// still enabled. Empty list = nothing to show, frontend hides the section.
+    /// One entry per provider with at least one valid showcase group. Empty
+    /// list = nothing to show, frontend hides the whole pricing section.
     sections: Vec<ShowcaseSection>,
 }
 
 /// Public price catalog used on the landing page. Returns one section per
-/// provider that the admin has picked a (still-enabled) group for. Models in
-/// each section are filtered to that provider so the multiplier always matches.
+/// provider that the admin has picked groups for, each carrying every still-
+/// valid group with its own multiplier + a pre-filtered model list.
 async fn pricing_showcase(
     State(state): State<AppState>,
 ) -> AppResult<Json<PricingShowcase>> {
@@ -73,18 +77,15 @@ async fn pricing_showcase(
 
     let mut sections = Vec::new();
     for provider in [ChannelProvider::Openai, ChannelProvider::Anthropic] {
-        let Some(gid) = cfg.get(provider) else { continue };
-        let group = match repo::groups::get(&state.db, gid).await {
-            Ok(g) if g.enabled && g.provider == provider => g,
-            // Picked group was disabled / deleted / reassigned — skip the
-            // section instead of leaking a stale or mismatched group.
-            _ => continue,
-        };
+        let ids = cfg.get(provider);
+        if ids.is_empty() {
+            continue;
+        }
         let provider_name = match provider {
             ChannelProvider::Openai => "openai",
             ChannelProvider::Anthropic => "anthropic",
         };
-        let models = all_models
+        let provider_models: Vec<ShowcaseModel> = all_models
             .iter()
             .filter(|m| m.enabled && m.provider.eq_ignore_ascii_case(provider_name))
             .map(|m| ShowcaseModel {
@@ -95,20 +96,31 @@ async fn pricing_showcase(
                 cache_read_price_cents: m.cache_read_price_cents,
                 cache_write_price_cents: m.cache_write_price_cents,
             })
-            .collect::<Vec<_>>();
-        if models.is_empty() {
+            .collect();
+        if provider_models.is_empty() {
             continue;
         }
-        sections.push(ShowcaseSection {
-            provider,
-            group: ShowcaseGroup {
+
+        let mut groups = Vec::new();
+        for &gid in ids {
+            // Drop picks that have since been disabled / deleted / reassigned
+            // to another provider, rather than leaking stale data.
+            let group = match repo::groups::get(&state.db, gid).await {
+                Ok(g) if g.enabled && g.provider == provider => g,
+                _ => continue,
+            };
+            groups.push(ShowcaseGroup {
                 id: group.id,
                 name: group.name,
                 label: group.label,
                 multiplier: group.multiplier,
-            },
-            models,
-        });
+                models: provider_models.clone(),
+            });
+        }
+        if groups.is_empty() {
+            continue;
+        }
+        sections.push(ShowcaseSection { provider, groups });
     }
 
     Ok(Json(PricingShowcase { sections }))

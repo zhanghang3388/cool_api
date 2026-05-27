@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import {
   usePublicSiteConfig,
   usePublicPricingShowcase,
+  type PricingShowcaseGroup,
   type PricingShowcaseModel,
   type PricingShowcaseSection,
 } from '@/hooks/useAdminSettings';
@@ -422,7 +424,11 @@ interface PricingSectionProps {
 }
 
 function PricingSection({ section, fmt }: PricingSectionProps) {
-  const multiplier = parseFloat(section.group.multiplier);
+  const [activeId, setActiveId] = useState<number>(section.groups[0]?.id ?? -1);
+  if (section.groups.length === 0) return null;
+  const active: PricingShowcaseGroup =
+    section.groups.find((g) => g.id === activeId) ?? section.groups[0];
+  const multiplier = parseFloat(active.multiplier);
   if (!Number.isFinite(multiplier) || multiplier <= 0) return null;
 
   return (
@@ -434,11 +440,36 @@ function PricingSection({ section, fmt }: PricingSectionProps) {
           </span>
           <span className="ml-3">展示分组：</span>
           <span className="ml-2 px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 font-mono text-xs">
-            {section.group.label}
+            {active.label}
           </span>
         </div>
         <div className="text-xs text-gray-500 font-mono">倍率 ×{multiplier.toFixed(2)}</div>
       </div>
+
+      {section.groups.length > 1 && (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {section.groups.map((g) => {
+            const isActive = g.id === active.id;
+            return (
+              <button
+                key={g.id}
+                type="button"
+                onClick={() => setActiveId(g.id)}
+                className={`px-2.5 py-1 rounded text-xs transition-colors border ${
+                  isActive
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                    : 'bg-base-200 text-gray-400 border-base-300 hover:text-gray-200'
+                }`}
+              >
+                {g.label}
+                <span className="ml-1 text-[10px] opacity-70 font-mono">
+                  ×{Number(g.multiplier).toFixed(2)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div className="stat-card rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
@@ -453,7 +484,7 @@ function PricingSection({ section, fmt }: PricingSectionProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-base-300/50">
-              {section.models.map((m) => (
+              {active.models.map((m) => (
                 <PriceRow key={m.name} model={m} multiplier={multiplier} fmt={fmt} />
               ))}
             </tbody>

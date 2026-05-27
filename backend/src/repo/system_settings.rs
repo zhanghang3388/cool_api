@@ -185,28 +185,29 @@ pub async fn update_email_config(pool: &PgPool, cfg: &EmailConfig) -> AppResult<
 }
 
 /// Group IDs whose pricing is showcased on the public landing page, keyed by
-/// provider. Each slot is independent — admins can showcase only OpenAI, only
-/// Anthropic, both, or neither (in which case the section is hidden).
+/// provider. Each slot is independent — admins can showcase any number of
+/// groups (in display order) per provider, or none (in which case that
+/// provider's section is hidden).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LandingPricingGroups {
     #[serde(default)]
-    pub openai: Option<i64>,
+    pub openai: Vec<i64>,
     #[serde(default)]
-    pub anthropic: Option<i64>,
+    pub anthropic: Vec<i64>,
 }
 
 impl LandingPricingGroups {
-    pub fn get(&self, provider: ChannelProvider) -> Option<i64> {
+    pub fn get(&self, provider: ChannelProvider) -> &[i64] {
         match provider {
-            ChannelProvider::Openai => self.openai,
-            ChannelProvider::Anthropic => self.anthropic,
+            ChannelProvider::Openai => &self.openai,
+            ChannelProvider::Anthropic => &self.anthropic,
         }
     }
 
-    pub fn set(&mut self, provider: ChannelProvider, id: Option<i64>) {
+    pub fn set(&mut self, provider: ChannelProvider, ids: Vec<i64>) {
         match provider {
-            ChannelProvider::Openai => self.openai = id,
-            ChannelProvider::Anthropic => self.anthropic = id,
+            ChannelProvider::Openai => self.openai = ids,
+            ChannelProvider::Anthropic => self.anthropic = ids,
         }
     }
 }

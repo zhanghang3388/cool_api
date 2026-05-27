@@ -226,17 +226,17 @@ function LandingPricingGroupCard() {
   const { data: groups = [] } = useGroups();
   const { data: current } = useLandingPricingGroups();
   const updateMut = useUpdateLandingPricingGroups();
-  const [selected, setSelected] = useState<Record<GroupProvider, number | null>>({
-    openai: null,
-    anthropic: null,
+  const [selected, setSelected] = useState<Record<GroupProvider, number[]>>({
+    openai: [],
+    anthropic: [],
   });
   const [status, setStatus] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   useEffect(() => {
     if (current) {
       setSelected({
-        openai: current.openai ?? null,
-        anthropic: current.anthropic ?? null,
+        openai: current.openai ?? [],
+        anthropic: current.anthropic ?? [],
       });
     }
   }, [current]);
@@ -248,6 +248,17 @@ function LandingPricingGroupCard() {
     }
     return map;
   }, [groups]);
+
+  const toggle = (provider: GroupProvider, id: number) => {
+    setSelected((prev) => {
+      const list = prev[provider];
+      const next = list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+      return { ...prev, [provider]: next };
+    });
+  };
+
+  const clear = (provider: GroupProvider) =>
+    setSelected((prev) => ({ ...prev, [provider]: [] }));
 
   const save = async () => {
     setStatus(null);
@@ -264,39 +275,56 @@ function LandingPricingGroupCard() {
       <div>
         <h3 className="text-sm font-medium text-gray-300">首页定价展示分组</h3>
         <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
-          为每种上游协议各选一个分组作为公开首页"模型定价"的展示样本。访客会看到该分组的折扣价（base × 倍率）与官网价（base × 1.0）的对比。某个协议选"不展示"则首页隐藏对应区段。
+          为每种上游协议选择一个或多个分组作为公开首页"模型定价"的展示样本。访客在该协议区段可切换不同分组，看到对应折扣价（base × 倍率）与官网价（base × 1.0）的对比。该协议下不选任何分组则首页隐藏对应区段。
         </p>
       </div>
 
       {PROVIDER_ORDER.map((provider) => {
         const list = groupsByProvider[provider];
-        const value = selected[provider];
+        const picked = selected[provider];
         return (
-          <div key={provider}>
-            <label className="text-xs text-gray-400 block mb-1">
-              {PROVIDER_LABELS[provider]} 展示分组
-            </label>
-            <select
-              value={value == null ? '' : String(value)}
-              onChange={(e) =>
-                setSelected((prev) => ({
-                  ...prev,
-                  [provider]: e.target.value === '' ? null : Number(e.target.value),
-                }))
-              }
-              className="w-full bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-amber-500"
-            >
-              <option value="">不展示</option>
-              {list.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.label}（×{Number(g.multiplier).toFixed(2)}）
-                </option>
-              ))}
-            </select>
-            {list.length === 0 && (
-              <p className="text-[10px] text-gray-600 mt-1">
+          <div key={provider} className="space-y-2">
+            <div className="flex items-center justify-between text-[11px] text-gray-500">
+              <span>
+                {PROVIDER_LABELS[provider]} · 已选 {picked.length} / 共 {list.length} 个启用分组
+              </span>
+              {picked.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => clear(provider)}
+                  className="text-gray-400 hover:text-gray-200"
+                >
+                  清除
+                </button>
+              )}
+            </div>
+            {list.length === 0 ? (
+              <div className="text-[10px] text-gray-600">
                 还没有启用的 {PROVIDER_LABELS[provider]} 分组。
-              </p>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {list.map((g) => {
+                  const active = picked.includes(g.id);
+                  return (
+                    <button
+                      key={g.id}
+                      type="button"
+                      onClick={() => toggle(provider, g.id)}
+                      className={`px-2.5 py-1 rounded text-xs transition-colors border ${
+                        active
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                          : 'bg-base-200 text-gray-400 border-base-300 hover:text-gray-200'
+                      }`}
+                    >
+                      {g.label}
+                      <span className="ml-1 text-[10px] opacity-70 font-mono">
+                        ×{Number(g.multiplier).toFixed(2)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             )}
           </div>
         );

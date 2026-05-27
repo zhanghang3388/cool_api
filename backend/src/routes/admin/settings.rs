@@ -291,12 +291,14 @@ async fn put_default_user_groups(
 
 #[derive(Debug, Serialize, Deserialize)]
 struct LandingPricingGroupsBody {
-    /// Group id used for the OpenAI section. `None` hides that section.
+    /// Group ids used for the OpenAI section (display order). Empty list hides
+    /// that section.
     #[serde(default)]
-    openai: Option<i64>,
-    /// Group id used for the Anthropic section. `None` hides that section.
+    openai: Vec<i64>,
+    /// Group ids used for the Anthropic section (display order). Empty list
+    /// hides that section.
     #[serde(default)]
-    anthropic: Option<i64>,
+    anthropic: Vec<i64>,
 }
 
 impl From<LandingPricingGroups> for LandingPricingGroupsBody {
@@ -319,28 +321,35 @@ async fn put_landing_pricing(
     Json(body): Json<LandingPricingGroupsBody>,
 ) -> AppResult<Json<LandingPricingGroupsBody>> {
     let mut cfg = LandingPricingGroups::default();
-    for (slot, gid) in [
+    for (slot, ids) in [
         (ChannelProvider::Openai, body.openai),
         (ChannelProvider::Anthropic, body.anthropic),
     ] {
-        let Some(gid) = gid else { continue };
-        let g = repo::groups::get(&state.db, gid).await.map_err(|e| match e {
-            AppError::NotFound => AppError::BadRequest("group not found".into()),
-            other => other,
-        })?;
-        if g.provider != slot {
-            return Err(AppError::BadRequest(format!(
-                "group '{}' belongs to a different provider",
-                g.name
-            )));
+        let mut seen = std::collections::HashSet::new();
+        let mut cleaned = Vec::with_capacity(ids.len());
+        for gid in ids {
+            if !seen.insert(gid) {
+                continue;
+            }
+            let g = repo::groups::get(&state.db, gid).await.map_err(|e| match e {
+                AppError::NotFound => AppError::BadRequest("group not found".into()),
+                other => other,
+            })?;
+            if g.provider != slot {
+                return Err(AppError::BadRequest(format!(
+                    "group '{}' belongs to a different provider",
+                    g.name
+                )));
+            }
+            if !g.enabled {
+                return Err(AppError::BadRequest(format!(
+                    "group '{}' is disabled",
+                    g.name
+                )));
+            }
+            cleaned.push(gid);
         }
-        if !g.enabled {
-            return Err(AppError::BadRequest(format!(
-                "group '{}' is disabled",
-                g.name
-            )));
-        }
-        cfg.set(slot, Some(gid));
+        cfg.set(slot, cleaned);
     }
     repo::system_settings::set_landing_pricing_groups(&state.db, &cfg).await?;
     Ok(Json(cfg.into()))
