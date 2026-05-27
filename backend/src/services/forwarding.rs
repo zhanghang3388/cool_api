@@ -106,39 +106,6 @@ pub async fn forward(state: AppState, api: ApiUser, input: ForwardInput) -> AppR
             input.model_name
         )));
     }
-    if input.stream {
-        if let Some(max_output_tokens) = declared_max_output_tokens(&input.body) {
-            let estimated_prompt_tokens = input.body.len().min(i32::MAX as usize) as i32;
-            let estimate = billing::ChargeInput {
-                user_id: api.user.id,
-                api_key_id: Some(api.api_key_id),
-                group_id,
-                group_multiplier: &group_multiplier,
-                model: &model_row,
-                channel_id: None,
-                usage: Usage {
-                    prompt_tokens: estimated_prompt_tokens,
-                    completion_tokens: max_output_tokens,
-                    cached_tokens: 0,
-                    cache_creation_tokens: 0,
-                },
-                latency_ms: 0,
-                status: RequestStatus::Success,
-                error_message: None,
-                client_ip,
-            };
-            let (_, _, estimated_cost) = billing::compute_cost(&estimate);
-            if !billing::has_balance(
-                &state.db,
-                api.user.id,
-                estimated_cost.max(MIN_BALANCE_TO_START),
-            )
-            .await?
-            {
-                return Err(AppError::InsufficientBalance);
-            }
-        }
-    }
 
     // -------- cache lookup (non-streaming, no opt-out header) --------
     let cache_cfg = repo::system_settings::get_cache_config(&state.db).await?;
@@ -450,19 +417,6 @@ fn is_body_cacheable(raw: &[u8]) -> bool {
     true
 }
 
-fn declared_max_output_tokens(raw: &[u8]) -> Option<i32> {
-    let v = serde_json::from_slice::<serde_json::Value>(raw).ok()?;
-    let obj = v.as_object()?;
-    ["max_tokens", "max_completion_tokens", "max_output_tokens"]
-        .iter()
-        .find_map(|key| {
-            obj.get(*key)
-                .and_then(|v| v.as_i64())
-                .filter(|n| *n > 0)
-                .map(|n| n.min(i32::MAX as i64) as i32)
-        })
-}
-
 /// Only 2xx responses are cached — a 4xx / 5xx would poison the cache.
 fn status_is_cacheable(status: u16) -> bool {
     (200..300).contains(&status)
@@ -500,7 +454,7 @@ fn build_stream_response(
 
 #[cfg(test)]
 mod tests {
-    use super::{declared_max_output_tokens, is_body_cacheable};
+    use super::is_body_cacheable;
 
     #[test]
     fn cache_requires_explicit_zero_temperature() {
@@ -517,22 +471,5 @@ mod tests {
         assert!(!is_body_cacheable(
             br#"{"messages":[],"temperature":0,"tool_choice":"auto"}"#
         ));
-    }
-
-    #[test]
-    fn reads_common_max_output_token_fields() {
-        assert_eq!(
-            declared_max_output_tokens(br#"{"max_tokens":128}"#),
-            Some(128)
-        );
-        assert_eq!(
-            declared_max_output_tokens(br#"{"max_completion_tokens":256}"#),
-            Some(256)
-        );
-        assert_eq!(
-            declared_max_output_tokens(br#"{"max_output_tokens":512}"#),
-            Some(512)
-        );
-        assert_eq!(declared_max_output_tokens(br#"{"max_tokens":0}"#), None);
     }
 }
