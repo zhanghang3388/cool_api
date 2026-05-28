@@ -225,36 +225,6 @@ function EndpointCard() {
     ]
   }'`,
     },
-    {
-      id: 'gemini',
-      label: 'Gemini',
-      model: 'gemini-2.5-pro',
-      endpoint: '/v1/chat/completions',
-      code: `curl $GATEWAY/v1/chat/completions \\
-  -H "Authorization: Bearer $AETHER_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "model": "gemini-2.5-pro",
-    "messages": [
-      { "role": "user", "content": "Hello" }
-    ]
-  }'`,
-    },
-    {
-      id: 'deepseek',
-      label: 'DeepSeek',
-      model: 'deepseek-chat',
-      endpoint: '/v1/chat/completions',
-      code: `curl $GATEWAY/v1/chat/completions \\
-  -H "Authorization: Bearer $AETHER_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "model": "deepseek-chat",
-    "messages": [
-      { "role": "user", "content": "Hello" }
-    ]
-  }'`,
-    },
   ];
 
   const [active, setActive] = useState(tabs[0].id);
