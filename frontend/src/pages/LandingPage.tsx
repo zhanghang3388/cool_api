@@ -124,7 +124,7 @@ interface HeroProps {
 function Hero({ siteName, announcement, consoleHref, consoleLabel }: HeroProps) {
   return (
     <section className="max-w-6xl mx-auto px-6 lg:px-10 pt-16 lg:pt-24 pb-20 grid lg:grid-cols-12 gap-10 items-center">
-      <div className="lg:col-span-7 slide-up">
+      <div className="lg:col-span-6 slide-up">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-amber-500/30 bg-amber-500/5 mb-6">
           <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full pulse-dot" />
           <span className="text-[11px] font-mono tracking-widest text-amber-300/90">
@@ -178,7 +178,7 @@ function Hero({ siteName, announcement, consoleHref, consoleLabel }: HeroProps) 
         )}
       </div>
 
-      <div className="lg:col-span-5 slide-up" style={{ animationDelay: '120ms' }}>
+      <div className="lg:col-span-6 slide-up" style={{ animationDelay: '120ms' }}>
         <EndpointCard />
       </div>
     </section>
@@ -198,7 +198,7 @@ function EndpointCard() {
       label: 'OpenAI',
       model: 'gpt-4o',
       endpoint: '/v1/chat/completions',
-      code: `curl https://<your-gateway>/v1/chat/completions \\
+      code: `curl $GATEWAY/v1/chat/completions \\
   -H "Authorization: Bearer $AETHER_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -213,7 +213,7 @@ function EndpointCard() {
       label: 'Anthropic',
       model: 'claude-opus-4',
       endpoint: '/v1/messages',
-      code: `curl https://<your-gateway>/v1/messages \\
+      code: `curl $GATEWAY/v1/messages \\
   -H "x-api-key: $AETHER_KEY" \\
   -H "anthropic-version: 2023-06-01" \\
   -H "Content-Type: application/json" \\
@@ -230,7 +230,7 @@ function EndpointCard() {
       label: 'Gemini',
       model: 'gemini-2.5-pro',
       endpoint: '/v1/chat/completions',
-      code: `curl https://<your-gateway>/v1/chat/completions \\
+      code: `curl $GATEWAY/v1/chat/completions \\
   -H "Authorization: Bearer $AETHER_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -245,7 +245,7 @@ function EndpointCard() {
       label: 'DeepSeek',
       model: 'deepseek-chat',
       endpoint: '/v1/chat/completions',
-      code: `curl https://<your-gateway>/v1/chat/completions \\
+      code: `curl $GATEWAY/v1/chat/completions \\
   -H "Authorization: Bearer $AETHER_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -352,7 +352,7 @@ function EndpointCard() {
         </button>
       </div>
 
-      <pre className="px-5 pb-5 text-[14px] leading-[1.65] font-mono text-gray-300 overflow-x-auto min-h-[280px]">
+      <pre className="px-5 pb-5 text-[14px] leading-[1.65] font-mono text-gray-300 whitespace-pre-wrap break-words min-h-[280px]">
         <code>
           {renderCurl(typed)}
           {isTyping && (
