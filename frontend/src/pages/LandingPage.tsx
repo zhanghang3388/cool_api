@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import {
@@ -259,7 +259,39 @@ function EndpointCard() {
 
   const [active, setActive] = useState(tabs[0].id);
   const [copied, setCopied] = useState(false);
+  const [typed, setTyped] = useState('');
   const current = tabs.find((t) => t.id === active) ?? tabs[0];
+
+  // Typewriter — restarts whenever the active tab flips. Pull characters in
+  // small bursts so longer snippets don't take painfully long to finish.
+  const timerRef = useRef<number | null>(null);
+  useEffect(() => {
+    setTyped('');
+    if (timerRef.current !== null) {
+      window.clearInterval(timerRef.current);
+    }
+    const code = current.code;
+    let i = 0;
+    timerRef.current = window.setInterval(() => {
+      // Speed up after the first ~80 chars so the bottom of the JSON body
+      // isn't a slog.
+      const step = i < 80 ? 1 : 2;
+      i = Math.min(i + step, code.length);
+      setTyped(code.slice(0, i));
+      if (i >= code.length && timerRef.current !== null) {
+        window.clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }, 18);
+    return () => {
+      if (timerRef.current !== null) {
+        window.clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [current.code]);
+
+  const isTyping = typed.length < current.code.length;
 
   const onCopy = async () => {
     try {
@@ -273,19 +305,19 @@ function EndpointCard() {
 
   return (
     <div className="stat-card rounded-2xl relative overflow-hidden">
-      <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 blur-3xl pointer-events-none" />
+      <div className="absolute top-0 right-0 w-40 h-40 bg-amber-500/5 blur-3xl pointer-events-none" />
 
-      <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b border-base-300/60">
-        <span className="text-[11px] font-mono tracking-widest text-gray-500">
+      <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-base-300/60">
+        <span className="text-xs font-mono tracking-widest text-gray-500">
           QUICKSTART · CURL
         </span>
-        <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1.5">
+        <span className="text-[11px] font-mono text-emerald-400 flex items-center gap-1.5">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-dot" />
           LIVE
         </span>
       </div>
 
-      <div className="flex items-center gap-1 px-3 pt-2 overflow-x-auto no-scrollbar">
+      <div className="flex items-center gap-1.5 px-4 pt-3 overflow-x-auto no-scrollbar">
         {tabs.map((t) => {
           const isActive = t.id === active;
           return (
@@ -294,7 +326,7 @@ function EndpointCard() {
               type="button"
               onClick={() => setActive(t.id)}
               className={
-                'px-3 py-1.5 rounded-md text-[11px] font-mono tracking-wide transition-colors whitespace-nowrap ' +
+                'px-3.5 py-2 rounded-md text-xs font-mono tracking-wide transition-colors whitespace-nowrap ' +
                 (isActive
                   ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
                   : 'text-gray-500 hover:text-gray-300 border border-transparent')
@@ -306,22 +338,27 @@ function EndpointCard() {
         })}
       </div>
 
-      <div className="px-4 pt-3 pb-2 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-[11px] font-mono">
+      <div className="px-5 pt-4 pb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs font-mono">
           <span className="text-cyan-400">POST</span>
           <span className="text-gray-400">{current.endpoint}</span>
         </div>
         <button
           type="button"
           onClick={onCopy}
-          className="text-[10px] font-mono px-2 py-1 rounded border border-base-300/80 text-gray-400 hover:text-amber-300 hover:border-amber-500/40 transition-colors"
+          className="text-[11px] font-mono px-2.5 py-1 rounded border border-base-300/80 text-gray-400 hover:text-amber-300 hover:border-amber-500/40 transition-colors"
         >
           {copied ? 'COPIED' : 'COPY'}
         </button>
       </div>
 
-      <pre className="px-4 pb-4 text-[12px] leading-relaxed font-mono text-gray-300 overflow-x-auto">
-        <code>{renderCurl(current.code)}</code>
+      <pre className="px-5 pb-5 text-[14px] leading-[1.65] font-mono text-gray-300 overflow-x-auto min-h-[280px]">
+        <code>
+          {renderCurl(typed)}
+          {isTyping && (
+            <span className="inline-block w-[0.55em] h-[1.05em] -mb-[2px] bg-amber-400/90 align-middle animate-caret-blink" />
+          )}
+        </code>
       </pre>
     </div>
   );

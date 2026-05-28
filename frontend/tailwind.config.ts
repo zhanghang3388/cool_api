@@ -35,11 +35,16 @@ const config = {
           from: { opacity: '0', transform: 'translateY(20px)' },
           to: { opacity: '1', transform: 'translateY(0)' },
         },
+        'caret-blink': {
+          '0%, 49%': { opacity: '1' },
+          '50%, 100%': { opacity: '0' },
+        },
       },
       animation: {
         'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
         'fade-in': 'fade-in 0.3s ease-out forwards',
         'slide-up': 'slide-up 0.4s ease-out forwards',
+        'caret-blink': 'caret-blink 1s step-end infinite',
       },
     },
   },
