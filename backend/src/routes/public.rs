@@ -1,5 +1,7 @@
 //! Public (unauthenticated) endpoints.
 
+use std::collections::HashSet;
+
 use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -74,6 +76,7 @@ async fn pricing_showcase(
 ) -> AppResult<Json<PricingShowcase>> {
     let cfg = repo::system_settings::get_landing_pricing_groups(&state.db).await?;
     let all_models = repo::models::list(&state.db).await?;
+    let all_channels = repo::channels::list(&state.db).await?;
 
     let mut sections = Vec::new();
     for provider in [ChannelProvider::Openai, ChannelProvider::Anthropic] {
@@ -101,6 +104,18 @@ async fn pricing_showcase(
             continue;
         }
 
+        // Channels eligible to serve this provider's traffic — disabled and
+        // hard-down channels would never be picked by the router, so they
+        // shouldn't grant pricing visibility either.
+        let provider_channels: Vec<_> = all_channels
+            .iter()
+            .filter(|c| {
+                c.provider == provider
+                    && c.enabled
+                    && !matches!(c.status, crate::models::ChannelStatus::Disabled)
+            })
+            .collect();
+
         let mut groups = Vec::new();
         for &gid in ids {
             // Drop picks that have since been disabled / deleted / reassigned
@@ -109,12 +124,46 @@ async fn pricing_showcase(
                 Ok(g) if g.enabled && g.provider == provider => g,
                 _ => continue,
             };
+
+            // Walk the channels this group can route through and collect the
+            // union of their `allowed_models`. An empty `allowed_models` on a
+            // reachable channel = wildcard, so the group sees every provider
+            // model. Mirrors `services::router::plan`.
+            let reachable: Vec<_> = provider_channels
+                .iter()
+                .filter(|c| {
+                    c.allowed_group_ids.is_empty() || c.allowed_group_ids.contains(&group.id)
+                })
+                .collect();
+            let has_wildcard = reachable.iter().any(|c| c.allowed_models.is_empty());
+            let allowed: HashSet<&str> = if has_wildcard {
+                HashSet::new()
+            } else {
+                reachable
+                    .iter()
+                    .flat_map(|c| c.allowed_models.iter().map(String::as_str))
+                    .collect()
+            };
+
+            let models: Vec<ShowcaseModel> = if has_wildcard {
+                provider_models.clone()
+            } else {
+                provider_models
+                    .iter()
+                    .filter(|m| allowed.contains(m.name.as_str()))
+                    .cloned()
+                    .collect()
+            };
+            if models.is_empty() {
+                continue;
+            }
+
             groups.push(ShowcaseGroup {
                 id: group.id,
                 name: group.name,
                 label: group.label,
                 multiplier: group.multiplier,
-                models: provider_models.clone(),
+                models,
             });
         }
         if groups.is_empty() {
