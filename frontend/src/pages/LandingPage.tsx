@@ -179,27 +179,105 @@ function Hero({ siteName, announcement, consoleHref, consoleLabel }: HeroProps) 
       </div>
 
       <div className="lg:col-span-5 slide-up" style={{ animationDelay: '120ms' }}>
-        <TelemetryCard />
+        <EndpointCard />
       </div>
     </section>
   );
 }
 
-function TelemetryCard() {
-  const rows: { label: string; value: string; tone?: 'amber' | 'emerald' | 'cyan' }[] = [
-    { label: 'gateway.status', value: 'OPERATIONAL', tone: 'emerald' },
-    { label: 'protocol.openai', value: '/v1/chat/completions', tone: 'cyan' },
-    { label: 'protocol.anthropic', value: '/v1/messages', tone: 'cyan' },
-    { label: 'routing', value: 'priority + weighted', tone: 'amber' },
-    { label: 'failover', value: 'auto', tone: 'amber' },
-    { label: 'prompt.cache', value: 'enabled', tone: 'amber' },
+function EndpointCard() {
+  const tabs: {
+    id: string;
+    label: string;
+    model: string;
+    endpoint: string;
+    code: string;
+  }[] = [
+    {
+      id: 'openai',
+      label: 'OpenAI',
+      model: 'gpt-4o',
+      endpoint: '/v1/chat/completions',
+      code: `curl https://<your-gateway>/v1/chat/completions \\
+  -H "Authorization: Bearer $AETHER_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "gpt-4o",
+    "messages": [
+      { "role": "user", "content": "Hello" }
+    ]
+  }'`,
+    },
+    {
+      id: 'anthropic',
+      label: 'Anthropic',
+      model: 'claude-opus-4',
+      endpoint: '/v1/messages',
+      code: `curl https://<your-gateway>/v1/messages \\
+  -H "x-api-key: $AETHER_KEY" \\
+  -H "anthropic-version: 2023-06-01" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "claude-opus-4",
+    "max_tokens": 1024,
+    "messages": [
+      { "role": "user", "content": "Hello" }
+    ]
+  }'`,
+    },
+    {
+      id: 'gemini',
+      label: 'Gemini',
+      model: 'gemini-2.5-pro',
+      endpoint: '/v1/chat/completions',
+      code: `curl https://<your-gateway>/v1/chat/completions \\
+  -H "Authorization: Bearer $AETHER_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "gemini-2.5-pro",
+    "messages": [
+      { "role": "user", "content": "Hello" }
+    ]
+  }'`,
+    },
+    {
+      id: 'deepseek',
+      label: 'DeepSeek',
+      model: 'deepseek-chat',
+      endpoint: '/v1/chat/completions',
+      code: `curl https://<your-gateway>/v1/chat/completions \\
+  -H "Authorization: Bearer $AETHER_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "model": "deepseek-chat",
+    "messages": [
+      { "role": "user", "content": "Hello" }
+    ]
+  }'`,
+    },
   ];
+
+  const [active, setActive] = useState(tabs[0].id);
+  const [copied, setCopied] = useState(false);
+  const current = tabs.find((t) => t.id === active) ?? tabs[0];
+
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(current.code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch {
+      /* ignore */
+    }
+  };
+
   return (
-    <div className="stat-card rounded-2xl p-5 relative overflow-hidden">
-      <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 blur-3xl" />
-      <div className="flex items-center justify-between mb-4">
+    <div className="stat-card rounded-2xl relative overflow-hidden">
+      <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 blur-3xl pointer-events-none" />
+
+      <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b border-base-300/60">
         <span className="text-[11px] font-mono tracking-widest text-gray-500">
-          GATEWAY · TELEMETRY
+          QUICKSTART · CURL
         </span>
         <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1.5">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 pulse-dot" />
@@ -207,25 +285,73 @@ function TelemetryCard() {
         </span>
       </div>
 
-      <div className="font-mono text-[12px] divide-y divide-base-300/60">
-        {rows.map((r) => (
-          <div key={r.label} className="flex items-center justify-between py-2.5">
-            <span className="text-gray-500">{r.label}</span>
-            <span
+      <div className="flex items-center gap-1 px-3 pt-2 overflow-x-auto no-scrollbar">
+        {tabs.map((t) => {
+          const isActive = t.id === active;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setActive(t.id)}
               className={
-                r.tone === 'emerald'
-                  ? 'text-emerald-400'
-                  : r.tone === 'cyan'
-                    ? 'text-cyan-400'
-                    : 'text-amber-400'
+                'px-3 py-1.5 rounded-md text-[11px] font-mono tracking-wide transition-colors whitespace-nowrap ' +
+                (isActive
+                  ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                  : 'text-gray-500 hover:text-gray-300 border border-transparent')
               }
             >
-              {r.value}
-            </span>
-          </div>
-        ))}
+              {t.label}
+            </button>
+          );
+        })}
       </div>
+
+      <div className="px-4 pt-3 pb-2 flex items-center justify-between">
+        <div className="flex items-center gap-2 text-[11px] font-mono">
+          <span className="text-cyan-400">POST</span>
+          <span className="text-gray-400">{current.endpoint}</span>
+        </div>
+        <button
+          type="button"
+          onClick={onCopy}
+          className="text-[10px] font-mono px-2 py-1 rounded border border-base-300/80 text-gray-400 hover:text-amber-300 hover:border-amber-500/40 transition-colors"
+        >
+          {copied ? 'COPIED' : 'COPY'}
+        </button>
+      </div>
+
+      <pre className="px-4 pb-4 text-[12px] leading-relaxed font-mono text-gray-300 overflow-x-auto">
+        <code>{renderCurl(current.code)}</code>
+      </pre>
     </div>
+  );
+}
+
+function renderCurl(code: string) {
+  const tokens: { text: string; cls?: string }[] = [];
+  const re =
+    /(curl\b)|(-[A-Za-z]\b)|("(?:[^"\\]|\\.)*")|(\$[A-Z_][A-Z0-9_]*)|(https?:\/\/\S+)|(\\\n)/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(code)) !== null) {
+    if (m.index > last) tokens.push({ text: code.slice(last, m.index) });
+    if (m[1]) tokens.push({ text: m[1], cls: 'text-amber-400' });
+    else if (m[2]) tokens.push({ text: m[2], cls: 'text-cyan-400' });
+    else if (m[3]) tokens.push({ text: m[3], cls: 'text-emerald-300' });
+    else if (m[4]) tokens.push({ text: m[4], cls: 'text-amber-300' });
+    else if (m[5]) tokens.push({ text: m[5], cls: 'text-cyan-300/90' });
+    else if (m[6]) tokens.push({ text: m[6], cls: 'text-gray-600' });
+    last = m.index + m[0].length;
+  }
+  if (last < code.length) tokens.push({ text: code.slice(last) });
+  return tokens.map((t, i) =>
+    t.cls ? (
+      <span key={i} className={t.cls}>
+        {t.text}
+      </span>
+    ) : (
+      <span key={i}>{t.text}</span>
+    ),
   );
 }
 
