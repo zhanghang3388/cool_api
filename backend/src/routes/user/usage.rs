@@ -17,6 +17,7 @@ pub fn router() -> Router<AppState> {
         .route("/daily-by-group", get(daily_by_group))
         .route("/daily-by-model", get(daily_by_model))
         .route("/group-health", get(group_health))
+        .route("/group-liveness", get(group_liveness))
 }
 
 #[derive(Debug, Deserialize)]
@@ -132,5 +133,17 @@ async fn group_health(
     let rows =
         repo::request_logs::group_health_for_user(&state.db, auth.user_id, &group_ids, minutes)
             .await?;
+    Ok(Json(rows))
+}
+
+async fn group_liveness(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Query(q): Query<GroupHealthQuery>,
+) -> AppResult<Json<Vec<repo::channel_probes::GroupLiveness>>> {
+    let minutes = q.minutes.unwrap_or(60).clamp(5, 1440);
+    let group_ids =
+        repo::user_groups::effective_group_ids(&state.db, auth.user_id, auth.role).await?;
+    let rows = repo::channel_probes::group_liveness_for_user(&state.db, &group_ids, minutes).await?;
     Ok(Json(rows))
 }

@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
   Server,
+  Activity,
   Layers,
   Coins,
   Users,
@@ -27,6 +28,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: '/admin', label: '仪表盘', icon: LayoutDashboard },
   { to: '/admin/channels', label: '渠道管理', icon: Server },
+  { to: '/admin/probes', label: '活体监控', icon: Activity },
   { to: '/admin/groups', label: '分组管理', icon: Layers },
   { to: '/admin/models', label: '模型价格', icon: Coins },
   { to: '/admin/users', label: '用户管理', icon: Users },

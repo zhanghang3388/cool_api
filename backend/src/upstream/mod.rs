@@ -15,6 +15,9 @@ pub struct TestReport {
     pub ok: bool,
     pub latency_ms: i32,
     pub detail: String,
+    /// Upstream HTTP status, when a response was received. `None` for transport
+    /// errors that never reached the upstream.
+    pub status_code: Option<i32>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -97,6 +100,18 @@ pub trait UpstreamAdapter: Send + Sync {
         base_url: &str,
         api_key: &str,
         probe_model_hint: Option<&str>,
+    ) -> AppResult<TestReport>;
+
+    /// Send a real, minimal completion request against `model` to verify that
+    /// the upstream can actually serve that specific model (not just that the
+    /// credentials are valid). Used by the background liveness prober. Uses a
+    /// `max_tokens: 1` request so the token/cost footprint is negligible.
+    async fn probe_model(
+        &self,
+        http: &reqwest::Client,
+        base_url: &str,
+        api_key: &str,
+        model: &str,
     ) -> AppResult<TestReport>;
 
     async fn list_models(

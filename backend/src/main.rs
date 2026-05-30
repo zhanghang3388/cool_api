@@ -67,6 +67,9 @@ async fn main() -> anyhow::Result<()> {
         config: config.clone(),
     };
 
+    // Background liveness prober. No-op until an admin enables it in settings.
+    services::prober::spawn(state.clone());
+
     let app = Router::new()
         .merge(routes::health::router())
         .merge(routes::public::router())

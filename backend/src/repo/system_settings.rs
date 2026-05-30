@@ -11,6 +11,7 @@ pub const SITE_KEY: &str = "site";
 pub const PAYMENT_KEY: &str = "payment";
 pub const EMAIL_KEY: &str = "email";
 pub const LANDING_PRICING_GROUP_KEY: &str = "landing_pricing_group_id";
+pub const PROBE_KEY: &str = "probe";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheConfig {
@@ -221,4 +222,58 @@ pub async fn set_landing_pricing_groups(
     cfg: &LandingPricingGroups,
 ) -> AppResult<()> {
     put_typed(pool, LANDING_PRICING_GROUP_KEY, cfg).await
+}
+
+/// Active liveness-probe config. When `enabled`, the background prober walks
+/// `targets` every `interval_minutes` and records the result in
+/// `channel_probes`. Each target pins a specific model on a specific channel,
+/// optionally remembering which group the admin picked it under (so the
+/// user-facing liveness view can scope to a user's accessible groups).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProbeConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_probe_interval")]
+    pub interval_minutes: i64,
+    /// Number of days of probe history to retain. Older rows are pruned.
+    #[serde(default = "default_probe_retention_days")]
+    pub retention_days: i64,
+    #[serde(default)]
+    pub targets: Vec<ProbeTarget>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProbeTarget {
+    pub channel_id: i64,
+    pub model: String,
+    /// Group this target was configured under. `None` = the channel isn't
+    /// group-restricted.
+    #[serde(default)]
+    pub group_id: Option<i64>,
+}
+
+fn default_probe_interval() -> i64 {
+    1
+}
+fn default_probe_retention_days() -> i64 {
+    7
+}
+
+impl Default for ProbeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_minutes: default_probe_interval(),
+            retention_days: default_probe_retention_days(),
+            targets: Vec::new(),
+        }
+    }
+}
+
+pub async fn get_probe_config(pool: &PgPool) -> AppResult<ProbeConfig> {
+    get_typed(pool, PROBE_KEY).await
+}
+
+pub async fn update_probe_config(pool: &PgPool, cfg: &ProbeConfig) -> AppResult<()> {
+    put_typed(pool, PROBE_KEY, cfg).await
 }

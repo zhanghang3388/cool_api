@@ -51,6 +51,7 @@ impl UpstreamAdapter for AnthropicAdapter {
                 ok: true,
                 latency_ms,
                 detail: format!("{} - /v1/messages ok (probe model: {model})", r.status()),
+                status_code: Some(r.status().as_u16() as i32),
             }),
             Ok(r) => {
                 let status = r.status();
@@ -59,12 +60,66 @@ impl UpstreamAdapter for AnthropicAdapter {
                     ok: false,
                     latency_ms,
                     detail: format!("{status}: {}", truncate(&text, 400)),
+                    status_code: Some(status.as_u16() as i32),
                 })
             }
             Err(e) => Ok(TestReport {
                 ok: false,
                 latency_ms,
                 detail: format!("network error: {e}"),
+                status_code: None,
+            }),
+        }
+    }
+
+    async fn probe_model(
+        &self,
+        http: &reqwest::Client,
+        base_url: &str,
+        api_key: &str,
+        model: &str,
+    ) -> AppResult<TestReport> {
+        let url = join_url(base_url, "/v1/messages");
+        let body = json!({
+            "model": model,
+            "max_tokens": 1,
+            "messages": [{ "role": "user", "content": "ping" }],
+        });
+
+        let start = Instant::now();
+        let resp = http
+            .post(&url)
+            .header("x-api-key", api_key)
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .timeout(TEST_TIMEOUT)
+            .json(&body)
+            .send()
+            .await;
+
+        let latency_ms = start.elapsed().as_millis().min(i32::MAX as u128) as i32;
+
+        match resp {
+            Ok(r) if r.status().is_success() => Ok(TestReport {
+                ok: true,
+                latency_ms,
+                detail: format!("{} - /v1/messages ok ({model})", r.status()),
+                status_code: Some(r.status().as_u16() as i32),
+            }),
+            Ok(r) => {
+                let status = r.status();
+                let text = r.text().await.unwrap_or_default();
+                Ok(TestReport {
+                    ok: false,
+                    latency_ms,
+                    detail: format!("{status}: {}", truncate(&text, 400)),
+                    status_code: Some(status.as_u16() as i32),
+                })
+            }
+            Err(e) => Ok(TestReport {
+                ok: false,
+                latency_ms,
+                detail: format!("network error: {e}"),
+                status_code: None,
             }),
         }
     }

@@ -6,4 +6,5 @@ pub mod email_codes;
 pub mod epay;
 pub mod forwarding;
 pub mod pricing_oracle;
+pub mod prober;
 pub mod router;

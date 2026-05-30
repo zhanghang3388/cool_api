@@ -14,6 +14,7 @@ import UsersPage from './pages/UsersPage';
 import CachePage from './pages/CachePage';
 import PaymentConfigPage from './pages/PaymentConfigPage';
 import AdminSettingsPage from './pages/AdminSettingsPage';
+import AdminProbeMonitorPage from './pages/AdminProbeMonitorPage';
 import ConsoleDashboardPage from './pages/console/ConsoleDashboardPage';
 import ProfilePage from './pages/console/ProfilePage';
 import KeysPage from './pages/console/KeysPage';
@@ -45,6 +46,7 @@ export default function App() {
           <Route path="admin" element={<AdminLayout />}>
             <Route index element={<AdminDashboardPage />} />
             <Route path="channels" element={<ChannelsPage />} />
+            <Route path="probes" element={<AdminProbeMonitorPage />} />
             <Route path="groups" element={<GroupsPage />} />
             <Route path="models" element={<ModelsPage />} />
             <Route path="users" element={<UsersPage />} />

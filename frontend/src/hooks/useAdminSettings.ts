@@ -211,3 +211,40 @@ export function usePublicPricingShowcase() {
     staleTime: 5 * 60 * 1000,
   });
 }
+
+/* ---- Liveness probe config ---- */
+
+export interface ProbeTarget {
+  channel_id: number;
+  model: string;
+  group_id: number | null;
+}
+
+export interface ProbeConfig {
+  enabled: boolean;
+  interval_minutes: number;
+  retention_days: number;
+  targets: ProbeTarget[];
+}
+
+const PROBE_KEY = ['admin-settings', 'probe'] as const;
+
+export function useProbeConfig() {
+  return useQuery<ProbeConfig>({
+    queryKey: PROBE_KEY,
+    queryFn: () => api.get<ProbeConfig>('/admin/settings/probe'),
+  });
+}
+
+export function useUpdateProbeConfig() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (cfg: ProbeConfig) =>
+      api.put<ProbeConfig>('/admin/settings/probe', cfg),
+    onSuccess: (data) => {
+      qc.setQueryData(PROBE_KEY, data);
+      // The monitor view reflects the new target set.
+      qc.invalidateQueries({ queryKey: ['admin-probe-monitor'] });
+    },
+  });
+}

@@ -1,4 +1,5 @@
 pub mod api_keys;
+pub mod channel_probes;
 pub mod channels;
 pub mod groups;
 pub mod models;

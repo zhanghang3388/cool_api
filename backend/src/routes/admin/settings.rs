@@ -16,6 +16,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::ChannelProvider;
 use crate::repo;
 use crate::repo::system_settings::LandingPricingGroups;
+use crate::repo::system_settings::{ProbeConfig, ProbeTarget};
 use crate::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -31,6 +32,7 @@ pub fn router() -> Router<AppState> {
             "/landing-pricing-group",
             get(get_landing_pricing).put(put_landing_pricing),
         )
+        .route("/probe", get(get_probe).put(put_probe))
 }
 
 async fn get_site(
@@ -352,5 +354,106 @@ async fn put_landing_pricing(
         cfg.set(slot, cleaned);
     }
     repo::system_settings::set_landing_pricing_groups(&state.db, &cfg).await?;
+    Ok(Json(cfg.into()))
+}
+
+/* ----------------------------- liveness probe ---------------------------- */
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ProbeTargetBody {
+    channel_id: i64,
+    model: String,
+    #[serde(default)]
+    group_id: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ProbeConfigBody {
+    enabled: bool,
+    interval_minutes: i64,
+    retention_days: i64,
+    targets: Vec<ProbeTargetBody>,
+}
+
+impl From<ProbeConfig> for ProbeConfigBody {
+    fn from(c: ProbeConfig) -> Self {
+        Self {
+            enabled: c.enabled,
+            interval_minutes: c.interval_minutes,
+            retention_days: c.retention_days,
+            targets: c
+                .targets
+                .into_iter()
+                .map(|t| ProbeTargetBody {
+                    channel_id: t.channel_id,
+                    model: t.model,
+                    group_id: t.group_id,
+                })
+                .collect(),
+        }
+    }
+}
+
+async fn get_probe(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+) -> AppResult<Json<ProbeConfigBody>> {
+    let cfg = repo::system_settings::get_probe_config(&state.db).await?;
+    Ok(Json(cfg.into()))
+}
+
+async fn put_probe(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Json(body): Json<ProbeConfigBody>,
+) -> AppResult<Json<ProbeConfigBody>> {
+    let interval_minutes = body.interval_minutes.clamp(1, 1440);
+    let retention_days = body.retention_days.clamp(1, 90);
+
+    // Validate every target: channel must exist and the model must be one the
+    // channel is allowed to serve. group_id, when present, must exist and
+    // actually permit this channel (empty allowed_group_ids = all groups).
+    let mut targets = Vec::with_capacity(body.targets.len());
+    for t in body.targets {
+        let model = t.model.trim().to_string();
+        if model.is_empty() {
+            return Err(AppError::BadRequest("probe target model is empty".into()));
+        }
+        let ch = repo::channels::get(&state.db, t.channel_id)
+            .await
+            .map_err(|e| match e {
+                AppError::NotFound => {
+                    AppError::BadRequest(format!("channel {} not found", t.channel_id))
+                }
+                other => other,
+            })?;
+        if !ch.allowed_models.is_empty() && !ch.allowed_models.contains(&model) {
+            return Err(AppError::BadRequest(format!(
+                "model '{model}' is not allowed on channel '{}'",
+                ch.name
+            )));
+        }
+        if let Some(gid) = t.group_id {
+            if !ch.allowed_group_ids.is_empty() && !ch.allowed_group_ids.contains(&gid) {
+                return Err(AppError::BadRequest(format!(
+                    "channel '{}' is not available in group {gid}",
+                    ch.name
+                )));
+            }
+        }
+        targets.push(ProbeTarget {
+            channel_id: t.channel_id,
+            model,
+            group_id: t.group_id,
+        });
+    }
+
+    let cfg = ProbeConfig {
+        enabled: body.enabled,
+        interval_minutes,
+        retention_days,
+        targets,
+    };
+    repo::system_settings::update_probe_config(&state.db, &cfg).await?;
     Ok(Json(cfg.into()))
 }

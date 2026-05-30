@@ -10,6 +10,7 @@ import {
   type HealthBucket,
 } from '@/hooks/useUsage';
 import { useUserGroups } from '@/hooks/useUserGroups';
+import { useGroupLiveness, type GroupLiveness } from '@/hooks/useProbes';
 import { DailyByModelChart, GroupTabs } from '@/components/DailyByModelChart';
 
 function formatYuan(cents: number): string {
@@ -34,6 +35,10 @@ export default function ConsoleDashboardPage() {
 
   const [healthWindow, setHealthWindow] = useState<WindowMinutes>(60);
   const { data: health = [] } = useGroupHealth(healthWindow);
+  const { data: liveness = [] } = useGroupLiveness(healthWindow);
+  const livenessByGroup = new Map<number, GroupLiveness>(
+    liveness.map((l) => [l.group_id, l]),
+  );
 
   if (!user) return null;
 
@@ -103,7 +108,11 @@ export default function ConsoleDashboardPage() {
           <p className="text-[10px] text-gray-500 mb-3">
             最近 {windowLabel(healthWindow)} 各分组的成功率、p95 延迟与错误时间分布。30s 自动刷新，点击卡片查看错误日志。
           </p>
-          <GroupHealthList items={health} windowMinutes={healthWindow} />
+          <GroupHealthList
+            items={health}
+            windowMinutes={healthWindow}
+            livenessByGroup={livenessByGroup}
+          />
         </div>
       </div>
     </div>
@@ -177,6 +186,44 @@ function hslForPct(pct: number): string {
   return `hsl(${clamped * 1.2} 70% 58%)`;
 }
 
+// Liveness badge — reflects active probing (admin-configured), distinct from
+// the request-log health badge. Only rendered when probe data exists for the
+// group. "活体" = the gateway actively pinged the upstream, independent of
+// whether the user sent any real traffic.
+const LIVENESS_META: Record<
+  GroupLiveness['status'],
+  { label: string; badge: string; dot: string }
+> = {
+  operational: {
+    label: '活体正常',
+    badge: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+    dot: 'bg-emerald-400',
+  },
+  degraded: {
+    label: '活体降级',
+    badge: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    dot: 'bg-amber-400',
+  },
+  failed: {
+    label: '活体异常',
+    badge: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+    dot: 'bg-rose-400',
+  },
+};
+
+function LivenessBadge({ liveness }: { liveness: GroupLiveness }) {
+  const meta = LIVENESS_META[liveness.status];
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-medium ${meta.badge}`}
+      title={`主动验活可用率 ${liveness.availability.toFixed(1)}%（${liveness.total} 次探测）`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${meta.dot} pulse-dot`} />
+      {meta.label}
+    </span>
+  );
+}
+
 function relativeMinutes(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
   const m = Math.max(0, Math.round(diffMs / 60_000));
@@ -189,9 +236,11 @@ function relativeMinutes(iso: string): string {
 function GroupHealthList({
   items,
   windowMinutes,
+  livenessByGroup,
 }: {
   items: GroupHealth[];
   windowMinutes: WindowMinutes;
+  livenessByGroup: Map<number, GroupLiveness>;
 }) {
   if (items.length === 0) {
     return (
@@ -203,7 +252,12 @@ function GroupHealthList({
   return (
     <div className="space-y-2.5 max-h-[400px] overflow-y-auto scrollbar-thin pr-1">
       {items.map((g) => (
-        <GroupHealthCard key={g.group_id} g={g} windowMinutes={windowMinutes} />
+        <GroupHealthCard
+          key={g.group_id}
+          g={g}
+          windowMinutes={windowMinutes}
+          liveness={livenessByGroup.get(g.group_id)}
+        />
       ))}
     </div>
   );
@@ -212,9 +266,11 @@ function GroupHealthList({
 function GroupHealthCard({
   g,
   windowMinutes,
+  liveness,
 }: {
   g: GroupHealth;
   windowMinutes: WindowMinutes;
+  liveness?: GroupLiveness;
 }) {
   const meta = STATUS_META[g.status] ?? STATUS_META.idle;
   const hasTraffic = g.total > 0;
@@ -236,12 +292,16 @@ function GroupHealthCard({
         <span className="text-xs text-gray-200 font-mono truncate" title={g.group_label}>
           {g.group_label || g.group_name || `#${g.group_id}`}
         </span>
-        <span
-          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-medium shrink-0 ${meta.badge}`}
-        >
-          <span className={`w-1.5 h-1.5 rounded-full ${meta.dot} pulse-dot`} />
-          {meta.label}
-        </span>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {liveness && <LivenessBadge liveness={liveness} />}
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-medium ${meta.badge}`}
+            title="基于真实请求日志的健康度"
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${meta.dot} pulse-dot`} />
+            {meta.label}
+          </span>
+        </div>
       </div>
 
       {/* headline success-rate readout, hue-coded by value */}
