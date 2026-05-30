@@ -9,6 +9,7 @@ frontend/dist/
 frontend/.env
 frontend/.env.local
 frontend/*.log
+frontend/*.tsbuildinfo
 
 # IDE
 .vscode/
