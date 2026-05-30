@@ -144,12 +144,38 @@ function WindowSelector({
   );
 }
 
-const STATUS_META: Record<GroupHealthStatus, { label: string; dot: string; text: string }> = {
-  healthy: { label: '正常', dot: 'bg-emerald-500', text: 'text-emerald-400' },
-  degraded: { label: '降级', dot: 'bg-amber-500', text: 'text-amber-400' },
-  down: { label: '异常', dot: 'bg-rose-500', text: 'text-rose-400' },
-  idle: { label: '空闲', dot: 'bg-gray-500', text: 'text-gray-500' },
+const STATUS_META: Record<
+  GroupHealthStatus,
+  { label: string; badge: string; dot: string }
+> = {
+  healthy: {
+    label: '正常',
+    badge: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+    dot: 'bg-emerald-400',
+  },
+  degraded: {
+    label: '降级',
+    badge: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    dot: 'bg-amber-400',
+  },
+  down: {
+    label: '异常',
+    badge: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+    dot: 'bg-rose-400',
+  },
+  idle: {
+    label: '空闲',
+    badge: 'bg-gray-500/15 text-gray-400 border-gray-500/30',
+    dot: 'bg-gray-500',
+  },
 };
+
+// Map a success-rate percentage onto the red→yellow→green hue ramp. Lightness
+// is kept high (58%) so the number stays legible against the dark card.
+function hslForPct(pct: number): string {
+  const clamped = Math.max(0, Math.min(100, pct));
+  return `hsl(${clamped * 1.2} 70% 58%)`;
+}
 
 function relativeMinutes(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -175,7 +201,7 @@ function GroupHealthList({
     );
   }
   return (
-    <div className="space-y-2 max-h-[400px] overflow-y-auto scrollbar-thin pr-1">
+    <div className="space-y-2.5 max-h-[400px] overflow-y-auto scrollbar-thin pr-1">
       {items.map((g) => (
         <GroupHealthCard key={g.group_id} g={g} windowMinutes={windowMinutes} />
       ))}
@@ -191,7 +217,8 @@ function GroupHealthCard({
   windowMinutes: WindowMinutes;
 }) {
   const meta = STATUS_META[g.status] ?? STATUS_META.idle;
-  const successRate = g.total === 0 ? 0 : (g.success / g.total) * 100;
+  const hasTraffic = g.total > 0;
+  const successRate = hasTraffic ? (g.success / g.total) * 100 : 0;
   // Build the drill-down link. Restrict to error rows in the same window so
   // the user lands directly on the failures the card is flagging.
   const fromIso = new Date(Date.now() - windowMinutes * 60_000).toISOString();
@@ -201,98 +228,147 @@ function GroupHealthCard({
   return (
     <Link
       to={drilldown}
-      className="block rounded-lg border border-base-300 bg-base-200/40 p-3 hover:border-amber-500/30 hover:bg-base-200/70 transition-colors"
+      className="block rounded-xl border border-base-300 bg-base-200/40 p-4 hover:border-amber-500/30 hover:bg-base-200/70 hover:-translate-y-0.5 transition-all duration-300"
       title="查看该分组的请求日志"
     >
-      <div className="flex items-center justify-between mb-2">
+      {/* header: group name + pill status badge */}
+      <div className="flex items-center justify-between gap-2">
         <span className="text-xs text-gray-200 font-mono truncate" title={g.group_label}>
           {g.group_label || g.group_name || `#${g.group_id}`}
         </span>
-        <span className="inline-flex items-center gap-1.5 text-[10px]">
-          <span className={`w-2 h-2 rounded-full ${meta.dot} pulse-dot`} />
-          <span className={meta.text}>{meta.label}</span>
+        <span
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-medium shrink-0 ${meta.badge}`}
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${meta.dot} pulse-dot`} />
+          {meta.label}
         </span>
       </div>
 
-      <Sparkline buckets={g.buckets} />
-
-      <div className="grid grid-cols-2 gap-y-1 mt-2 text-[10px] font-mono text-gray-400">
-        <span>请求</span>
-        <span className="text-right text-gray-200">{g.total.toLocaleString()}</span>
-        <span>成功率</span>
-        <span
-          className={`text-right ${
-            g.total === 0
-              ? 'text-gray-500'
-              : successRate >= 95
-                ? 'text-emerald-400'
-                : successRate >= 70
-                  ? 'text-amber-400'
-                  : 'text-rose-400'
-          }`}
-        >
-          {g.total === 0 ? '—' : `${successRate.toFixed(1)}%`}
+      {/* headline success-rate readout, hue-coded by value */}
+      <div className="mt-3 flex items-end justify-between">
+        <span className="text-[9px] uppercase tracking-widest text-gray-500">
+          成功率 · {windowLabel(windowMinutes)}
         </span>
-        <span>平均 / p95</span>
-        <span className="text-right text-gray-200">
-          {g.total === 0
-            ? '—'
-            : `${g.avg_latency_ms} / ${g.p95_latency_ms} ms`}
+        <div className="flex items-baseline gap-0.5">
+          {hasTraffic ? (
+            <>
+              <span
+                className="text-2xl font-bold tabular-nums leading-none"
+                style={{ color: hslForPct(successRate) }}
+              >
+                {successRate.toFixed(1)}
+              </span>
+              <span
+                className="text-sm font-semibold leading-none"
+                style={{ color: hslForPct(successRate) }}
+              >
+                %
+              </span>
+            </>
+          ) : (
+            <span className="text-2xl font-bold tabular-nums leading-none text-gray-600">
+              —
+            </span>
+          )}
+        </div>
+      </div>
+
+      <HealthTimeline buckets={g.buckets} />
+
+      {/* latency metric pair */}
+      <div className="mt-3 grid grid-cols-2 gap-1.5">
+        <MetricBox label="平均延迟" value={hasTraffic ? g.avg_latency_ms : null} />
+        <MetricBox label="P95" value={hasTraffic ? g.p95_latency_ms : null} />
+      </div>
+
+      {/* secondary stats — only render the buckets that carry signal */}
+      <div className="mt-2.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono text-gray-500">
+        <span>
+          请求 <span className="text-gray-300">{g.total.toLocaleString()}</span>
         </span>
         {g.error > 0 && (
-          <>
-            <span className="text-rose-400/80">错误</span>
-            <span className="text-right text-rose-400">{g.error}</span>
-          </>
+          <span className="text-rose-400/80">
+            错误 <span className="text-rose-300">{g.error}</span>
+          </span>
         )}
         {g.cached > 0 && (
-          <>
-            <span className="text-cyan-400/80">缓存命中</span>
-            <span className="text-right text-cyan-400">{g.cached}</span>
-          </>
+          <span className="text-cyan-400/80">
+            缓存 <span className="text-cyan-300">{g.cached}</span>
+          </span>
         )}
         {g.last_error_at && (
-          <>
-            <span className="text-rose-400/80">最近错误</span>
-            <span className="text-right text-rose-400">
-              {relativeMinutes(g.last_error_at)}
-            </span>
-          </>
+          <span className="text-rose-400/70">
+            最近错误 {relativeMinutes(g.last_error_at)}
+          </span>
         )}
       </div>
     </Link>
   );
 }
 
-function Sparkline({ buckets }: { buckets: HealthBucket[] }) {
-  if (buckets.length === 0) return null;
-  const max = buckets.reduce((m, b) => (b.total > m ? b.total : m), 0);
-  // When everything is zero, show a flat baseline rather than a row of dots.
-  if (max === 0) {
-    return <div className="h-6 border-b border-dashed border-base-300/60" />;
-  }
+function MetricBox({ label, value }: { label: string; value: number | null }) {
   return (
-    <div className="flex items-end gap-px h-6" aria-hidden>
-      {buckets.map((b) => {
-        const h = b.total === 0 ? 0 : Math.max(2, Math.round((b.total / max) * 24));
-        const errorOnly = b.total > 0 && b.error === b.total;
-        const hasError = b.error > 0;
-        const color = errorOnly
-          ? 'bg-rose-500/80'
-          : hasError
-            ? 'bg-amber-500/70'
-            : b.total > 0
-              ? 'bg-emerald-500/60'
-              : 'bg-transparent';
-        return (
-          <div
-            key={b.idx}
-            className={`flex-1 min-w-[2px] ${color} rounded-sm`}
-            style={{ height: `${h}px` }}
-            title={`总 ${b.total} · 错 ${b.error}`}
-          />
-        );
-      })}
+    <div className="rounded-lg border border-base-300/50 bg-base-200/60 px-2.5 py-1.5">
+      <div className="text-[9px] uppercase tracking-wider text-gray-500">{label}</div>
+      <div className="mt-0.5 text-sm font-bold font-mono tabular-nums text-gray-100">
+        {value == null ? (
+          <span className="text-gray-600">—</span>
+        ) : (
+          <>
+            {value}
+            <span className="ml-0.5 text-[10px] font-normal text-gray-500">ms</span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Dual-encoded status history: bar height encodes severity, color reinforces
+// it. Each bucket is collapsed to a discrete status from its traffic/errors.
+type TimelineKind = 'operational' | 'degraded' | 'failed' | 'empty';
+
+const TL_HEIGHT: Record<TimelineKind, number> = {
+  operational: 100,
+  degraded: 60,
+  failed: 32,
+  empty: 14,
+};
+const TL_COLOR: Record<TimelineKind, string> = {
+  operational: 'bg-emerald-500',
+  degraded: 'bg-amber-500',
+  failed: 'bg-rose-500',
+  empty: 'bg-base-300',
+};
+
+function bucketKind(b: HealthBucket): TimelineKind {
+  if (b.total === 0) return 'empty';
+  if (b.error === b.total) return 'failed';
+  if (b.error > 0) return 'degraded';
+  return 'operational';
+}
+
+function HealthTimeline({ buckets }: { buckets: HealthBucket[] }) {
+  if (buckets.length === 0) return null;
+  return (
+    <div className="mt-3">
+      <div className="flex items-end gap-[2px] h-6" aria-hidden>
+        {buckets.map((b) => {
+          const kind = bucketKind(b);
+          return (
+            <div
+              key={b.idx}
+              className={`flex-1 min-w-[2px] rounded-sm ${TL_COLOR[kind]}`}
+              style={{ height: `${TL_HEIGHT[kind]}%` }}
+              title={`总 ${b.total} · 错 ${b.error}`}
+            />
+          );
+        })}
+      </div>
+      <div className="mt-1 flex justify-between text-[9px] uppercase tracking-widest text-gray-600">
+        <span>过去</span>
+        <span>现在</span>
+      </div>
     </div>
   );
 }
