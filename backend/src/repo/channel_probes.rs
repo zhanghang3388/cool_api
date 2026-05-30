@@ -279,6 +279,9 @@ pub struct GroupLiveness {
     pub availability: f64,
     pub total: i64,
     pub last_checked_at: Option<DateTime<Utc>>,
+    /// Probe timeline, oldest bucket first, length `bucket_count`.
+    pub buckets: Vec<ProbeBucket>,
+    pub bucket_count: i32,
 }
 
 pub async fn group_liveness_for_user(
@@ -289,26 +292,68 @@ pub async fn group_liveness_for_user(
     if group_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<(i64, i64, i64, Option<DateTime<Utc>>)> = sqlx::query_as(
-        "SELECT group_id, \
-            COUNT(*)::BIGINT AS total, \
-            COUNT(*) FILTER (WHERE ok)::BIGINT AS ok_count, \
-            MAX(checked_at) AS last_checked \
+
+    // Raw probes in the window for the user's accessible groups, oldest first.
+    // Bucketed per group in Rust so the timeline lines up with the admin view.
+    let raw: Vec<(i64, bool, DateTime<Utc>)> = sqlx::query_as(
+        "SELECT group_id, ok, checked_at \
          FROM channel_probes \
          WHERE group_id = ANY($1::BIGINT[]) \
            AND checked_at >= NOW() - ($2::INT * INTERVAL '1 minute') \
-         GROUP BY group_id",
+         ORDER BY checked_at ASC",
     )
     .bind(group_ids)
     .bind(minutes)
     .fetch_all(pool)
     .await?;
 
-    Ok(rows
+    let now = Utc::now();
+    let window_start = now - chrono::Duration::minutes(minutes as i64);
+    let bucket_span_secs = (minutes as f64 * 60.0) / PROBE_BUCKET_COUNT as f64;
+
+    struct Agg {
+        total: i64,
+        ok_count: i64,
+        last_checked: Option<DateTime<Utc>>,
+        buckets: Vec<ProbeBucket>,
+    }
+    let mut by_group: HashMap<i64, Agg> = HashMap::new();
+
+    for (group_id, ok, checked_at) in raw {
+        let agg = by_group.entry(group_id).or_insert_with(|| Agg {
+            total: 0,
+            ok_count: 0,
+            last_checked: None,
+            buckets: (0..PROBE_BUCKET_COUNT)
+                .map(|i| ProbeBucket {
+                    idx: i,
+                    total: 0,
+                    error: 0,
+                })
+                .collect(),
+        });
+
+        agg.total += 1;
+        if ok {
+            agg.ok_count += 1;
+        }
+        agg.last_checked = Some(checked_at);
+
+        let offset = (checked_at - window_start).num_seconds() as f64;
+        let idx = ((offset / bucket_span_secs).floor() as i32)
+            .clamp(0, PROBE_BUCKET_COUNT - 1);
+        let slot = &mut agg.buckets[idx as usize];
+        slot.total += 1;
+        if !ok {
+            slot.error += 1;
+        }
+    }
+
+    Ok(by_group
         .into_iter()
-        .map(|(group_id, total, ok_count, last_checked)| {
-            let availability = if total > 0 {
-                (ok_count as f64 / total as f64) * 100.0
+        .map(|(group_id, agg)| {
+            let availability = if agg.total > 0 {
+                (agg.ok_count as f64 / agg.total as f64) * 100.0
             } else {
                 0.0
             };
@@ -323,8 +368,10 @@ pub async fn group_liveness_for_user(
                 group_id,
                 status,
                 availability,
-                total,
-                last_checked_at: last_checked,
+                total: agg.total,
+                last_checked_at: agg.last_checked,
+                buckets: agg.buckets,
+                bucket_count: PROBE_BUCKET_COUNT,
             }
         })
         .collect())

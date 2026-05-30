@@ -7,10 +7,13 @@ import {
   useGroupHealth,
   type GroupHealth,
   type GroupHealthStatus,
-  type HealthBucket,
 } from '@/hooks/useUsage';
 import { useUserGroups } from '@/hooks/useUserGroups';
-import { useGroupLiveness, type GroupLiveness } from '@/hooks/useProbes';
+import {
+  useGroupLiveness,
+  type GroupLiveness,
+  type ProbeBucket,
+} from '@/hooks/useProbes';
 import { DailyByModelChart, GroupTabs } from '@/components/DailyByModelChart';
 
 function formatYuan(cents: number): string {
@@ -106,7 +109,7 @@ export default function ConsoleDashboardPage() {
             <WindowSelector value={healthWindow} onChange={setHealthWindow} />
           </div>
           <p className="text-[10px] text-gray-500 mb-3">
-            最近 {windowLabel(healthWindow)} 各分组的成功率、p95 延迟与错误时间分布。30s 自动刷新，点击卡片查看错误日志。
+            成功率与延迟来自最近 {windowLabel(healthWindow)} 的真实请求；验活时间线来自后台主动探测。30s 自动刷新，点击卡片查看错误日志。
           </p>
           <GroupHealthList
             items={health}
@@ -333,7 +336,9 @@ function GroupHealthCard({
         </div>
       </div>
 
-      <HealthTimeline buckets={g.buckets} />
+      {/* Liveness timeline — driven by active probes (channel_probes), the
+          same data the admin monitor shows, not the user's request log. */}
+      <LivenessTimeline liveness={liveness} />
 
       {/* latency metric pair */}
       <div className="mt-3 grid grid-cols-2 gap-1.5">
@@ -401,26 +406,51 @@ const TL_COLOR: Record<TimelineKind, string> = {
   empty: 'bg-base-300',
 };
 
-function bucketKind(b: HealthBucket): TimelineKind {
+function bucketKind(b: ProbeBucket): TimelineKind {
   if (b.total === 0) return 'empty';
   if (b.error === b.total) return 'failed';
   if (b.error > 0) return 'degraded';
   return 'operational';
 }
 
-function HealthTimeline({ buckets }: { buckets: HealthBucket[] }) {
-  if (buckets.length === 0) return null;
+// Active-probe timeline. Shares the dual-encoding visual with the admin
+// monitor and reads the same probe buckets, so the two views line up. When a
+// group has no probe data (probing off, or not configured for this group) we
+// show a hint instead of a misleading flat bar.
+function LivenessTimeline({ liveness }: { liveness?: GroupLiveness }) {
+  if (!liveness || liveness.buckets.length === 0 || liveness.total === 0) {
+    return (
+      <div className="mt-3">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[9px] uppercase tracking-widest text-gray-500">
+            验活时间线
+          </span>
+        </div>
+        <div className="h-6 rounded border border-dashed border-base-300/60 flex items-center justify-center">
+          <span className="text-[9px] text-gray-600">暂无验活数据</span>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="mt-3">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[9px] uppercase tracking-widest text-gray-500">
+          验活时间线
+        </span>
+        <span className="text-[9px] text-gray-600">
+          可用率 {liveness.availability.toFixed(1)}%
+        </span>
+      </div>
       <div className="flex items-end gap-[2px] h-6" aria-hidden>
-        {buckets.map((b) => {
+        {liveness.buckets.map((b) => {
           const kind = bucketKind(b);
           return (
             <div
               key={b.idx}
               className={`flex-1 min-w-[2px] rounded-sm ${TL_COLOR[kind]}`}
               style={{ height: `${TL_HEIGHT[kind]}%` }}
-              title={`总 ${b.total} · 错 ${b.error}`}
+              title={`探测 ${b.total} · 失败 ${b.error}`}
             />
           );
         })}

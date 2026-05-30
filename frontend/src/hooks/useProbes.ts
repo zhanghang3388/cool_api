@@ -67,6 +67,8 @@ export interface GroupLiveness {
   availability: number;
   total: number;
   last_checked_at: string | null;
+  buckets: ProbeBucket[];
+  bucket_count: number;
 }
 
 /** User: liveness per accessible group, derived from active probes. */
