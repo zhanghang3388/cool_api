@@ -109,11 +109,10 @@ export default function LoginPage() {
             {submitting ? '登录中...' : '登录'}
           </button>
 
-          <div className="flex justify-between items-center text-[11px]">
+          <div className="text-[11px]">
             <Link to="/register" className="text-cyan-400 hover:text-cyan-300">
               还没有账号？注册
             </Link>
-            <span className="text-gray-600 font-mono">admin 登录后自动进入管理后台</span>
           </div>
         </form>
       </div>
