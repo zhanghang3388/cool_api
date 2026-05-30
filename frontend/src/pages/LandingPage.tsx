@@ -34,18 +34,6 @@ export default function LandingPage() {
         <SiteLogo subtitle="AI GATEWAY" size="w-9 h-9" nameClass="text-base font-semibold" />
         <nav className="flex items-center gap-1 text-xs">
           <a
-            href="#features"
-            className="hidden sm:inline px-3 py-2 text-gray-400 hover:text-amber-400 transition"
-          >
-            特性
-          </a>
-          <a
-            href="#providers"
-            className="hidden sm:inline px-3 py-2 text-gray-400 hover:text-amber-400 transition"
-          >
-            模型
-          </a>
-          <a
             href="#pricing"
             className="hidden sm:inline px-3 py-2 text-gray-400 hover:text-amber-400 transition"
           >
@@ -76,8 +64,6 @@ export default function LandingPage() {
           consoleHref={consoleHref}
           consoleLabel={consoleLabel}
         />
-        <Features />
-        <Providers />
         <Pricing />
         <CallToAction consoleHref={consoleHref} consoleLabel={consoleLabel} />
         <Footer siteName={siteName} />
@@ -157,10 +143,10 @@ function Hero({ siteName, announcement, consoleHref, consoleLabel }: HeroProps) 
             <Arrow />
           </Link>
           <a
-            href="#features"
+            href="#pricing"
             className="inline-flex items-center gap-2 px-5 py-3 rounded-lg border border-base-300 hover:border-amber-500/40 text-sm text-gray-300 transition-colors"
           >
-            了解特性
+            查看定价
           </a>
         </div>
 
@@ -361,160 +347,6 @@ function renderCurl(code: string) {
     ),
   );
 }
-
-function Features() {
-  const items = [
-    {
-      n: '01',
-      title: '统一接入',
-      desc: '同时暴露 OpenAI 与 Anthropic 两套原生协议，已有 SDK 改个 base_url 就能跑。',
-    },
-    {
-      n: '02',
-      title: '按量计费',
-      desc: '每个分组独立倍率，输入/输出/缓存 token 分桶定价，所有调用都有可审计的账本。',
-    },
-    {
-      n: '03',
-      title: 'Prompt 缓存',
-      desc: '确定性请求自动落 Redis，命中走更便宜的 cached 单价；保留缓存读写计费记录。',
-    },
-  ];
-  return (
-    <section
-      id="features"
-      className="max-w-6xl mx-auto px-6 lg:px-10 py-16 lg:py-24"
-    >
-      <SectionLabel kicker="// 特性" title="为什么用网关" />
-      <div className="mt-10 grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {items.map((it, i) => (
-          <div
-            key={it.n}
-            className="stat-card card-glow rounded-xl p-6 fade-in"
-            style={{ animationDelay: `${i * 80}ms` }}
-          >
-            <div className="flex items-baseline justify-between mb-4">
-              <span className="font-mono text-xs text-gray-500 tracking-widest">
-                {it.n}
-              </span>
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500/60" />
-            </div>
-            <h3 className="text-base font-semibold text-gray-100 mb-2">{it.title}</h3>
-            <p className="text-xs text-gray-400 leading-relaxed">{it.desc}</p>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-
-function Providers() {
-  return (
-    <section
-      id="providers"
-      className="max-w-6xl mx-auto px-6 lg:px-10 py-16 lg:py-24"
-    >
-      <SectionLabel kicker="// 上游" title="原生协议接入主流模型供应商" />
-
-      <div className="mt-10 stat-card rounded-2xl p-6 lg:p-10">
-        <ProviderTopology />
-        <p className="mt-6 text-xs text-gray-500 text-center font-mono tracking-wider">
-          // 渠道可按模型、用户分组、优先级、权重灵活配置
-        </p>
-      </div>
-    </section>
-  );
-}
-
-function ProviderTopology() {
-  const upstreams = [
-    { id: 'openai', label: 'OpenAI', sub: 'gpt-4o · gpt-4.1 · o1' },
-    { id: 'anthropic', label: 'Anthropic', sub: 'claude-opus-4 · claude-sonnet · claude-haiku' },
-  ];
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-3 items-center gap-6">
-      {/* clients */}
-      <div className="space-y-3">
-        <ClientPill label="OpenAI SDK" sub="base_url 改这里" />
-        <ClientPill label="Anthropic SDK" sub="base_url 改这里" />
-        <ClientPill label="curl / 自研" sub="HTTP 直连" />
-      </div>
-
-      {/* center hub */}
-      <div className="relative flex items-center justify-center">
-        <svg
-          aria-hidden
-          className="hidden md:block absolute inset-y-0 -left-6 w-12 h-full text-amber-500/40"
-          viewBox="0 0 40 200"
-          preserveAspectRatio="none"
-        >
-          <path
-            d="M0 30 C 20 30, 20 100, 40 100 M0 100 C 20 100, 20 100, 40 100 M0 170 C 20 170, 20 100, 40 100"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1"
-            strokeDasharray="3 4"
-          />
-        </svg>
-        <svg
-          aria-hidden
-          className="hidden md:block absolute inset-y-0 -right-6 w-12 h-full text-amber-500/40"
-          viewBox="0 0 40 200"
-          preserveAspectRatio="none"
-        >
-          <path
-            d="M40 60 C 20 60, 20 100, 0 100 M40 140 C 20 140, 20 100, 0 100"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1"
-            strokeDasharray="3 4"
-          />
-        </svg>
-
-        <div className="w-40 h-40 rounded-2xl border border-amber-500/40 bg-gradient-to-br from-amber-500/10 to-transparent flex flex-col items-center justify-center text-center px-4">
-          <div className="font-mono text-[10px] tracking-widest text-amber-400/80 mb-2">
-            GATEWAY
-          </div>
-          <div className="text-amber-400 text-2xl font-semibold">∞</div>
-          <div className="text-[10px] text-gray-400 mt-2 leading-tight">
-            路由 · 计费 · 缓存
-          </div>
-        </div>
-      </div>
-
-      {/* upstreams */}
-      <div className="space-y-3">
-        {upstreams.map((u) => (
-          <div
-            key={u.id}
-            className="rounded-xl border border-base-300 bg-base-200/60 p-3 hover:border-amber-500/30 transition"
-          >
-            <div className="text-sm font-medium text-gray-100">{u.label}</div>
-            <div className="text-[11px] text-gray-500 font-mono mt-0.5 truncate">
-              {u.sub}
-            </div>
-          </div>
-        ))}
-        <div className="rounded-xl border border-dashed border-base-300 p-3 text-center">
-          <div className="text-[11px] text-gray-500 font-mono">// 自定义渠道</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ClientPill({ label, sub }: { label: string; sub: string }) {
-  return (
-    <div className="rounded-xl border border-base-300 bg-base-200/60 p-3 hover:border-cyan-500/30 transition">
-      <div className="text-sm font-medium text-gray-100">{label}</div>
-      <div className="text-[11px] text-gray-500 font-mono mt-0.5">{sub}</div>
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
 
 function Pricing() {
   const { data, isLoading } = usePublicPricingShowcase();
