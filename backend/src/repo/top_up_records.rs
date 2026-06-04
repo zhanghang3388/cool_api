@@ -1,3 +1,5 @@
+use chrono::{DateTime, Utc};
+use serde::Serialize;
 use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::error::{AppError, AppResult};
@@ -54,6 +56,49 @@ pub async fn list_by_user(
     .fetch_all(pool)
     .await?;
     Ok(rows)
+}
+
+/// Most recent successful top-ups across all users, for the admin dashboard
+/// "recent top-ups" panel. Only `success` records are returned — pending/failed
+/// orders never moved real money. Joins `users` for the display name.
+#[derive(Debug, Serialize)]
+pub struct RecentTopUp {
+    pub id: i64,
+    pub user_id: i64,
+    pub username: String,
+    pub amount_cents: i64,
+    pub bonus_cents: i64,
+    pub method: String,
+    pub created_at: DateTime<Utc>,
+}
+
+pub async fn recent_success(pool: &PgPool, limit: i64) -> AppResult<Vec<RecentTopUp>> {
+    let rows: Vec<(i64, i64, String, i64, i64, String, DateTime<Utc>)> = sqlx::query_as(
+        "SELECT t.id, t.user_id, u.username, t.amount_cents, t.bonus_cents, \
+                t.method, t.created_at \
+         FROM top_up_records t \
+         JOIN users u ON u.id = t.user_id \
+         WHERE t.status = 'success' \
+         ORDER BY t.created_at DESC, t.id DESC \
+         LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(
+            |(id, user_id, username, amount_cents, bonus_cents, method, created_at)| RecentTopUp {
+                id,
+                user_id,
+                username,
+                amount_cents,
+                bonus_cents,
+                method,
+                created_at,
+            },
+        )
+        .collect())
 }
 
 /// Idempotently mark a pending record as success, credit the user's balance

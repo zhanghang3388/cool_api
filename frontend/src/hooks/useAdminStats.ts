@@ -39,6 +39,31 @@ export interface AdminDailyModelPoint {
   cost_cents: number;
 }
 
+export interface ActiveUser {
+  user_id: number;
+  username: string;
+  last_active: string;
+  requests: number;
+}
+
+export interface TopUser {
+  user_id: number;
+  username: string;
+  requests: number;
+  tokens: number;
+  cost_cents: number;
+}
+
+export interface RecentTopUp {
+  id: number;
+  user_id: number;
+  username: string;
+  amount_cents: number;
+  bonus_cents: number;
+  method: string;
+  created_at: string;
+}
+
 export function useAdminOverview() {
   return useQuery<AdminOverview>({
     queryKey: ['admin-stats', 'overview'],
@@ -78,5 +103,30 @@ export function useRecentRequests(limit = 10) {
     queryKey: ['admin-stats', 'recent', limit],
     queryFn: () => api.get<RecentRequest[]>(`/admin/stats/recent-requests?limit=${limit}`),
     refetchInterval: 15_000,
+  });
+}
+
+export function useActiveUsers(limit = 8) {
+  return useQuery<ActiveUser[]>({
+    queryKey: ['admin-stats', 'active-users', limit],
+    queryFn: () => api.get<ActiveUser[]>(`/admin/stats/active-users?limit=${limit}`),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useTopUsers(days = 7, limit = 8) {
+  return useQuery<TopUser[]>({
+    queryKey: ['admin-stats', 'top-users', days, limit],
+    queryFn: () =>
+      api.get<TopUser[]>(`/admin/stats/top-users?days=${days}&limit=${limit}`),
+    staleTime: 60_000,
+  });
+}
+
+export function useRecentTopUps(limit = 8) {
+  return useQuery<RecentTopUp[]>({
+    queryKey: ['admin-stats', 'recent-topups', limit],
+    queryFn: () => api.get<RecentTopUp[]>(`/admin/stats/recent-topups?limit=${limit}`),
+    refetchInterval: 30_000,
   });
 }

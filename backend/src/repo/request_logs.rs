@@ -388,6 +388,82 @@ pub async fn recent_requests(pool: &PgPool, limit: i64) -> AppResult<Vec<RecentR
         .collect())
 }
 
+/// A user with recent request activity, most-recently-active first. Windowed
+/// to the last 7 days so the list stays "recent" and the query can lean on the
+/// `(user_id, created_at)` index instead of scanning all history.
+#[derive(Debug, Serialize)]
+pub struct ActiveUser {
+    pub user_id: i64,
+    pub username: String,
+    pub last_active: DateTime<Utc>,
+    pub requests: i64,
+}
+
+pub async fn active_users(pool: &PgPool, limit: i64) -> AppResult<Vec<ActiveUser>> {
+    let rows: Vec<(i64, String, DateTime<Utc>, i64)> = sqlx::query_as(
+        "SELECT u.id, u.username, MAX(r.created_at), COUNT(*)::BIGINT \
+         FROM request_logs r \
+         JOIN users u ON u.id = r.user_id \
+         WHERE r.created_at >= NOW() - INTERVAL '7 days' \
+         GROUP BY u.id, u.username \
+         ORDER BY MAX(r.created_at) DESC \
+         LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(user_id, username, last_active, requests)| ActiveUser {
+            user_id,
+            username,
+            last_active,
+            requests,
+        })
+        .collect())
+}
+
+/// Top spenders over the last `days` days, ranked by summed request cost. Used
+/// for the dashboard usage leaderboard. The day window matches the expression
+/// used by `requests_trend` / `daily_by_model`.
+#[derive(Debug, Serialize)]
+pub struct TopUser {
+    pub user_id: i64,
+    pub username: String,
+    pub requests: i64,
+    pub tokens: i64,
+    pub cost_cents: i64,
+}
+
+pub async fn top_users_by_cost(pool: &PgPool, days: i32, limit: i64) -> AppResult<Vec<TopUser>> {
+    let rows: Vec<(i64, String, i64, i64, i64)> = sqlx::query_as(
+        "SELECT u.id, u.username, \
+                COUNT(*)::BIGINT, \
+                SUM(r.prompt_tokens + r.completion_tokens)::BIGINT, \
+                SUM(r.total_cost_cents)::BIGINT AS cost_cents \
+         FROM request_logs r \
+         JOIN users u ON u.id = r.user_id \
+         WHERE r.created_at >= date_trunc('day', NOW()) - (($1::INT - 1) * INTERVAL '1 day') \
+         GROUP BY u.id, u.username \
+         ORDER BY cost_cents DESC \
+         LIMIT $2",
+    )
+    .bind(days)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(user_id, username, requests, tokens, cost_cents)| TopUser {
+            user_id,
+            username,
+            requests,
+            tokens,
+            cost_cents,
+        })
+        .collect())
+}
+
 /// One (day × group) cell for the per-user dashboard chart. The series is
 /// built by joining a generate_series of days against the user's logs, so
 /// days with no traffic still appear (with zeros) for groups that DID see

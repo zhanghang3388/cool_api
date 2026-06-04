@@ -15,6 +15,9 @@ pub fn router() -> Router<AppState> {
         .route("/daily-by-model", get(daily_by_model))
         .route("/provider-distribution", get(provider_distribution))
         .route("/recent-requests", get(recent_requests))
+        .route("/active-users", get(active_users))
+        .route("/top-users", get(top_users))
+        .route("/recent-topups", get(recent_topups))
 }
 
 async fn overview(
@@ -78,4 +81,42 @@ async fn recent_requests(
 ) -> AppResult<Json<Vec<repo::request_logs::RecentRequest>>> {
     let limit = q.limit.unwrap_or(10).clamp(1, 100);
     Ok(Json(repo::request_logs::recent_requests(&state.db, limit).await?))
+}
+
+async fn active_users(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Query(q): Query<RecentQuery>,
+) -> AppResult<Json<Vec<repo::request_logs::ActiveUser>>> {
+    let limit = q.limit.unwrap_or(8).clamp(1, 50);
+    Ok(Json(repo::request_logs::active_users(&state.db, limit).await?))
+}
+
+#[derive(Debug, Deserialize)]
+struct TopUsersQuery {
+    #[serde(default)]
+    days: Option<i32>,
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+async fn top_users(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Query(q): Query<TopUsersQuery>,
+) -> AppResult<Json<Vec<repo::request_logs::TopUser>>> {
+    let days = q.days.unwrap_or(7).clamp(1, 90);
+    let limit = q.limit.unwrap_or(8).clamp(1, 50);
+    Ok(Json(
+        repo::request_logs::top_users_by_cost(&state.db, days, limit).await?,
+    ))
+}
+
+async fn recent_topups(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Query(q): Query<RecentQuery>,
+) -> AppResult<Json<Vec<repo::top_up_records::RecentTopUp>>> {
+    let limit = q.limit.unwrap_or(8).clamp(1, 50);
+    Ok(Json(repo::top_up_records::recent_success(&state.db, limit).await?))
 }

@@ -5,6 +5,9 @@ import {
   useAdminDailyByModel,
   useProviderDistribution,
   useRecentRequests,
+  useActiveUsers,
+  useTopUsers,
+  useRecentTopUps,
   type RecentRequest,
 } from '@/hooks/useAdminStats';
 import { useGroups } from '@/hooks/useGroups';
@@ -28,11 +31,38 @@ function formatYuan(cents: number): string {
   return `¥${(cents / 10000).toFixed(2)}`;
 }
 
+// Per-request fees are tiny (the unit is 1/10000 yuan), so 2 decimals collapse
+// almost everything to ¥0.00. Show the full 4-decimal resolution instead.
+function formatYuanPrecise(cents: number): string {
+  return `¥${(cents / 10000).toFixed(4)}`;
+}
+
 function formatCompact(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
 }
+
+// Compact relative time for the recent-activity / recent-topup lists.
+function timeAgo(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const sec = Math.max(0, Math.floor(diffMs / 1000));
+  if (sec < 60) return '刚刚';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} 分钟前`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} 小时前`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day} 天前`;
+  return new Date(iso).toLocaleDateString('zh-CN');
+}
+
+const METHOD_LABEL: Record<string, string> = {
+  alipay: '支付宝',
+  wxpay: '微信',
+  wechat: '微信',
+  manual: '手动',
+};
 
 export default function AdminDashboardPage() {
   const { data: overview } = useAdminOverview();
@@ -41,6 +71,9 @@ export default function AdminDashboardPage() {
   const { data: groups = [] } = useGroups();
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
   const { data: daily = [] } = useAdminDailyByModel(7, selectedGroupId);
+  const { data: activeUsers = [], isLoading: activeLoading } = useActiveUsers(8);
+  const { data: topUsers = [], isLoading: topLoading } = useTopUsers(7, 8);
+  const { data: recentTopUps = [], isLoading: topUpLoading } = useRecentTopUps(8);
 
   // Admin can see every group; only enabled ones are useful in the picker.
   const enabledGroups = groups.filter((g) => g.enabled);
@@ -124,6 +157,114 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* 最近活跃用户 */}
+        <div className="stat-card rounded-xl p-5">
+          <h3 className="text-sm font-medium text-gray-300 mb-4">最近活跃用户</h3>
+          <div className="space-y-2.5">
+            {activeLoading && (
+              <div className="py-6 text-center text-gray-600 text-xs">
+                <Spinner className="mr-2" /> 加载中...
+              </div>
+            )}
+            {!activeLoading && activeUsers.length === 0 && (
+              <div className="py-6 text-center text-gray-600 text-xs">暂无数据</div>
+            )}
+            {activeUsers.map((u) => (
+              <div
+                key={u.user_id}
+                className="flex items-center justify-between text-xs"
+              >
+                <span className="text-gray-300 truncate mr-2">{u.username}</span>
+                <span className="flex items-center gap-2 shrink-0 font-mono text-gray-500">
+                  <span>{u.requests.toLocaleString()} 次</span>
+                  <span className="text-gray-600">{timeAgo(u.last_active)}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 用户使用排行榜 */}
+        <div className="stat-card rounded-xl p-5">
+          <h3 className="text-sm font-medium text-gray-300 mb-4">
+            用户使用排行榜{' '}
+            <span className="text-[10px] text-gray-600 font-normal">近 7 天 · 消费</span>
+          </h3>
+          <div className="space-y-2.5">
+            {topLoading && (
+              <div className="py-6 text-center text-gray-600 text-xs">
+                <Spinner className="mr-2" /> 加载中...
+              </div>
+            )}
+            {!topLoading && topUsers.length === 0 && (
+              <div className="py-6 text-center text-gray-600 text-xs">暂无数据</div>
+            )}
+            {topUsers.map((u, i) => (
+              <div
+                key={u.user_id}
+                className="flex items-center justify-between text-xs"
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  <span
+                    className={`w-4 text-center font-mono ${
+                      i < 3 ? 'text-amber-400' : 'text-gray-600'
+                    }`}
+                  >
+                    {i + 1}
+                  </span>
+                  <span className="text-gray-300 truncate">{u.username}</span>
+                </span>
+                <span className="flex items-center gap-2 shrink-0 font-mono">
+                  <span className="text-emerald-400">{formatYuan(u.cost_cents)}</span>
+                  <span className="text-gray-600">{formatCompact(u.tokens)}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 最近充值 */}
+        <div className="stat-card rounded-xl p-5">
+          <h3 className="text-sm font-medium text-gray-300 mb-4">最近充值</h3>
+          <div className="space-y-2.5">
+            {topUpLoading && (
+              <div className="py-6 text-center text-gray-600 text-xs">
+                <Spinner className="mr-2" /> 加载中...
+              </div>
+            )}
+            {!topUpLoading && recentTopUps.length === 0 && (
+              <div className="py-6 text-center text-gray-600 text-xs">暂无数据</div>
+            )}
+            {recentTopUps.map((t) => (
+              <div
+                key={t.id}
+                className="flex items-center justify-between text-xs"
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  <span className="text-gray-300 truncate">{t.username}</span>
+                  <span className="text-[10px] text-gray-600 shrink-0">
+                    {METHOD_LABEL[t.method] ?? t.method}
+                  </span>
+                </span>
+                <span className="flex items-center gap-2 shrink-0 font-mono">
+                  <span className="text-emerald-400">
+                    {formatYuan(t.amount_cents)}
+                    {t.bonus_cents > 0 && (
+                      <span className="text-amber-400/70">
+                        {' '}
+                        +{formatYuan(t.bonus_cents)}
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-gray-600">{timeAgo(t.created_at)}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <div className="stat-card rounded-xl p-5">
         <h3 className="text-sm font-medium text-gray-300 mb-4">最近请求</h3>
         <table className="w-full text-xs">
@@ -158,7 +299,7 @@ export default function AdminDashboardPage() {
                 className="border-b border-base-300/50 hover:bg-base-200/50 transition-colors"
               >
                 <td className="py-2.5 font-mono text-gray-400">
-                  {new Date(r.created_at).toLocaleTimeString('zh-CN')}
+                  {new Date(r.created_at).toLocaleString('zh-CN')}
                 </td>
                 <td className="py-2.5 text-gray-300">{r.username}</td>
                 <td className="py-2.5 font-mono text-amber-400/80">{r.model_name}</td>
@@ -166,7 +307,7 @@ export default function AdminDashboardPage() {
                   {r.tokens.toLocaleString()}
                 </td>
                 <td className="py-2.5 text-right font-mono text-gray-300">
-                  {formatYuan(r.total_cost_cents)}
+                  {formatYuanPrecise(r.total_cost_cents)}
                 </td>
                 <td className="py-2.5 text-center">
                   <span
